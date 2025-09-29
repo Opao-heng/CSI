@@ -1,0 +1,6 @@
+ 
+# 忽略 data 目录
+data/
+
+result/
+
