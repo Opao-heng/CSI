@@ -108,5 +108,5 @@ if __name__ == "__main__":
         print(f"源域标签形状: {source_labels.shape}")
         
         # 可选：保存合并后的数据
-        # torch.save(source_data, '../data/SourceData/source_data.pt')
-        # torch.save(source_labels, '../data/SourceData/source_labels.pt')
+        torch.save(source_data, '../data/SourceData/source_data.pt')
+        torch.save(source_labels, '../data/SourceData/source_labels.pt')

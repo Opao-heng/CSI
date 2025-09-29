@@ -79,17 +79,17 @@ def load_env_data(data_dir):
 # 使用示例
 if __name__ == "__main__":
     # 指定数据目录
-    data_directory = "../data/env2"
+    data_directory = "../data/env2_legal"
 
     # 加载数据
     target_data, target_labels = load_env_data(data_directory)
 
     if target_data is not None:
-        # 现在target_data和target_labels可以作为源域数据使用
+        # 现在target_data和target_labels可以作为目标域数据使用
         print("数据加载完成！")
-        print(f"源域数据形状: {target_data.shape}")
-        print(f"源域标签形状: {target_labels.shape}")
+        print(f"目标域数据形状: {target_data.shape}")
+        print(f"目标域标签形状: {target_labels.shape}")
 
     # 可选：保存合并后的数据
-    # torch.save(target_data, '../data/TargetData/target_data.pt')
-    # torch.save(target_labels, '../data/TargetData/target_labels.pt')
+    torch.save(target_data, '../data/TargetData/target_data.pt')
+    torch.save(target_labels, '../data/TargetData/target_labels.pt')

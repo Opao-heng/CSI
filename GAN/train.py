@@ -8,58 +8,13 @@ from torch.utils.data import DataLoader
 # 导入必要的模块
 from model import build_model
 from pre_process.dataloder_GAN import CustomDataset, select_samples_by_label
-from loss import compute_total_loss, discriminator_loss
+from loss import kl_divergence_loss, feature_matching_loss, discriminator_loss
 
 
-def extract_targt_features(E, target_loader, device='cuda'):
+def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G, optimizer_D,
+                lambda_E=0.5, lambda_feat=0.5, device='cuda' if torch.cuda.is_available() else 'cpu'):
     """
-    提取目标域所有数据的特征，返回(目标域样本数, 128)的张量
-
-    Args:
-        E: 特征提取器
-        target_loader: 目标域数据加载器
-        device: 设备类型
-
-    Returns:
-        target_features: 目标域特征张量 (目标域样本数, 128)
-    """
-    E.eval()
-    all_features = []
-
-    with torch.no_grad():
-        for x_t_real, _ in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)  # 提取特征
-            all_features.append(features.cpu())
-
-    if all_features:
-        target_features = torch.cat(all_features, dim=0)
-        return target_features.to(device)
-
-    return None
-
-
-def train_epoch(E, G, D, source_loader, target_loader, target_features, optimizer_E, optimizer_G, optimizer_D,
-                lambda_E=0.5, lambda_feat=1.0, device='cuda' if torch.cuda.is_available() else 'cpu'):
-    """
-    训练一个epoch
-
-    Args:
-        E: 特征提取器
-        G: 生成器
-        D: 判别器
-        source_loader: 源域数据加载器
-        target_loader: 目标域数据加载器
-        target_features: 预先提取的目标域特征 (目标域样本数, 128)
-        optimizer_E: 特征提取器优化器
-        optimizer_G: 生成器优化器
-        optimizer_D: 判别器优化器
-        lambda_E: 特征提取损失权重
-        lambda_feat: 特征匹配损失权重
-        device: 设备类型
-
-    Returns:
-        epoch_loss: 当前epoch的平均损失
+    训练一个epoch，采用正确的GAN对抗训练机制
     """
     E.train()
     G.train()
@@ -68,44 +23,51 @@ def train_epoch(E, G, D, source_loader, target_loader, target_features, optimize
     total_loss = 0.0
     num_batches = 0
 
-    # 直接使用完整的目标域特征
-    f_t = target_features
-
-    # 将目标域数据加载器转换为完整的目标域数据
-    target_data_list = []
-    for x_t_real, _ in target_loader:
-        target_data_list.append(x_t_real)
-    x_t_real = torch.cat(target_data_list, dim=0).to(device)
-
+    # 从源域中选择样本
     for x_s, source_labels in source_loader:
+        if x_s.size(0) < 100:  # 如果当前批次不足100组，则跳过
+            continue
+
         x_s = x_s.to(device)
-        batch_size = x_s.size(0)
+        x_t_real = selected_target_data.cuda()
 
-        # 1. 更新判别器 D
-        optimizer_D.zero_grad()
-
-        # 生成虚假样本
-        x_hat_t = G(x_s, f_t)  # (B, C, S, T)
-
-        # 计算判别器损失
-        L_D = discriminator_loss(D, x_t_real, x_hat_t)
-        L_D.backward()
-        optimizer_D.step()
+        # 1. 提取目标域所有数据的特征
+        E.eval()
+        all_features = []
+        with torch.no_grad():
+            for x_t_real, _ in target_loader:
+                x_t_real = x_t_real.to(device)
+                features = E(x_t_real)  # 提取特征
+                all_features.append(features.cpu())
+        target_features = torch.cat(all_features, dim=0).to(device)
 
         # 2. 更新生成器 G 和 特征提取器 E
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
 
         # 计算总体损失
-        L_total, L_E, L_feat, _ = compute_total_loss(E, G, D, x_s, x_t_real, f_t, lambda_E, lambda_feat)
+        L_E = kl_divergence_loss(target_features)
+        L_feat = feature_matching_loss(G, E, x_s, target_features)
 
-        # 只更新生成器和特征提取器
+        # 更新生成器和特征提取器
+        L_total = lambda_E * L_E + lambda_feat * L_feat
         L_total.backward()
         optimizer_G.step()
         optimizer_E.step()
 
         total_loss += L_total.item()
         num_batches += 1
+
+        # 3. 更新判别器 D
+        optimizer_D.zero_grad()
+
+        # 生成虚假样本
+        x_hat_t = G(x_s, target_features)  # 使用完整的目标域特征
+
+        # 计算判别器损失
+        L_D = discriminator_loss(D, x_t_real, x_hat_t.detach())
+        L_D.backward()
+        optimizer_D.step()
 
     return total_loss / num_batches if num_batches > 0 else 0.0
 
@@ -236,7 +198,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     for epoch in range(epochs):
         # 训练
         train_loss = train_epoch(
-            E, G, D, source_loader, target_loader, target_features,
+            E, G, D, source_loader, target_loader,
             optimizer_E, optimizer_G, optimizer_D,
             lambda_E=0.5, lambda_feat=1.0, device=device
         )
@@ -287,6 +249,7 @@ if __name__ == "__main__":
     # 设置随机种子以保证结果可重现
     torch.manual_seed(40)
     np.random.seed(40)
+    torch.backends.cudnn.benchmark = True
 
     # 加载数据文件
     source_data = torch.load('../data/SourceData/source_data.pt')
@@ -296,7 +259,7 @@ if __name__ == "__main__":
 
     # 创建源域数据集和数据加载器
     source_dataset = CustomDataset(source_data, source_labels)
-    source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
+    source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
 
     # 从目标域数据中选择每个标签10个样本
     selected_target_data, selected_target_labels = select_samples_by_label(
@@ -304,10 +267,10 @@ if __name__ == "__main__":
     )
     # 创建目标域数据集和数据加载器
     target_dataset = CustomDataset(selected_target_data, selected_target_labels)
-    target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
+    target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
     # 开始训练
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='best_model.pth', epochs=20, lr=0.001)
+    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='best_model.pth', epochs=100, lr=0.001)
 
     # 合并并保存数据
     output_dir = '../data/TargetData_hat'
