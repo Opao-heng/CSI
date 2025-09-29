@@ -3,10 +3,11 @@ import os
 import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
 
 # 导入必要的模块
 from model import build_model
-from pre_process.dataloder_GAN import source_loader, target_loader
+from pre_process.dataloder_GAN import CustomDataset, select_samples_by_label
 from loss import compute_total_loss, discriminator_loss
 
 
@@ -231,8 +232,6 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
 
     # 训练循环
     train_losses = []
-    discrimination_scores = []
-    feature_matching_scores = []
 
     for epoch in range(epochs):
         # 训练
@@ -289,8 +288,27 @@ if __name__ == "__main__":
     torch.manual_seed(40)
     np.random.seed(40)
 
+    # 加载数据文件
+    source_data = torch.load('../data/SourceData/source_data.pt')
+    source_labels = torch.load('../data/SourceData/source_labels.pt')
+    target_data = torch.load('../data/TargetData/target_data.pt')
+    target_labels = torch.load('../data/TargetData/target_labels.pt')
+
+    # 创建源域数据集和数据加载器
+    source_dataset = CustomDataset(source_data, source_labels)
+    source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
+
+    # 从目标域数据中选择每个标签10个样本
+    selected_target_data, selected_target_labels = select_samples_by_label(
+        target_data, target_labels, samples_per_label=10
+    )
+    # 创建目标域数据集和数据加载器
+    target_dataset = CustomDataset(selected_target_data, selected_target_labels)
+    target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
+
     # 开始训练
     E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='best_model.pth', epochs=20, lr=0.001)
+
     # 合并并保存数据
     output_dir = '../data/TargetData_hat'
     save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
