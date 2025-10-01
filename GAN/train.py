@@ -69,10 +69,91 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
         L_D.backward()
         optimizer_D.step()
 
-    return total_loss / num_batches if num_batches > 0 else 0.0
+    eval_metrics = evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device)
+    return total_loss / num_batches if num_batches > 0 else 0.0, eval_metrics
 
 
-def generate_synthetic_samples(E, G, source_loader, target_features, num_samples=900, device='cuda'):
+def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device='cuda'):
+    """
+    评估生成样本的质量
+
+    Args:
+        E: 特征提取器
+        G: 生成器
+        D: 判别器
+        source_loader: 源域数据加载器
+        target_loader: 目标域数据加载器
+        target_features: 目标域特征
+        device: 设备类型
+
+    Returns:
+        dict: 包含各种评估指标的字典
+    """
+    E.eval()
+    G.eval()
+    D.eval()
+
+    metrics = {}
+
+    with torch.no_grad():
+        # 1. 生成样本质量评估 (通过判别器得分)
+        discriminator_scores = []
+        real_scores = []
+
+        for x_s, _ in source_loader:
+            x_s = x_s.to(device)
+            # 生成虚假样本
+            x_hat_t = G(x_s, target_features)
+            # 获取判别器对生成样本的评分
+            fake_score = D(x_hat_t)
+            discriminator_scores.append(fake_score.mean().item())
+
+        # 获取判别器对真实样本的评分
+        for x_t, _ in target_loader:
+            x_t = x_t.to(device)
+            real_score = D(x_t)
+            real_scores.append(real_score.mean().item())
+
+        metrics['avg_fake_score'] = np.mean(discriminator_scores) if discriminator_scores else 0
+        metrics['avg_real_score'] = np.mean(real_scores) if real_scores else 0
+
+        # 2. 特征匹配度评估
+        source_features_list = []
+        generated_features_list = []
+
+        for x_s, _ in source_loader:
+            x_s = x_s.to(device)
+            # 提取源域特征
+            source_features = E(x_s)
+            source_features_list.append(source_features.cpu())
+
+            # 生成并提取生成样本特征
+            x_hat_t = G(x_s, target_features)
+            generated_features = E(x_hat_t)
+            generated_features_list.append(generated_features.cpu())
+
+        if source_features_list and generated_features_list:
+            source_features_all = torch.cat(source_features_list, dim=0)
+            generated_features_all = torch.cat(generated_features_list, dim=0)
+
+            # 计算特征距离 (MSE)
+            feature_mse = torch.mean((source_features_all - generated_features_all) ** 2).item()
+            metrics['feature_mse'] = feature_mse
+
+            # 计算特征相似度 (余弦相似度)
+            cos_sim = torch.nn.functional.cosine_similarity(source_features_all, generated_features_all, dim=1)
+            metrics['avg_cosine_similarity'] = torch.mean(cos_sim).item()
+
+        # 3. 多样性评估 (生成样本之间的差异性)
+        if 'generated_features_all' in locals():
+            # 计算生成特征的方差，衡量多样性
+            gen_feature_variance = torch.var(generated_features_all, dim=0).mean().item()
+            metrics['feature_diversity'] = gen_feature_variance
+
+    return metrics
+
+
+def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cuda'):
     """
     生成虚假目标域样本用于数据扩充
 
@@ -105,6 +186,14 @@ def generate_synthetic_samples(E, G, source_loader, target_features, num_samples
             batch_size = x_s.size(0)
 
             # 直接使用完整的目标域特征
+            E.eval()
+            all_features = []
+            with torch.no_grad():
+                for x_t_real, _ in target_loader:
+                    x_t_real = x_t_real.to(device)
+                    features = E(x_t_real)  # 提取特征
+                    all_features.append(features.cpu())
+            target_features = torch.cat(all_features, dim=0).to(device)
             f_t = target_features
 
             # 生成虚假样本
@@ -165,7 +254,7 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
 
 def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     """
-    主训练
+    主训练函数，包含评估过程
 
     Args:
         model_path: 模型保存路径
@@ -188,16 +277,13 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     optimizer_G = optim.Adam(G.parameters(), lr=lr)
     optimizer_D = optim.Adam(D.parameters(), lr=lr)
 
-    # 预先提取目标域所有数据的特征
-    print("Extracting features from target domain...")
-    target_features = extract_targt_features(E, target_loader, device)
-
     # 训练循环
     train_losses = []
+    evaluation_metrics = []
 
     for epoch in range(epochs):
-        # 训练
-        train_loss = train_epoch(
+        # 训练和评估
+        train_loss , eval_metrics = train_epoch(
             E, G, D, source_loader, target_loader,
             optimizer_E, optimizer_G, optimizer_D,
             lambda_E=0.5, lambda_feat=1.0, device=device
@@ -205,10 +291,17 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
 
         # 记录结果
         train_losses.append(train_loss)
+        evaluation_metrics.append(eval_metrics)
 
-        # 打印进度
+        # 打印进度和评估指标
         print(f"Epoch [{epoch+1}/{epochs}]")
         print(f"  Train Loss: {train_loss:.4f}")
+        print(f"  Eval Metrics:")
+        print(f"    Avg Fake Score: {eval_metrics.get('avg_fake_score', 0):.4f}")
+        print(f"    Avg Real Score: {eval_metrics.get('avg_real_score', 0):.4f}")
+        print(f"    Feature MSE: {eval_metrics.get('feature_mse', 0):.4f}")
+        print(f"    Cosine Similarity: {eval_metrics.get('avg_cosine_similarity', 0):.4f}")
+        print(f"    Feature Diversity: {eval_metrics.get('feature_diversity', 0):.4f}")
 
         # 保存模型
         if (epoch + 1) % 10 == 0:
@@ -226,17 +319,51 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     # 生成虚假样本进行数据扩充
     print("Generating synthetic samples for data augmentation...")
     synthetic_data, synthetic_labels = generate_synthetic_samples(
-        E, G, source_loader, target_features, num_samples=900, device=device
+        E, G, source_loader, num_samples=900, device=device
     )
 
-    # 绘制训练曲线
-    plt.figure(figsize=(15, 5))
+    # 绘制训练曲线和评估指标
+    plt.figure(figsize=(15, 10))
 
-    plt.subplot(1, 3, 1)
+    plt.subplot(2, 3, 1)
     plt.plot(train_losses)
     plt.title('Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
+
+    # 绘制评估指标
+    epochs_range = range(1, len(evaluation_metrics)+1)
+
+    plt.subplot(2, 3, 2)
+    fake_scores = [m.get('avg_fake_score', 0) for m in evaluation_metrics]
+    real_scores = [m.get('avg_real_score', 0) for m in evaluation_metrics]
+    plt.plot(epochs_range, fake_scores, label='Fake Score')
+    plt.plot(epochs_range, real_scores, label='Real Score')
+    plt.title('Discriminator Scores')
+    plt.xlabel('Epoch')
+    plt.ylabel('Score')
+    plt.legend()
+
+    plt.subplot(2, 3, 3)
+    feature_mse = [m.get('feature_mse', 0) for m in evaluation_metrics]
+    plt.plot(epochs_range, feature_mse)
+    plt.title('Feature Matching MSE')
+    plt.xlabel('Epoch')
+    plt.ylabel('MSE')
+
+    plt.subplot(2, 3, 4)
+    cosine_sim = [m.get('avg_cosine_similarity', 0) for m in evaluation_metrics]
+    plt.plot(epochs_range, cosine_sim)
+    plt.title('Average Cosine Similarity')
+    plt.xlabel('Epoch')
+    plt.ylabel('Cosine Similarity')
+
+    plt.subplot(2, 3, 5)
+    diversity = [m.get('feature_diversity', 0) for m in evaluation_metrics]
+    plt.plot(epochs_range, diversity)
+    plt.title('Feature Diversity')
+    plt.xlabel('Epoch')
+    plt.ylabel('Variance')
 
     plt.tight_layout()
     plt.show()
