@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class IntruderDetectionLoss(nn.Module):
-    """入侵者检测系统的损失函数"""
-    
     def __init__(self, alpha=1.0, beta=1.0, gamma=0.5):
         """
         初始化损失函数

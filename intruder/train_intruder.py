@@ -146,6 +146,7 @@ def train_intruder_detector(model_path, output_path, device):
         correct = "✓" if true_label == pred_label else "✗"
         print(f"  样本: 真实={true_str}, 预测={pred_str} {correct}")
 
+
 def main():
     """
     主训练函数
@@ -161,6 +162,7 @@ def main():
     
     # 训练入侵者检测器
     train_intruder_detector(model_path, output_path, device)
+
 
 if __name__ == "__main__":
     main()

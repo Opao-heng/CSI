@@ -1,4 +1,5 @@
 import torch
+import os
 import torch.optim as optim
 from model import IntruderDetectionSystem
 from loss import IntruderDetectionLoss
@@ -110,6 +111,9 @@ def main():
     # 记录训练历史
     train_losses = []
     val_accuracies = []
+
+    # 确保保存模型的目录存在
+    os.makedirs('intruder', exist_ok=True)
     
     print("开始训练循环...")
     for epoch in range(num_epochs):
@@ -161,6 +165,7 @@ def main():
         'accuracy': test_accuracy,
     }, 'intruder/final_intruder_model.pth')
     print("最终模型已保存到 intruder/final_intruder_model.pth")
+
 
 if __name__ == "__main__":
     main()
