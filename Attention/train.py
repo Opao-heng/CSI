@@ -1,4 +1,4 @@
-# train.py
+# train_identify.py
 import torch
 import torch.optim as optim
 from attention import CrossAttentionModel
