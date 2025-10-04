@@ -6,91 +6,71 @@ from scipy.spatial.distance import cdist
 from scipy.stats import weibull_min
 
 class FeatureExtractor(nn.Module):
-    """改进版特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
+    """简化版特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
     
     def __init__(self, feature_dim=128):
         super(FeatureExtractor, self).__init__()
-        # 改进的时间维度1D卷积 (沿时间轴处理)
+        # 简化的时间维度1D卷积
         self.time_conv = nn.Sequential(
-            nn.Conv1d(3, 32, kernel_size=15, stride=2, padding=7),  # 处理3个天线的数据
+            nn.Conv1d(3, 32, kernel_size=15, stride=2, padding=7),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(0.1),  # 添加dropout防止过拟合
             nn.MaxPool1d(2),
             
             nn.Conv1d(32, 64, kernel_size=9, stride=2, padding=4),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.1),
             nn.MaxPool1d(2),
             
             nn.Conv1d(64, 128, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.AdaptiveAvgPool1d(64)  # 固定输出长度
+            nn.AdaptiveAvgPool1d(64)
         )
         
-        # 改进的子载波维度处理
+        # 简化的子载波维度处理
         self.subcarrier_conv = nn.Sequential(
-            nn.Conv1d(128, 64, kernel_size=7, stride=2, padding=3),  # 处理56个子载波
+            nn.Conv1d(128, 64, kernel_size=7, stride=2, padding=3),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.AdaptiveAvgPool1d(32)  # 固定输出尺寸
+            nn.AdaptiveAvgPool1d(32)
         )
         
         # 特征融合和映射
         self.feature_fusion = nn.Sequential(
-            nn.Linear(64 * 32, 512),
+            nn.Linear(64 * 32, 256),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(256, feature_dim),
             nn.ReLU()
         )
         
-        # 添加残差连接
-        self.residual_projection = nn.Linear(64 * 32, feature_dim)
-        
     def forward(self, x):
-        # x shape: [batch_size, 56, 3, 6000] (subcarriers, antennas, time)
+        # x shape: [batch_size, 56, 3, 6000]
         batch_size, num_subcarriers, num_antennas, time_length = x.shape
         
         # 1. 沿时间维度处理每个子载波-天线组合
-        # 重塑为 [batch*56, 3, 6000] 以便1D卷积处理
         x_time = x.view(batch_size * num_subcarriers, num_antennas, time_length)
         x_time = self.time_conv(x_time)  # [batch*56, 128, 64]
         
         # 2. 沿子载波维度处理
-        # 重塑为 [batch, 56, 128, 64]
         x_sub = x_time.view(batch_size, num_subcarriers, 128, -1)
-        # 交换维度: [batch, 128, 56, 64]
         x_sub = x_sub.permute(0, 2, 1, 3).contiguous()
-        # 合并最后两个维度: [batch, 128, 56*64]
         x_sub = x_sub.view(batch_size, 128, -1)
         x_sub = self.subcarrier_conv(x_sub)  # [batch, 64, 32]
         
         # 3. 特征融合
-        # 展平: [batch, 64*32]
         x_flat = x_sub.view(batch_size, -1)
-        # 残差连接
-        residual = self.residual_projection(x_flat)
         features = self.feature_fusion(x_flat)  # [batch, 128]
-        # 添加残差连接
-        features = features + residual
         
         return features
 
 class AttentionModule(nn.Module):
-    """改进注意力模块 - 增强特征表示"""
+    """注意力模块 - 增强特征表示"""
     
     def __init__(self, feature_dim=128):
         super(AttentionModule, self).__init__()
         self.feature_dim = feature_dim
-        # 改进注意力机制
         self.attention_weights = nn.Sequential(
             nn.Linear(feature_dim, 64),
             nn.Tanh(),
@@ -100,14 +80,10 @@ class AttentionModule(nn.Module):
         
     def forward(self, x):
         # x shape: [batch_size, feature_dim]
-        # 计算注意力权重
-        attention_scores = self.attention_weights(x)  # [batch_size, 1]
-        attention_weights = torch.softmax(attention_scores, dim=0)  # [batch_size, 1]
+        attention_scores = self.attention_weights(x)
+        attention_weights = torch.softmax(attention_scores, dim=0)
         
-        # 加权特征
         weighted_features = x * attention_weights
-        
-        # 残差连接和层归一化
         out = self.layer_norm(x + weighted_features)
         
         return out
@@ -121,25 +97,11 @@ class ProjectionHead(nn.Module):
             nn.Linear(input_dim, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.2),
             nn.Linear(64, projection_dim)
         )
         
     def forward(self, x):
         return self.projection(x)
-
-class ContrastiveDomainAdapter(nn.Module):
-    """对比域适应模块 - 通过对比学习减小源域和目标域的分布差异"""
-    
-    def __init__(self, feature_dim=128, projection_dim=32):
-        super(ContrastiveDomainAdapter, self).__init__()
-        self.projection_head = ProjectionHead(feature_dim, projection_dim)
-        
-    def forward(self, features_source, features_target):
-        # 投影到32维空间
-        proj_source = self.projection_head(features_source)
-        proj_target = self.projection_head(features_target)
-        return proj_source, proj_target
 
 class IdentityClassifier(nn.Module):
     """身份分类器 - 对已知用户进行身份识别"""
@@ -149,38 +111,38 @@ class IdentityClassifier(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(feature_dim, 64),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(32, num_classes)
+            nn.Dropout(0.2),
+            nn.Linear(64, num_classes)
         )
         
     def forward(self, x):
         return self.classifier(x)
 
+
 class IntruderDetectionSystem(nn.Module):
-    """完整的入侵者检测系统 - 改进版四阶段架构"""
+    """ 1、身份识别模型 """
     
     def __init__(self, num_classes=10, feature_dim=128, projection_dim=32):
         super(IntruderDetectionSystem, self).__init__()
         self.feature_extractor = FeatureExtractor(feature_dim=feature_dim)
         self.attention = AttentionModule(feature_dim=feature_dim)
-        self.domain_adapter = ContrastiveDomainAdapter(feature_dim, projection_dim)
+        self.projection_head = ProjectionHead(feature_dim, projection_dim)
         self.identity_classifier = IdentityClassifier(feature_dim, num_classes)
         
     def forward(self, x_source, x_target=None):
-        # 阶段1: 特征提取
+        # 特征提取
         features_source = self.feature_extractor(x_source)
-        # 阶段2: 注意力增强
         features_source = self.attention(features_source)
         
         if x_target is not None:
             features_target = self.feature_extractor(x_target)
             features_target = self.attention(features_target)
-            # 阶段3: 对比域适应
-            proj_source, proj_target = self.domain_adapter(features_source, features_target)
-            # 阶段4: 身份分类
+            
+            # 投影到32维空间用于对比学习
+            proj_source = self.projection_head(features_source)
+            proj_target = self.projection_head(features_target)
+            
+            # 身份分类
             logits_source = self.identity_classifier(features_source)
             logits_target = self.identity_classifier(features_target)
             
@@ -347,10 +309,9 @@ class EnergyIntruderDetector:
         predictions = np.where(energy_scores > self.threshold, -1, np.argmax(probabilities, axis=1))
         return predictions, energy_scores
 
+
 class ComprehensiveIntruderDetector:
-    """
-    综合入侵者检测器 - 融合OpenMax和能量检测
-    """
+    """ 2、入侵者检测模型 """
     
     def __init__(self, num_classes=10, feature_dim=128):
         self.openmax_detector = OpenMaxIntruderDetector(num_classes, feature_dim)

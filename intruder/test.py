@@ -162,16 +162,16 @@ def main():
     # 加载数据
     print("加载测试数据...")
     datasets = load_and_split_data()
-    data_loaders = create_data_loaders(datasets, batch_size=8)  # 使用较小的batch size
+    data_loaders = create_data_loaders(datasets, batch_size=8)
     
-    # 提取验证集特征用于拟合检测器参数
-    print("提取验证集特征用于参数拟合...")
+    # 提取身份识别验证集特征用于拟合检测器参数
+    print("提取身份识别验证集特征用于参数拟合...")
     val_features = []
     val_labels = []
     
     model.eval()
     with torch.no_grad():
-        for data, labels in data_loaders['validation']:
+        for data, labels in data_loaders['identity_validation']:
             data = data.to(device)
             outputs = model(data)
             features = outputs['features'].cpu().numpy()
@@ -188,9 +188,9 @@ def main():
     # 拟合参数
     intruder_system.fit(val_features, val_labels)
     
-    # 在测试集上评估
-    print("在测试集上评估系统性能...")
-    metrics = intruder_system.evaluate(data_loaders['test'])
+    # 在入侵者检测测试集上评估
+    print("在入侵者检测测试集上评估系统性能...")
+    metrics = intruder_system.evaluate(data_loaders['intruder_test'])
     
     # 打印结果
     print("\n=== 系统性能评估结果 ===")
@@ -204,7 +204,7 @@ def main():
     
     # 显示一些预测示例
     print("\n=== 预测示例 ===")
-    predictions, labels, _ = intruder_system.predict(data_loaders['test'])
+    predictions, labels, _ = intruder_system.predict(data_loaders['intruder_test'])
     
     # 随机选择10个样本显示
     indices = np.random.choice(len(predictions), size=min(10, len(predictions)), replace=False)

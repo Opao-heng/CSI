@@ -33,7 +33,7 @@ def extract_features(model, data_loader, device):
 
 def train_intruder_detector(model_path, output_path, device):
     """
-    训练入侵者检测器
+    训练入侵者检测器（使用专门的入侵者检测验证集）
     """
     print("开始训练入侵者检测器...")
 
@@ -58,21 +58,33 @@ def train_intruder_detector(model_path, output_path, device):
     datasets = load_and_split_data()
     data_loaders = create_data_loaders(datasets, batch_size=32)
     
-    # 提取验证集特征用于训练入侵者检测器
-    print("提取验证集特征...")
-    val_features, val_logits, val_labels = extract_features(identity_model, data_loaders['validation'], device)
+    # 使用入侵者检测验证集来训练入侵者检测器
+    print("使用入侵者检测验证集训练入侵者检测器...")
+    val_features, val_logits, val_labels = extract_features(identity_model, data_loaders['intruder_validation'], device)
+    
+    # 分离合法用户和入侵者数据
+    legal_mask = val_labels >= 0
+    intruder_mask = val_labels == -1
+    
+    legal_features = val_features[legal_mask]
+    legal_labels = val_labels[legal_mask]
+    intruder_features = val_features[intruder_mask]
+    intruder_labels = val_labels[intruder_mask]
+    
+    print(f"  合法用户样本数: {len(legal_features)}")
+    print(f"  入侵者样本数: {len(intruder_features)}")
     
     # 初始化综合入侵者检测器
     print("初始化综合入侵者检测器...")
     intruder_detector = ComprehensiveIntruderDetector(num_classes=10, feature_dim=128)
     
-    # 训练/拟合入侵者检测器参数
+    # 训练/拟合入侵者检测器参数（只使用合法用户数据进行拟合）
     print("训练入侵者检测器...")
-    intruder_detector.fit(val_features, val_labels)
+    intruder_detector.fit(legal_features, legal_labels)
     
-    # 在测试集上评估入侵者检测器性能
-    print("提取测试集特征...")
-    test_features, test_logits, test_labels = extract_features(identity_model, data_loaders['test'], device)
+    # 在入侵者检测测试集上评估入侵者检测器性能
+    print("提取入侵者检测测试集特征...")
+    test_features, test_logits, test_labels = extract_features(identity_model, data_loaders['intruder_test'], device)
     
     print("评估入侵者检测器性能...")
     # 使用不同的阈值进行评估

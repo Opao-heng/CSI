@@ -45,7 +45,8 @@ def load_and_split_data():
     数据集划分：
     ○ 源域训练集：env0 和 env1 中 10 名已知用户的 CSI 数据
     ○ 目标域辅助集：env2 中 10 名已知用户的少量数据（用于域适应）
-    ○ 验证集：从目标域辅助集中划分部分数据，并加入少量模拟入侵者数据（用于阈值确定）
+    ○ 身份识别验证集：源域和目标域辅助集的部分合法用户数据（用于身份识别模型验证）
+    ○ 入侵者检测验证集：身份识别验证集数据 + 模拟入侵者数据（用于入侵者检测器训练）
     ○ 测试集：env2 中 10 名已知用户（300 样本）和 3 名入侵者（90 样本）的混合数据
     """
     
@@ -113,14 +114,30 @@ def load_and_split_data():
         # 数据集划分
         print("\n进行数据集划分...")
         
-        # 1. 源域训练集：全部源域数据
-        source_train_data = source_data
-        source_train_labels = source_labels
-
-        print(f"源域训练集数据形状: {source_train_data.shape}")
-        print(f"源域训练集标签形状: {source_train_labels.shape}")
+        # 1. 源域数据按比例划分：70%训练集，15%验证集，15%测试集
+        src_indices = np.arange(len(source_data))
+        src_train_indices, src_temp_indices = train_test_split(
+            src_indices, test_size=0.3, random_state=42, stratify=source_labels.numpy()
+        )
+        src_val_indices, src_test_indices = train_test_split(
+            src_temp_indices, test_size=0.5, random_state=42, stratify=source_labels[src_temp_indices].numpy()
+        )
         
-        # 2. 目标域辅助训练集：从目标域已知用户数据中抽取少量数据用于域适应
+        src_train_data = source_data[src_train_indices]
+        src_train_labels = source_labels[src_train_indices]
+        src_val_data = source_data[src_val_indices]
+        src_val_labels = source_labels[src_val_indices]
+        src_test_data = source_data[src_test_indices]
+        src_test_labels = source_labels[src_test_indices]
+
+        print(f"源域训练集数据形状: {src_train_data.shape}")
+        print(f"源域训练集标签形状: {src_train_labels.shape}")
+        print(f"源域验证集数据形状: {src_val_data.shape}")
+        print(f"源域验证集标签形状: {src_val_labels.shape}")
+        print(f"源域测试集数据形状: {src_test_data.shape}")
+        print(f"源域测试集标签形状: {src_test_labels.shape}")
+        
+        # 2. 目标域辅助训练集：从目标域已知用户数据中抽取少量数据用于域适应（30%）
         target_indices = np.arange(len(target_legal_data))
         target_aux_indices, target_remaining_indices = train_test_split(
             target_indices, test_size=0.7, random_state=42, stratify=target_legal_labels.numpy()
@@ -129,45 +146,90 @@ def load_and_split_data():
         target_aux_data = target_legal_data[target_aux_indices]
         target_aux_labels = target_legal_labels[target_aux_indices]
         
-        # 剩余的目标域已知用户数据用于测试集
-        target_test_legal_data = target_legal_data[target_remaining_indices]
-        target_test_legal_labels = target_legal_labels[target_remaining_indices]
+        # 目标域剩余数据按比例划分：50%验证集，50%测试集
+        target_remaining_labels = target_legal_labels[target_remaining_indices]
+        target_val_indices, target_test_indices = train_test_split(
+            target_remaining_indices, 
+            test_size=0.5, 
+            random_state=42, 
+            stratify=target_remaining_labels.numpy()
+        )
+        
+        target_val_data = target_legal_data[target_val_indices]
+        target_val_labels = target_legal_labels[target_val_indices]
+        target_test_data = target_legal_data[target_test_indices]
+        target_test_labels = target_legal_labels[target_test_indices]
         
         print(f"目标域辅助训练集数据形状: {target_aux_data.shape}")
         print(f"目标域辅助训练集标签形状: {target_aux_labels.shape}")
+        print(f"目标域验证集数据形状: {target_val_data.shape}")
+        print(f"目标域验证集标签形状: {target_val_labels.shape}")
+        print(f"目标域测试集数据形状: {target_test_data.shape}")
+        print(f"目标域测试集标签形状: {target_test_labels.shape}")
         
-        # 3. 验证集：从目标域辅助集中划分部分数据，并加入少量模拟入侵者数据
-        # 从目标域辅助集中抽取50个样本作为验证集
-        val_indices = np.random.choice(len(target_aux_data), size=min(50, len(target_aux_data)), replace=False)
-        val_legal_data = target_aux_data[val_indices]
-        val_legal_labels = target_aux_labels[val_indices]
+        # 3. 身份识别数据集组合
+        # 身份识别训练集：源域训练集 + 目标域辅助训练集
+        identity_train_data = torch.cat([src_train_data, target_aux_data], dim=0)
+        identity_train_labels = torch.cat([src_train_labels, target_aux_labels], dim=0)
+        
+        # 身份识别验证集：源域验证集 + 目标域验证集
+        identity_val_data = torch.cat([src_val_data, target_val_data], dim=0)
+        identity_val_labels = torch.cat([src_val_labels, target_val_labels], dim=0)
+        
+        # 身份识别测试集：源域测试集 + 目标域测试集
+        identity_test_data = torch.cat([src_test_data, target_test_data], dim=0)
+        identity_test_labels = torch.cat([src_test_labels, target_test_labels], dim=0)
+        
+        # 打乱数据集
+        # 身份识别训练集打乱
+        identity_train_indices = np.random.permutation(len(identity_train_data))
+        identity_train_data = identity_train_data[identity_train_indices]
+        identity_train_labels = identity_train_labels[identity_train_indices]
+        
+        # 身份识别验证集打乱
+        identity_val_indices = np.random.permutation(len(identity_val_data))
+        identity_val_data = identity_val_data[identity_val_indices]
+        identity_val_labels = identity_val_labels[identity_val_indices]
+        
+        # 身份识别测试集打乱
+        identity_test_indices = np.random.permutation(len(identity_test_data))
+        identity_test_data = identity_test_data[identity_test_indices]
+        identity_test_labels = identity_test_labels[identity_test_indices]
 
-        # 训练时没有真实入侵者数据，创建一些模拟入侵者数据
-        val_data = val_legal_data
-        val_labels = val_legal_labels
-        num_simulated_intruders_per_method = 20  # 每种方法生成20个样本
-        total_simulated_intruders = 80  # 总共生成80个模拟入侵者样本
+        print(f"-------------------------------------------------------")
+        print(f"身份识别训练集数据形状: {identity_train_data.shape}")
+        print(f"身份识别训练集标签形状: {identity_train_labels.shape}")
+        print(f"身份识别验证集数据形状: {identity_val_data.shape}")
+        print(f"身份识别验证集标签形状: {identity_val_labels.shape}")
+        print(f"身份识别测试集数据形状: {identity_test_data.shape}")
+        print(f"身份识别测试集标签形状: {identity_test_labels.shape}")
+        print(f"-------------------------------------------------------")
+        
+        # 4. 入侵者检测验证集：身份识别验证集数据 + 模拟入侵者数据
+        # 创建模拟入侵者数据（多种方法）
+        num_simulated_intruders_per_method = 20
+        total_simulated_intruders = 80
 
         simulated_intruder_list = []
         simulated_labels_list = []
 
         # 方法1: 在合法用户数据基础上添加噪声
-        base_indices_1 = np.random.choice(len(target_aux_data), size=num_simulated_intruders_per_method, replace=True)
-        simulated_data_1 = target_aux_data[base_indices_1].clone()
+        base_indices_1 = np.random.choice(len(identity_val_data), size=num_simulated_intruders_per_method, replace=True)
+        simulated_data_1 = identity_val_data[base_indices_1].clone()
         noise_1 = torch.randn_like(simulated_data_1) * 0.2
         simulated_data_1 = simulated_data_1 + noise_1
         simulated_intruder_list.append(simulated_data_1)
 
         # 方法2: 使用幅度缩放
-        base_indices_2 = np.random.choice(len(target_aux_data), size=num_simulated_intruders_per_method, replace=True)
-        simulated_data_2 = target_aux_data[base_indices_2].clone()
+        base_indices_2 = np.random.choice(len(identity_val_data), size=num_simulated_intruders_per_method, replace=True)
+        simulated_data_2 = identity_val_data[base_indices_2].clone()
         scale_factors = torch.FloatTensor(num_simulated_intruders_per_method, 1, 1, 1).uniform_(0.5, 2.0)
         simulated_data_2 = simulated_data_2 * scale_factors
         simulated_intruder_list.append(simulated_data_2)
 
         # 方法3: 时间序列偏移
-        base_indices_3 = np.random.choice(len(target_aux_data), size=num_simulated_intruders_per_method, replace=True)
-        simulated_data_3 = target_aux_data[base_indices_3].clone()
+        base_indices_3 = np.random.choice(len(identity_val_data), size=num_simulated_intruders_per_method, replace=True)
+        simulated_data_3 = identity_val_data[base_indices_3].clone()
         # 对时间维度(最后一个维度)进行循环移位
         shifts = np.random.randint(0, 6000, size=num_simulated_intruders_per_method)
         for i in range(num_simulated_intruders_per_method):
@@ -176,8 +238,8 @@ def load_and_split_data():
         simulated_intruder_list.append(simulated_data_3)
 
         # 方法4: 组合方法 - 噪声+缩放
-        base_indices_4 = np.random.choice(len(target_aux_data), size=num_simulated_intruders_per_method, replace=True)
-        simulated_data_4 = target_aux_data[base_indices_4].clone()
+        base_indices_4 = np.random.choice(len(identity_val_data), size=num_simulated_intruders_per_method, replace=True)
+        simulated_data_4 = identity_val_data[base_indices_4].clone()
         # 添加噪声
         noise_4 = torch.randn_like(simulated_data_4) * 0.1
         simulated_data_4 = simulated_data_4 + noise_4
@@ -190,43 +252,52 @@ def load_and_split_data():
         simulated_intruder_data = torch.cat(simulated_intruder_list, dim=0)
         simulated_intruder_labels = torch.full((total_simulated_intruders,), -1, dtype=torch.long)
 
-        val_data = torch.cat([val_data, simulated_intruder_data], dim=0)
-        val_labels = torch.cat([val_labels, simulated_intruder_labels], dim=0)
-
-        print(f"验证集数据形状: {val_data.shape}")
-        print(f"验证集标签形状: {val_labels.shape}")
+        # 合并身份识别验证集和模拟入侵者数据形成入侵者检测验证集
+        intruder_val_data = torch.cat([identity_val_data, simulated_intruder_data], dim=0)
+        intruder_val_labels = torch.cat([identity_val_labels, simulated_intruder_labels], dim=0)
         
-        # 4. 测试集：目标域已知用户剩余数据 + 入侵者数据
-        # 目标域已知用户数据
-        test_known_data = target_test_legal_data
-        test_known_labels = target_test_legal_labels
+        # 打乱入侵者检测验证集数据
+        intruder_val_indices = np.random.permutation(len(intruder_val_data))
+        intruder_val_data = intruder_val_data[intruder_val_indices]
+        intruder_val_labels = intruder_val_labels[intruder_val_indices]
+
+        print(f"入侵者检测验证集数据形状: {intruder_val_data.shape}")
+        print(f"入侵者检测验证集标签形状: {intruder_val_labels.shape}")
         
-        # 入侵者数据
-        test_intruder_data = intruder_data
-        test_intruder_labels = intruder_labels
+        # 5. 入侵者检测测试集：身份识别测试集 + 真实入侵者数据
+        intruder_test_data = torch.cat([identity_test_data, intruder_data], dim=0)
+        intruder_test_labels = torch.cat([identity_test_labels, intruder_labels], dim=0)
+        
+        # 打乱入侵者检测测试集数据
+        intruder_test_indices = np.random.permutation(len(intruder_test_data))
+        intruder_test_data = intruder_test_data[intruder_test_indices]
+        intruder_test_labels = intruder_test_labels[intruder_test_indices]
 
-        # 合并测试集数据
-        test_data = torch.cat([test_known_data, test_intruder_data], dim=0)
-        test_labels = torch.cat([test_known_labels, test_intruder_labels], dim=0)
-
-        print(f"测试集数据形状: {test_data.shape}")
-        print(f"测试集标签形状: {test_labels.shape}")
+        print(f"入侵者检测测试集数据形状: {intruder_test_data.shape}")
+        print(f"入侵者检测测试集标签形状: {intruder_test_labels.shape}")
+        print(f"-------------------------------------------------------")
         
         # 创建数据集对象
-        source_train_dataset = IntruderDataset(source_train_data, source_train_labels)
+        identity_train_dataset = IntruderDataset(identity_train_data, identity_train_labels)
         target_aux_dataset = IntruderDataset(target_aux_data, target_aux_labels)
-        val_dataset = IntruderDataset(val_data, val_labels)
-        test_dataset = IntruderDataset(test_data, test_labels)
+        identity_val_dataset = IntruderDataset(identity_val_data, identity_val_labels)
+        intruder_val_dataset = IntruderDataset(intruder_val_data, intruder_val_labels)
+        identity_test_dataset = IntruderDataset(identity_test_data, identity_test_labels)
+        intruder_test_dataset = IntruderDataset(intruder_test_data, intruder_test_labels)
         
         return {
-            'source_train': source_train_dataset,
-            'target_aux': target_aux_dataset,
-            'validation': val_dataset,
-            'test': test_dataset,
-            'source_train_raw': (source_train_data, source_train_labels),
+            'identity_train': identity_train_dataset,      # 用于身份识别模型训练
+            'target_aux': target_aux_dataset,              # 用于域适应
+            'identity_validation': identity_val_dataset,   # 用于身份识别模型验证
+            'intruder_validation': intruder_val_dataset,   # 用于入侵者检测器训练
+            'identity_test': identity_test_dataset,        # 用于身份识别模型测试
+            'intruder_test': intruder_test_dataset,        # 用于入侵者检测器测试
+            'identity_train_raw': (identity_train_data, identity_train_labels),
             'target_aux_raw': (target_aux_data, target_aux_labels),
-            'validation_raw': (val_data, val_labels),
-            'test_raw': (test_data, test_labels)
+            'identity_validation_raw': (identity_val_data, identity_val_labels),
+            'intruder_validation_raw': (intruder_val_data, intruder_val_labels),
+            'identity_test_raw': (identity_test_data, identity_test_labels),
+            'intruder_test_raw': (intruder_test_data, intruder_test_labels)
         }
     except Exception as e:
         print(f"数据加载过程中出现错误: {e}")
@@ -262,7 +333,8 @@ if __name__ == "__main__":
         
         print("\n数据加载器创建完成:")
         for key, loader in data_loaders.items():
-            print(f"{key} 数据加载器: {len(loader)} 个批次")
+            if not key.endswith('_raw'):
+                print(f"{key} 数据加载器: {len(loader)} 个批次")
             
         # 显示一些样本信息
         print("\n样本信息:")
@@ -276,7 +348,7 @@ if __name__ == "__main__":
         # 测试数据加载
         print("\n测试数据加载:")
         for key, loader in data_loaders.items():
-            if len(loader) > 0:
+            if not key.endswith('_raw') and len(loader) > 0:
                 try:
                     data, labels = next(iter(loader))
                     print(f"{key}: 数据形状 {data.shape}, 标签形状 {labels.shape}")

@@ -13,11 +13,8 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
     """
     model.train()
     total_loss = 0.0
-    loss_components = {'identity': 0.0, 'domain': 0.0, 'contrastive': 0.0}
+    loss_components = {'identity': 0.0, 'contrastive': 0.0}
     batch_count = 0
-    
-    # 添加调试信息
-    gradient_norms = []
     
     # 使用zip循环处理源域和目标域数据
     for batch_idx, (source_batch, target_batch) in enumerate(zip(source_loader, target_loader)):
@@ -44,21 +41,11 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
         # 梯度裁剪，防止梯度爆炸
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
-        # 记录梯度范数用于调试
-        total_norm = 0
-        for p in model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** (1. / 2)
-        gradient_norms.append(total_norm)
-
         optimizer.step()
 
         # 累计损失
         total_loss += loss.item()
         loss_components['identity'] += loss_dict['identity_loss']
-        loss_components['domain'] += loss_dict['domain_loss']
         loss_components['contrastive'] += loss_dict['contrastive_loss']
         batch_count += 1
 
@@ -72,7 +59,7 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
     for key in loss_components:
         loss_components[key] = loss_components[key] / batch_count if batch_count > 0 else 0.0
 
-    return avg_loss, loss_components, gradient_norms
+    return avg_loss, loss_components
 
 
 def validate(model, val_loader, device):
@@ -131,11 +118,9 @@ def plot_training_curves(train_losses, val_accuracies, loss_components_history):
     # 绘制各项损失曲线
     plt.subplot(1, 3, 3)
     identity_losses = [comp['identity'] for comp in loss_components_history]
-    domain_losses = [comp['domain'] for comp in loss_components_history]
     contrastive_losses = [comp['contrastive'] for comp in loss_components_history]
     
     plt.plot(epochs, identity_losses, label='Identity Loss')
-    plt.plot(epochs, domain_losses, label='Domain Loss')
     plt.plot(epochs, contrastive_losses, label='Contrastive Loss')
     plt.title('Loss Components')
     plt.xlabel('Epoch')
@@ -155,30 +140,29 @@ def main():
     # 加载和划分数据
     print("加载并划分数据...")
     datasets = load_and_split_data()
-    data_loaders = create_data_loaders(datasets, batch_size=8)  # 进一步减小batch size
+    data_loaders = create_data_loaders(datasets, batch_size=8)
 
     # 初始化模型
     print("初始化模型...")
     model = IntruderDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
     
     # 初始化损失函数 (调整权重)
-    criterion = IntruderDetectionLoss(alpha=1.0, beta=0.1, gamma=0.05)
+    criterion = IntruderDetectionLoss(alpha=1.0, gamma=0.1)
     
-    # 初始化优化器 (使用AdamW优化器，降低学习率)
-    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-6)
+    # 初始化优化器 (使用AdamW优化器)
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     
     # 训练参数
     num_epochs = 50
     best_accuracy = 0.0
     early_stop_counter = 0
-    patience = 20  # 增加早停耐心值
+    patience = 15
     
     # 记录训练历史
     train_losses = []
     val_accuracies = []
     loss_components_history = []
-    gradient_norms_history = []
 
     # 确保保存模型的目录存在
     os.makedirs('intruder', exist_ok=True)
@@ -188,18 +172,12 @@ def main():
         print(f'\nEpoch [{epoch+1}/{num_epochs}]')
         
         # 训练一个epoch
-        train_loss, loss_components, gradient_norms = train_epoch(
-            model, data_loaders['source_train'], data_loaders['target_aux'], 
+        train_loss, loss_components = train_epoch(
+            model, data_loaders['identity_train'], data_loaders['target_aux'], 
             criterion, optimizer, device, epoch)
         
-        # 记录梯度范数历史
-        if gradient_norms:
-            avg_gradient_norm = sum(gradient_norms) / len(gradient_norms)
-            gradient_norms_history.append(avg_gradient_norm)
-            print(f'  平均梯度范数: {avg_gradient_norm:.4f}')
-        
-        # 验证模型
-        val_accuracy = validate(model, data_loaders['validation'], device)
+        # 验证模型（使用身份识别验证集）
+        val_accuracy = validate(model, data_loaders['identity_validation'], device)
         
         # 更新学习率
         scheduler.step()
@@ -212,7 +190,6 @@ def main():
         # 打印epoch结果
         print(f'  训练损失: {train_loss:.4f} '
               f'(身份: {loss_components["identity"]:.4f}, '
-              f'域适应: {loss_components["domain"]:.4f}, '
               f'对比: {loss_components["contrastive"]:.4f})')
         print(f'  验证准确率: {val_accuracy:.2f}%')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
@@ -220,7 +197,7 @@ def main():
         # 保存最佳模型
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
-            early_stop_counter = 0  # 重置早停计数器
+            early_stop_counter = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -239,12 +216,11 @@ def main():
             print(f'  验证准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
             
-        # 动态调整损失权重 (训练后期降低域适应损失权重)
-        if epoch > 15:  # 提前开始调整
-            # 逐渐降低域适应损失权重
-            criterion.beta = max(0.01, criterion.beta * 0.95)
-            criterion.gamma = max(0.005, criterion.gamma * 0.95)
-            print(f'  调整损失权重: beta={criterion.beta:.4f}, gamma={criterion.gamma:.4f}')
+        # 动态调整损失权重 (训练后期降低对比损失权重)
+        if epoch > 10:
+            # 逐渐降低对比损失权重
+            criterion.gamma = max(0.01, criterion.gamma * 0.95)
+            print(f'  调整损失权重: gamma={criterion.gamma:.4f}')
     
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
@@ -257,7 +233,7 @@ def main():
     
     # 最终测试
     print("进行最终测试...")
-    test_accuracy = validate(model, data_loaders['test'], device)
+    test_accuracy = validate(model, data_loaders['identity_test'], device)
     print(f"测试准确率: {test_accuracy:.2f}%")
     
     # 保存最终模型
