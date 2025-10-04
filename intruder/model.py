@@ -6,47 +6,54 @@ from scipy.spatial.distance import cdist
 from scipy.stats import weibull_min
 
 class FeatureExtractor(nn.Module):
-    """带注意力的特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
+    """改进版特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
     
     def __init__(self, feature_dim=128):
         super(FeatureExtractor, self).__init__()
-        # 处理时间维度的1D卷积 (沿时间轴处理)
+        # 改进的时间维度1D卷积 (沿时间轴处理)
         self.time_conv = nn.Sequential(
             nn.Conv1d(3, 32, kernel_size=15, stride=2, padding=7),  # 处理3个天线的数据
             nn.BatchNorm1d(32),
             nn.ReLU(),
+            nn.Dropout(0.1),  # 添加dropout防止过拟合
             nn.MaxPool1d(2),
             
             nn.Conv1d(32, 64, kernel_size=9, stride=2, padding=4),
             nn.BatchNorm1d(64),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.MaxPool1d(2),
             
             nn.Conv1d(64, 128, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.AdaptiveAvgPool1d(256)  # 固定输出长度
+            nn.Dropout(0.1),
+            nn.AdaptiveAvgPool1d(64)  # 固定输出长度
         )
         
-        # 处理子载波维度的2D卷积
+        # 改进的子载波维度处理
         self.subcarrier_conv = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(7, 9), stride=(2, 2), padding=(3, 4)),  # 处理56个子载波
-            nn.BatchNorm2d(32),
+            nn.Conv1d(128, 64, kernel_size=7, stride=2, padding=3),  # 处理56个子载波
+            nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=(5, 5), stride=(2, 2), padding=(2, 2)),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 128))  # 固定输出尺寸
+            nn.Dropout(0.1),
+            nn.AdaptiveAvgPool1d(32)  # 固定输出尺寸
         )
         
         # 特征融合和映射
         self.feature_fusion = nn.Sequential(
-            nn.Linear(64 * 128, 512),
+            nn.Linear(64 * 32, 512),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(512, feature_dim),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, feature_dim),
             nn.ReLU()
         )
+        
+        # 添加残差连接
+        self.residual_projection = nn.Linear(64 * 32, feature_dim)
         
     def forward(self, x):
         # x shape: [batch_size, 56, 3, 6000] (subcarriers, antennas, time)
@@ -55,44 +62,53 @@ class FeatureExtractor(nn.Module):
         # 1. 沿时间维度处理每个子载波-天线组合
         # 重塑为 [batch*56, 3, 6000] 以便1D卷积处理
         x_time = x.view(batch_size * num_subcarriers, num_antennas, time_length)
-        x_time = self.time_conv(x_time)  # [batch*56, 128, 750]
+        x_time = self.time_conv(x_time)  # [batch*56, 128, 64]
         
         # 2. 沿子载波维度处理
-        # 重塑为 [batch, 56, 128*750]
-        x_sub = x_time.view(batch_size, num_subcarriers, -1)
-        # 添加通道维度: [batch, 1, 56, 128*750]
-        x_sub = x_sub.unsqueeze(1)
-        x_sub = self.subcarrier_conv(x_sub)  # [batch, 64, 1, 128]
+        # 重塑为 [batch, 56, 128, 64]
+        x_sub = x_time.view(batch_size, num_subcarriers, 128, -1)
+        # 交换维度: [batch, 128, 56, 64]
+        x_sub = x_sub.permute(0, 2, 1, 3).contiguous()
+        # 合并最后两个维度: [batch, 128, 56*64]
+        x_sub = x_sub.view(batch_size, 128, -1)
+        x_sub = self.subcarrier_conv(x_sub)  # [batch, 64, 32]
         
         # 3. 特征融合
-        # 展平: [batch, 64*128]
+        # 展平: [batch, 64*32]
         x_flat = x_sub.view(batch_size, -1)
+        # 残差连接
+        residual = self.residual_projection(x_flat)
         features = self.feature_fusion(x_flat)  # [batch, 128]
+        # 添加残差连接
+        features = features + residual
         
         return features
 
 class AttentionModule(nn.Module):
-    """注意力模块 - 增强特征表示"""
+    """改进注意力模块 - 增强特征表示"""
     
     def __init__(self, feature_dim=128):
         super(AttentionModule, self).__init__()
         self.feature_dim = feature_dim
-        self.attention = nn.MultiheadAttention(feature_dim, num_heads=8, batch_first=True)
+        # 改进注意力机制
+        self.attention_weights = nn.Sequential(
+            nn.Linear(feature_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
+        )
         self.layer_norm = nn.LayerNorm(feature_dim)
         
     def forward(self, x):
         # x shape: [batch_size, feature_dim]
-        # 添加序列维度: [batch_size, 1, feature_dim]
-        x = x.unsqueeze(1)
+        # 计算注意力权重
+        attention_scores = self.attention_weights(x)  # [batch_size, 1]
+        attention_weights = torch.softmax(attention_scores, dim=0)  # [batch_size, 1]
         
-        # 应用自注意力
-        attn_out, _ = self.attention(x, x, x)
+        # 加权特征
+        weighted_features = x * attention_weights
         
         # 残差连接和层归一化
-        out = self.layer_norm(x + attn_out)
-        
-        # 移除序列维度: [batch_size, feature_dim]
-        out = out.squeeze(1)
+        out = self.layer_norm(x + weighted_features)
         
         return out
 
@@ -103,7 +119,9 @@ class ProjectionHead(nn.Module):
         super(ProjectionHead, self).__init__()
         self.projection = nn.Sequential(
             nn.Linear(input_dim, 64),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(64, projection_dim)
         )
         
@@ -132,14 +150,17 @@ class IdentityClassifier(nn.Module):
             nn.Linear(feature_dim, 64),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(64, num_classes)
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(32, num_classes)
         )
         
     def forward(self, x):
         return self.classifier(x)
 
 class IntruderDetectionSystem(nn.Module):
-    """完整的入侵者检测系统 - 四阶段架构"""
+    """完整的入侵者检测系统 - 改进版四阶段架构"""
     
     def __init__(self, num_classes=10, feature_dim=128, projection_dim=32):
         super(IntruderDetectionSystem, self).__init__()

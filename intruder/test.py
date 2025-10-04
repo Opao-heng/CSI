@@ -6,8 +6,8 @@
 import torch
 import numpy as np
 import os
-from .model import IntruderDetectionSystem, ComprehensiveIntruderDetector
-from .data_loader import load_and_split_data, create_data_loaders
+from model import IntruderDetectionSystem, ComprehensiveIntruderDetector
+from data_loader import load_and_split_data, create_data_loaders
 
 class IntruderIdentificationSystem:
     """
@@ -162,7 +162,7 @@ def main():
     # 加载数据
     print("加载测试数据...")
     datasets = load_and_split_data()
-    data_loaders = create_data_loaders(datasets, batch_size=32)
+    data_loaders = create_data_loaders(datasets, batch_size=8)  # 使用较小的batch size
     
     # 提取验证集特征用于拟合检测器参数
     print("提取验证集特征用于参数拟合...")
