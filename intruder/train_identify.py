@@ -2,9 +2,9 @@ import torch
 import os
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from model import IntruderDetectionSystem
-from loss import IntruderDetectionLoss
-from data_loader import load_and_split_data, create_data_loaders
+from model import IdentifyDetectionSystem
+from loss import IdentifyDetectionLoss
+from identify_data_loader import load_identify_data, create_data_loaders
 
 
 def train_epoch(model, source_loader, target_loader, criterion, optimizer, device, epoch):
@@ -49,11 +49,6 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
         loss_components['contrastive'] += loss_dict['contrastive_loss']
         batch_count += 1
 
-        # 每10个batch打印一次进度
-        if (batch_idx + 1) % 10 == 0:
-            print(f'  Batch [{batch_idx+1}/{min(len(source_loader), len(target_loader))}], '
-                  f'Loss: {loss.item():.4f}')
-
     # 计算平均损失
     avg_loss = total_loss / batch_count if batch_count > 0 else 0.0
     for key in loss_components:
@@ -87,6 +82,28 @@ def validate(model, val_loader, device):
 
     accuracy = 100 * correct / total if total > 0 else 0.0
     return accuracy
+
+
+def test_model(model, data_loaders, device):
+    """
+    在测试集上评估模型
+    """
+    model.eval()
+    test_results = {}
+    
+    # 测试源域身份识别测试集
+    if 'src_identity_test' in data_loaders:
+        src_identity_test_accuracy = validate(model, data_loaders['src_identity_test'], device)
+        test_results['src_identity_test'] = src_identity_test_accuracy
+        print(f'    源域身份识别测试准确率: {src_identity_test_accuracy:.2f}%')
+    
+    # 测试目标域身份识别测试集
+    if 'tgt_identity_test' in data_loaders:
+        tgt_identity_test_accuracy = validate(model, data_loaders['tgt_identity_test'], device)
+        test_results['tgt_identity_test'] = tgt_identity_test_accuracy
+        print(f'    目标域身份识别测试准确率: {tgt_identity_test_accuracy:.2f}%')
+    
+    return test_results
 
 
 def plot_training_curves(train_losses, val_accuracies, loss_components_history):
@@ -129,7 +146,33 @@ def plot_training_curves(train_losses, val_accuracies, loss_components_history):
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('intruder/training_curves.png')
+    plt.savefig('identify/training_curves.png')
+    plt.close()
+
+
+def plot_domain_test_accuracies(test_accuracies):
+    """
+    绘制源域和目标域测试准确率变化曲线
+    """
+    epochs = range(1, len(test_accuracies) + 1)
+    
+    # 提取源域和目标域的测试准确率
+    src_accuracies = [result.get('src_identity_test', 0) for result in test_accuracies]
+    tgt_accuracies = [result.get('tgt_identity_test', 0) for result in test_accuracies]
+    
+    plt.figure(figsize=(10, 6))
+    
+    plt.plot(epochs, src_accuracies, 'b-', label='Source Domain Accuracy', marker='o')
+    plt.plot(epochs, tgt_accuracies, 'r-', label='Target Domain Accuracy', marker='s')
+    
+    plt.title('Domain Test Accuracies Over Training')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('identify/domain_test_accuracies.png')
     plt.close()
 
 
@@ -137,24 +180,24 @@ def main():
     # 设置设备
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 加载和划分数据
-    print("加载并划分数据...")
-    datasets = load_and_split_data()
+    # 直接加载已保存的数据集
+    print("加载已保存的数据集...")
+    datasets = load_identify_data()
     data_loaders = create_data_loaders(datasets, batch_size=8)
 
     # 初始化模型
     print("初始化模型...")
-    model = IntruderDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
+    model = IdentifyDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
     
     # 初始化损失函数 (调整权重)
-    criterion = IntruderDetectionLoss(alpha=1.0, gamma=0.1)
+    criterion = IdentifyDetectionLoss(alpha=1.0, gamma=0.1)
     
     # 初始化优化器 (使用AdamW优化器)
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     
     # 训练参数
-    num_epochs = 50
+    num_epochs = 100
     best_accuracy = 0.0
     early_stop_counter = 0
     patience = 15
@@ -163,9 +206,10 @@ def main():
     train_losses = []
     val_accuracies = []
     loss_components_history = []
+    test_accuracies = []
 
     # 确保保存模型的目录存在
-    os.makedirs('intruder', exist_ok=True)
+    os.makedirs('identify', exist_ok=True)
     
     print("开始训练循环...")
     for epoch in range(num_epochs):
@@ -194,6 +238,11 @@ def main():
         print(f'  验证准确率: {val_accuracy:.2f}%')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         
+        # 在每个epoch后测试模型
+        print(f'  测试效果:')
+        test_results = test_model(model, data_loaders, device)
+        test_accuracies.append(test_results)
+        
         # 保存最佳模型
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
@@ -205,7 +254,7 @@ def main():
                 'scheduler_state_dict': scheduler.state_dict(),
                 'accuracy': val_accuracy,
                 'loss_components': loss_components
-            }, 'intruder/best_intruder_model.pth')
+            }, 'identify/best_identify_model.pth')
             print(f'  保存最佳模型 (准确率: {best_accuracy:.2f}%)')
         else:
             early_stop_counter += 1
@@ -225,23 +274,23 @@ def main():
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
     # 绘制训练曲线
-    try:
-        plot_training_curves(train_losses, val_accuracies, loss_components_history)
-        print("训练曲线已保存到 intruder/training_curves.png")
-    except Exception as e:
-        print(f"绘制训练曲线时出错: {e}")
+    plot_training_curves(train_losses, val_accuracies, loss_components_history)
+    print("训练曲线已保存到 identify/training_curves.png")
     
+    # 绘制源域和目标域测试准确率变化曲线
+    plot_domain_test_accuracies(test_accuracies)
+    print("源域和目标域测试准确率变化曲线已保存到 identify/domain_test_accuracies.png")
+
     # 最终测试
     print("进行最终测试...")
-    test_accuracy = validate(model, data_loaders['identity_test'], device)
-    print(f"测试准确率: {test_accuracy:.2f}%")
+    final_test_results = test_model(model, data_loaders, device)
     
     # 保存最终模型
     torch.save({
         'model_state_dict': model.state_dict(),
-        'accuracy': test_accuracy,
-    }, 'intruder/final_intruder_model.pth')
-    print("最终模型已保存到 intruder/final_intruder_model.pth")
+        'accuracy': final_test_results.get('identity_test', 0.0),
+    }, 'identify/final_identify_model.pth')
+    print("最终模型已保存到 identify/final_identify_model.pth")
 
 
 if __name__ == "__main__":

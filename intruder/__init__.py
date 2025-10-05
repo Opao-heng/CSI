@@ -5,7 +5,7 @@
 
 from .model import IntruderDetectionSystem, FeatureExtractor, ContrastiveDomainAdapter, IdentityClassifier
 from .loss import IntruderDetectionLoss
-from .data_loader import load_and_split_data, create_data_loaders
+from .identify_data_loader import load_and_split_data, create_data_loaders
 
 __all__ = [
     'IntruderDetectionSystem',

@@ -1,8 +1,9 @@
 import torch
 import numpy as np
 import os
-from model import IntruderDetectionSystem, ComprehensiveIntruderDetector
-from data_loader import load_and_split_data, create_data_loaders
+import matplotlib.pyplot as plt
+from model import IdentifyDetectionSystem, LearnableComprehensiveIntruderDetector
+from intruder_data_loader import load_intruder_data, create_intruder_data_loaders
 
 
 def extract_features(model, data_loader, device):
@@ -31,20 +32,135 @@ def extract_features(model, data_loader, device):
     
     return np.vstack(all_features), np.vstack(all_logits), np.hstack(all_labels)
 
+def initialize_learnable_detector(learnable_detector, device):
+    """
+    初始化可学习检测器
+    """
+    print("初始化可学习入侵者检测器...")
+    # 使用随机初始化
+    return
+
+def test_intruder_detector(model, identity_model, data_loader, device, detector_path=None):
+    """
+    测试入侵者检测器性能（只计算准确率）
+    """
+    model.eval()
+    identity_model.eval()
+    
+    correct = 0
+    total = 0
+    
+    # 加载可学习的入侵者检测器
+    if detector_path and os.path.exists(detector_path):
+        checkpoint = torch.load(detector_path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+    
+    with torch.no_grad():
+        for data, labels in data_loader:
+            # 移动到设备
+            data = data.to(device)
+            labels = labels.to(device)
+            
+            # 使用身份识别模型提取特征
+            identity_outputs = identity_model(data)
+            features = identity_outputs['features']
+            logits = identity_outputs['logits']
+            
+            # 使用可学习的入侵者检测器
+            detector_outputs = model(features, features, logits, logits)
+            predictions = detector_outputs['predictions']
+            
+            # 计算准确率
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+    
+    # 计算准确率
+    detection_accuracy = correct / total if total > 0 else 0.0
+    
+    return {
+        'detection_accuracy': detection_accuracy
+    }
+
+def plot_training_curves(train_losses, val_accuracies, loss_components_history):
+    """
+    绘制训练曲线
+    """
+    epochs = range(1, len(train_losses) + 1)
+    
+    plt.figure(figsize=(15, 5))
+    
+    # 绘制训练损失曲线
+    plt.subplot(1, 3, 1)
+    plt.plot(epochs, train_losses, 'b-', label='Training Loss')
+    plt.title('Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.grid(True)
+    plt.legend()
+    
+    # 绘制验证准确率曲线
+    plt.subplot(1, 3, 2)
+    plt.plot(epochs, val_accuracies, 'g-', label='Validation Accuracy')
+    plt.title('Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.grid(True)
+    plt.legend()
+    
+    # 绘制各项损失曲线
+    plt.subplot(1, 3, 3)
+    classification_losses = [comp['classification'] for comp in loss_components_history]
+    energy_losses = [comp['energy'] for comp in loss_components_history]
+    fusion_losses = [comp['fusion'] for comp in loss_components_history]
+    
+    plt.plot(epochs, classification_losses, label='Classification Loss')
+    plt.plot(epochs, energy_losses, label='Energy Loss')
+    plt.plot(epochs, fusion_losses, label='Fusion Loss')
+    plt.title('Loss Components')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('intruder/training_curves.png')
+    plt.close()
+
+
+def plot_detection_metrics(detection_metrics_history):
+    """
+    绘制入侵者检测准确率变化曲线
+    """
+    epochs = range(1, len(detection_metrics_history) + 1)
+    
+    detection_accuracies = [metrics['detection_accuracy'] for metrics in detection_metrics_history]
+    
+    plt.figure(figsize=(10, 6))
+    
+    # 绘制准确率曲线
+    plt.plot(epochs, detection_accuracies, 'b-', label='Detection Accuracy', marker='o')
+    plt.title('Intruder Detection Accuracy Over Training')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('intruder/detection_accuracy.png')
+    plt.close()
+
+
 def train_intruder_detector(model_path, output_path, device):
     """
-    训练入侵者检测器（使用专门的入侵者检测验证集）
+    训练可学习的入侵者检测器（使用源域和目标域身份特征）
     """
-    print("开始训练入侵者检测器...")
+    print("开始训练可学习的入侵者检测器...")
 
-    # 检查模型文件
-    if not os.path.exists(model_path):
-        print(f"错误: 未找到模型文件 {model_path}")
-        return
 
-    # 初始化模型
+    # 初始化身份识别模型
     print("加载身份识别模型...")
-    identity_model = IntruderDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
+    identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
     
     # 加载模型权重
     checkpoint = torch.load(model_path, map_location=device)
@@ -53,110 +169,189 @@ def train_intruder_detector(model_path, output_path, device):
     
     print(f"身份识别模型加载完成")
     
-    # 加载数据
-    print("加载数据...")
-    datasets = load_and_split_data()
-    data_loaders = create_data_loaders(datasets, batch_size=32)
+    # 加载入侵者检测专用数据
+    print("加载入侵者检测数据...")
+    datasets = load_intruder_data()
     
-    # 使用入侵者检测验证集来训练入侵者检测器
-    print("使用入侵者检测验证集训练入侵者检测器...")
-    val_features, val_logits, val_labels = extract_features(identity_model, data_loaders['intruder_validation'], device)
+    data_loaders = create_intruder_data_loaders(datasets, batch_size=32)
     
-    # 分离合法用户和入侵者数据
-    legal_mask = val_labels >= 0
-    intruder_mask = val_labels == -1
+    # 初始化可学习的综合入侵者检测器
+    print("初始化可学习的综合入侵者检测器...")
+    learnable_detector = LearnableComprehensiveIntruderDetector(num_classes=10, feature_dim=128, identity_classes=10).to(device)
     
-    legal_features = val_features[legal_mask]
-    legal_labels = val_labels[legal_mask]
-    intruder_features = val_features[intruder_mask]
-    intruder_labels = val_labels[intruder_mask]
+    # 初始化可学习检测器
+    initialize_learnable_detector(learnable_detector, device)
     
-    print(f"  合法用户样本数: {len(legal_features)}")
-    print(f"  入侵者样本数: {len(intruder_features)}")
+    # 设置优化器，只优化入侵者检测器的参数
+    optimizer = torch.optim.Adam(learnable_detector.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.8)
     
-    # 初始化综合入侵者检测器
-    print("初始化综合入侵者检测器...")
-    intruder_detector = ComprehensiveIntruderDetector(num_classes=10, feature_dim=128)
+    # 损失函数
+    classification_criterion = torch.nn.CrossEntropyLoss()
+    mse_criterion = torch.nn.MSELoss()
     
-    # 训练/拟合入侵者检测器参数（只使用合法用户数据进行拟合）
-    print("训练入侵者检测器...")
-    intruder_detector.fit(legal_features, legal_labels)
+    print("开始训练可学习的入侵者检测器...")
+    learnable_detector.train()
     
-    # 在入侵者检测测试集上评估入侵者检测器性能
-    print("提取入侵者检测测试集特征...")
-    test_features, test_logits, test_labels = extract_features(identity_model, data_loaders['intruder_test'], device)
+    num_epochs = 30
+    best_accuracy = 0.0
+    early_stop_counter = 0
+    patience = 10
     
-    print("评估入侵者检测器性能...")
-    # 使用不同的阈值进行评估
-    thresholds = [(0.7, 1.3), (0.8, 1.5), (0.9, 1.7)]
+    # 记录训练历史
+    train_losses = []
+    val_accuracies = []
+    loss_components_history = []
+    detection_metrics_history = []
     
-    best_f1 = 0.0
-    best_threshold = (0.8, 1.5)
+    # 确保保存模型的目录存在
+    os.makedirs('intruder', exist_ok=True)
     
-    for openmax_threshold, energy_threshold in thresholds:
-        # 进行预测
-        detection_results = intruder_detector.predict(
-            test_features, test_logits, openmax_threshold, energy_threshold)
-        predictions = detection_results['predictions']
+    for epoch in range(num_epochs):
+        total_loss = 0.0
+        correct = 0
+        total = 0
         
-        # 计算评估指标
-        # 入侵者检测性能
-        binary_labels = np.where(test_labels == -1, 0, 1)  # 入侵者=0, 已知用户=1
-        binary_predictions = np.where(predictions == -1, 0, 1)  # 入侵者=0, 已知用户=1
+        # 损失组件统计
+        total_classification_loss = 0.0
+        total_energy_loss = 0.0
+        total_fusion_loss = 0.0
+        batch_count = 0
         
-        # 计算指标
-        tp = np.sum((binary_predictions == 0) & (binary_labels == 0))  # 真正例
-        fp = np.sum((binary_predictions == 0) & (binary_labels == 1))  # 假正例
-        fn = np.sum((binary_predictions == 1) & (binary_labels == 0))  # 假负例
+        # 训练循环
+        for batch_idx, (data, labels) in enumerate(data_loaders['intruder_train']):
+            # 移动到设备
+            data = data.to(device)
+            labels = labels.to(device)
+            
+            # 前向传播
+            optimizer.zero_grad()
+            
+            # 使用身份识别模型提取特征
+            with torch.no_grad():
+                identity_outputs = identity_model(data)
+                features = identity_outputs['features']
+                logits = identity_outputs['logits']
+            
+            # 使用可学习的入侵者检测器进行检测
+            detector_outputs = learnable_detector(features, features, logits, logits)
+            predictions = detector_outputs['predictions']
+            openmax_probs = detector_outputs['openmax_probabilities']
+            energy_scores = detector_outputs['energy_scores']
+            
+            # 创建目标标签（二分类：0-合法用户，1-入侵者）
+            classification_targets = torch.zeros(data.size(0), 2, device=device)
+            classification_targets.scatter_(1, labels.unsqueeze(1), 1)
+            
+            # 计算损失
+            # 1. 分类损失
+            classification_loss = mse_criterion(openmax_probs[:, :2], classification_targets)
+            
+            # 2. 能量损失（希望合法用户的能量分数低，入侵者的能量分数高）
+            legal_mask = (labels == 0)
+            intruder_mask = (labels == 1)
+            
+            energy_loss = 0.0
+            if legal_mask.sum() > 0:
+                legal_energy = energy_scores[legal_mask]
+                energy_loss += torch.mean(legal_energy)  # 希望合法用户的能量分数尽可能低
+            
+            if intruder_mask.sum() > 0:
+                intruder_energy = energy_scores[intruder_mask]
+                energy_loss += torch.mean(torch.relu(2.0 - intruder_energy))  # 希望入侵者的能量分数尽可能高(>2.0)
+            
+            # 3. 融合权重损失（鼓励模型做出明确的决策）
+            fusion_weights = detector_outputs['fusion_weights']
+            fusion_loss = torch.mean(torch.abs(fusion_weights - 0.5))  # 鼓励权重远离0.5
+            
+            # 总损失
+            total_loss_batch = classification_loss + 0.1 * energy_loss + 0.05 * fusion_loss
+            
+            # 反向传播和优化
+            total_loss_batch.backward()
+            torch.nn.utils.clip_grad_norm_(learnable_detector.parameters(), max_norm=1.0)
+            optimizer.step()
+            
+            total_loss += total_loss_batch.item()
+            total_classification_loss += classification_loss.item()
+            total_energy_loss += energy_loss.item() if isinstance(energy_loss, torch.Tensor) else energy_loss
+            total_fusion_loss += fusion_loss.item()
+            batch_count += 1
+            
+            # 统计准确率
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+            
+            # 每20个batch打印一次进度（减少打印频率以避免警告）
+            if (batch_idx + 1) % 20 == 0:
+                pass  # 不再打印每个batch的损失信息
         
-        detection_precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        detection_recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        detection_f1 = 2 * (detection_precision * detection_recall) / (detection_precision + detection_recall) if (detection_precision + detection_recall) > 0 else 0.0
+        # 计算平均损失和准确率
+        avg_loss = total_loss / batch_count if batch_count > 0 else 0.0
+        accuracy = correct / total if total > 0 else 0.0
         
-        print(f"阈值 (OpenMax: {openmax_threshold}, Energy: {energy_threshold}) - "
-              f"精确率: {detection_precision:.4f}, 召回率: {detection_recall:.4f}, F1: {detection_f1:.4f}")
+        # 记录训练历史
+        train_losses.append(avg_loss)
+        val_accuracies.append(accuracy)
+        loss_components_history.append({
+            'classification': total_classification_loss / batch_count if batch_count > 0 else 0.0,
+            'energy': total_energy_loss / batch_count if batch_count > 0 else 0.0,
+            'fusion': total_fusion_loss / batch_count if batch_count > 0 else 0.0
+        })
         
-        if detection_f1 > best_f1:
-            best_f1 = detection_f1
-            best_threshold = (openmax_threshold, energy_threshold)
+        print(f'Epoch [{epoch+1}/{num_epochs}], 平均损失: {avg_loss:.4f}, 准确率: {accuracy:.4f}')
+        
+        # 在每个epoch后测试入侵者检测器性能
+        print(f'  测试效果:')
+        test_results = test_intruder_detector(
+            learnable_detector, identity_model, data_loaders['intruder_test'], device, 
+            detector_path=None)
+        print(f'    入侵者检测准确率: {test_results["detection_accuracy"]:.4f}')
+        
+        # 记录检测指标历史
+        detection_metrics_history.append(test_results)
+        
+        # 更新学习率
+        scheduler.step()
+        
+        # 保存最佳模型
+        if test_results["detection_accuracy"] > best_accuracy:
+            best_accuracy = test_results["detection_accuracy"]
+            early_stop_counter = 0
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': learnable_detector.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'best_accuracy': best_accuracy,
+                'detection_metrics': test_results
+            }, output_path)
+            print(f'  保存最佳模型 (准确率: {best_accuracy:.4f})')
+        else:
+            early_stop_counter += 1
+            print(f'  早停计数器: {early_stop_counter}/{patience}')
+            
+        # 早停检查
+        if early_stop_counter >= patience:
+            print(f'  入侵者检测准确率在 {patience} 个epoch内未提升，提前停止训练')
+            break
     
-    print(f"最佳阈值: OpenMax={best_threshold[0]}, Energy={best_threshold[1]}, F1={best_f1:.4f}")
+    print(f"训练完成! 最佳准确率: {best_accuracy:.4f}")
     
-    # 保存训练好的入侵者检测器
-    print("保存入侵者检测器...")
+    # 绘制训练曲线
+    plot_training_curves(train_losses, val_accuracies, loss_components_history)
+    print("训练曲线已保存到 intruder/training_curves.png")
+    
+    # 绘制入侵者检测准确率变化曲线
+    plot_detection_metrics(detection_metrics_history)
+    print("入侵者检测准确率变化曲线已保存到 intruder/detection_accuracy.png")
+    
+    # 保存最终模型
     torch.save({
-        'intruder_detector': intruder_detector,
-        'best_threshold': best_threshold,
-        'val_features': val_features,
-        'val_labels': val_labels
-    }, output_path)
-    
-    print(f"入侵者检测器已保存到 {output_path}")
-    
-    # 显示一些预测示例
-    print("\n=== 预测示例 ===")
-    detection_results = intruder_detector.predict(
-        test_features, test_logits, best_threshold[0], best_threshold[1])
-    predictions = detection_results['predictions']
-    
-    # 随机选择10个样本显示
-    indices = np.random.choice(len(predictions), size=min(10, len(predictions)), replace=False)
-    for i in indices:
-        true_label = test_labels[i]
-        pred_label = predictions[i]
-        
-        if true_label == -1:
-            true_str = "入侵者"
-        else:
-            true_str = f"用户{true_label}"
-            
-        if pred_label == -1:
-            pred_str = "入侵者"
-        else:
-            pred_str = f"用户{pred_label}"
-            
-        correct = "✓" if true_label == pred_label else "✗"
-        print(f"  样本: 真实={true_str}, 预测={pred_str} {correct}")
+        'model_state_dict': learnable_detector.state_dict(),
+        'best_accuracy': best_accuracy,
+    }, 'intruder/final_learnable_intruder_detector.pth')
+    print("最终模型已保存到 intruder/final_learnable_intruder_detector.pth")
 
 
 def main():
@@ -169,9 +364,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # 模型路径
-    model_path = "intruder/best_intruder_model.pth"  # 身份识别训练好的模型
-    output_path = "intruder/trained_intruder_detector.pth"
-    
+    model_path = "identify/best_identify_model.pth"  # 身份识别训练好的模型
+    output_path = "intruder/learnable_intruder_detector.pth"
+
+
+
     # 训练入侵者检测器
     train_intruder_detector(model_path, output_path, device)
 

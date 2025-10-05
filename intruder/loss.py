@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math
 
 
-class IntruderDetectionLoss(nn.Module):
+class IdentifyDetectionLoss(nn.Module):
     def __init__(self, alpha=1.0, gamma=0.1):
         """
         初始化损失函数
@@ -12,7 +12,7 @@ class IntruderDetectionLoss(nn.Module):
             alpha: 身份分类损失权重
             gamma: 对比损失权重
         """
-        super(IntruderDetectionLoss, self).__init__()
+        super(IdentifyDetectionLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1)

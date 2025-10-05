@@ -119,11 +119,11 @@ class IdentityClassifier(nn.Module):
         return self.classifier(x)
 
 
-class IntruderDetectionSystem(nn.Module):
+class IdentifyDetectionSystem(nn.Module):
     """ 1、身份识别模型 """
     
     def __init__(self, num_classes=10, feature_dim=128, projection_dim=32):
-        super(IntruderDetectionSystem, self).__init__()
+        super(IdentifyDetectionSystem, self).__init__()
         self.feature_extractor = FeatureExtractor(feature_dim=feature_dim)
         self.attention = AttentionModule(feature_dim=feature_dim)
         self.projection_head = ProjectionHead(feature_dim, projection_dim)
@@ -162,6 +162,297 @@ class IntruderDetectionSystem(nn.Module):
                 'logits': logits
             }
 
+class LearnableOpenMax(nn.Module):
+    """
+    可学习的OpenMax入侵者检测器 - 结合传统OpenMax方法与深度学习
+    利用源域和目标域身份特征进行训练
+    """
+    
+    def __init__(self, num_classes=10, feature_dim=128):
+        super(LearnableOpenMax, self).__init__()
+        self.num_classes = num_classes
+        self.feature_dim = feature_dim
+        
+        # 可学习的类别中心
+        self.class_centers = nn.Parameter(torch.randn(num_classes, feature_dim))
+        
+        # 可学习的Weibull分布参数
+        self.weibull_shapes = nn.Parameter(torch.ones(num_classes))
+        self.weibull_scales = nn.Parameter(torch.ones(num_classes))
+        
+        # 特征变换网络，用于增强特征表示
+        self.feature_transform = nn.Sequential(
+            nn.Linear(feature_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, feature_dim),
+            nn.LayerNorm(feature_dim)
+        )
+        
+        # 注意力机制，用于动态调整类别权重
+        self.attention_weights = nn.Sequential(
+            nn.Linear(feature_dim, 32),
+            nn.Tanh(),
+            nn.Linear(32, num_classes),
+            nn.Softmax(dim=1)
+        )
+        
+        # 域适应模块，处理源域和目标域特征
+        self.domain_adapter = nn.Sequential(
+            nn.Linear(feature_dim * 2, 128),  # 拼接源域和目标域特征
+            nn.ReLU(),
+            nn.Linear(128, feature_dim),
+            nn.LayerNorm(feature_dim)
+        )
+        
+    def forward(self, features_source, features_target=None, threshold=0.8):
+        """
+        前向传播，计算入侵者检测结果
+        """
+        batch_size = features_source.size(0)
+        
+        # 如果提供了目标域特征，则进行域适应处理
+        if features_target is not None:
+            # 拼接源域和目标域特征
+            combined_features = torch.cat([features_source, features_target], dim=1)
+            # 域适应处理
+            adapted_features = self.domain_adapter(combined_features)
+        else:
+            # 仅使用源域特征
+            adapted_features = features_source
+        
+        # 特征变换
+        transformed_features = self.feature_transform(adapted_features)
+        
+        # 计算到各类别中心的距离
+        distances = torch.cdist(transformed_features, self.class_centers, p=2)
+        
+        # 计算注意力权重
+        attention_scores = self.attention_weights(transformed_features)
+        
+        # 计算激活分数（负距离）
+        activations = -distances
+        
+        # OpenMax变换
+        revised_activations = torch.zeros(batch_size, self.num_classes + 1, device=adapted_features.device)
+        
+        # 计算修正量
+        revision = torch.zeros(batch_size, self.num_classes, device=adapted_features.device)
+        for i in range(self.num_classes):
+            # 计算尾部概率（简化版）
+            tail_prob = torch.exp(-distances[:, i] / (self.weibull_scales[i] + 1e-8))
+            revision[:, i] = attention_scores[:, i] * tail_prob
+            
+        # 修正激活分数
+        total_revision = torch.sum(revision, dim=1, keepdim=True)
+        for i in range(self.num_classes):
+            revised_activations[:, i] = activations[:, i] * (1 - revision[:, i])
+            
+        # 未知类别激活分数
+        revised_activations[:, self.num_classes] = total_revision.squeeze()
+        
+        # 转换为概率分布
+        probabilities = torch.softmax(revised_activations, dim=1)
+        
+        # 判断是否为入侵者
+        unknown_probs = probabilities[:, self.num_classes]
+        known_user_probs = probabilities[:, :self.num_classes]
+        predictions = torch.where(unknown_probs > threshold, 
+                                torch.tensor(-1, device=adapted_features.device), 
+                                torch.argmax(known_user_probs, dim=1))
+        
+        return predictions, probabilities, {
+            'distances': distances,
+            'attention_scores': attention_scores,
+            'revision': revision,
+            'adapted_features': adapted_features
+        }
+
+class LearnableEnergyDetector(nn.Module):
+    """
+    可学习的能量检测器 - 结合传统能量检测方法与深度学习
+    利用源域和目标域身份特征进行训练
+    """
+    
+    def __init__(self, input_dim=10, threshold=1.5):
+        super(LearnableEnergyDetector, self).__init__()
+        self.threshold = threshold
+        
+        # 可学习的能量计算网络
+        self.energy_network = nn.Sequential(
+            nn.Linear(input_dim * 2, 64),  # 考虑源域和目标域概率分布
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            nn.Softplus()  # 确保能量分数为正
+        )
+        
+        # 特征注意力机制
+        self.feature_attention = nn.Sequential(
+            nn.Linear(input_dim * 2, 32),
+            nn.Tanh(),
+            nn.Linear(32, input_dim * 2),
+            nn.Sigmoid()
+        )
+        
+        # 域适应模块
+        self.domain_adapter = nn.Sequential(
+            nn.Linear(input_dim * 2, 32),
+            nn.ReLU(),
+            nn.Linear(32, input_dim)
+        )
+        
+    def compute_energy(self, probs_source, probs_target=None):
+        """
+        计算能量分数（负熵的可学习版本）
+        """
+        # 如果提供了目标域概率，则拼接源域和目标域概率
+        if probs_target is not None:
+            combined_probs = torch.cat([probs_source, probs_target], dim=1)
+        else:
+            # 仅使用源域概率，目标域部分用零填充
+            batch_size = probs_source.size(0)
+            zero_padding = torch.zeros(batch_size, probs_source.size(1), device=probs_source.device)
+            combined_probs = torch.cat([probs_source, zero_padding], dim=1)
+        
+        # 应用注意力机制
+        attention_weights = self.feature_attention(combined_probs)
+        weighted_probs = combined_probs * attention_weights
+        
+        # 域适应处理
+        adapted_probs = self.domain_adapter(weighted_probs)
+        
+        # 计算能量分数
+        energy_scores = self.energy_network(combined_probs)
+        return energy_scores.squeeze()
+    
+    def forward(self, probs_source, probs_target=None):
+        """
+        前向传播，基于能量分数检测入侵者
+        """
+        energy_scores = self.compute_energy(probs_source, probs_target)
+        # 能量分数越高表示越不确定，越可能是入侵者
+        predictions = torch.where(energy_scores > self.threshold, 
+                                torch.tensor(-1, device=probs_source.device), 
+                                torch.argmax(probs_source, dim=1))
+        return predictions, energy_scores
+
+class LearnableComprehensiveIntruderDetector(nn.Module):
+    """ 
+    可学习的综合入侵者检测模型 - 结合OpenMax和能量检测的优点
+    利用身份识别模型的源域和目标域特征进行训练
+    """
+    
+    def __init__(self, num_classes=10, feature_dim=128, identity_classes=10):
+        super(LearnableComprehensiveIntruderDetector, self).__init__()
+        self.num_classes = num_classes
+        self.feature_dim = feature_dim
+        self.identity_classes = identity_classes
+        
+        # 可学习的OpenMax检测器
+        self.openmax_detector = LearnableOpenMax(num_classes, feature_dim)
+        
+        # 可学习的能量检测器
+        self.energy_detector = LearnableEnergyDetector(identity_classes, threshold=1.5)
+        
+        # 融合网络，用于决策融合
+        self.fusion_network = nn.Sequential(
+            nn.Linear(4, 32),  # 输入：openmax_unknown_prob, energy_score, identity_confidence_source, identity_confidence_target
+            nn.ReLU(),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
+        
+        # 特征增强网络
+        self.feature_enhancer = nn.Sequential(
+            nn.Linear(feature_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, feature_dim),
+            nn.LayerNorm(feature_dim)
+        )
+        
+        # 域间关系建模
+        self.inter_domain_modeling = nn.Sequential(
+            nn.Linear(feature_dim * 2, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, feature_dim)
+        )
+        
+    def forward(self, features_source, features_target=None, logits_source=None, logits_target=None, 
+                openmax_threshold=0.8, energy_threshold=1.5):
+        """
+        前向传播，综合检测入侵者
+        """
+        # 特征增强
+        enhanced_features_source = self.feature_enhancer(features_source)
+        
+        # 如果提供了目标域特征，则进行域间关系建模
+        if features_target is not None:
+            enhanced_features_target = self.feature_enhancer(features_target)
+            # 域间关系建模
+            combined_features = torch.cat([enhanced_features_source, enhanced_features_target], dim=1)
+            inter_domain_features = self.inter_domain_modeling(combined_features)
+        else:
+            enhanced_features_target = None
+            inter_domain_features = enhanced_features_source
+        
+        # OpenMax检测
+        openmax_predictions, openmax_probs, openmax_details = self.openmax_detector(
+            enhanced_features_source, enhanced_features_target, openmax_threshold)
+        
+        # 身份分类概率
+        identity_probs_source = torch.softmax(logits_source, dim=1) if logits_source is not None else torch.ones(features_source.size(0), self.identity_classes, device=features_source.device) / self.identity_classes
+        identity_probs_target = torch.softmax(logits_target, dim=1) if logits_target is not None else None
+        
+        # 能量检测
+        energy_predictions, energy_scores = self.energy_detector(identity_probs_source, identity_probs_target)
+        
+        # 决策融合
+        openmax_unknown_probs = openmax_probs[:, self.num_classes]  # 未知类别的概率
+        identity_confidence_source = torch.max(identity_probs_source, dim=1)[0]   # 源域身份分类的置信度
+        
+        # 融合特征
+        if identity_probs_target is not None:
+            identity_confidence_target = torch.max(identity_probs_target, dim=1)[0]   # 目标域身份分类的置信度
+            fusion_features = torch.stack([
+                openmax_unknown_probs,
+                energy_scores,
+                identity_confidence_source,
+                identity_confidence_target
+            ], dim=1)
+        else:
+            # 如果没有目标域概率，使用零填充
+            fusion_features = torch.stack([
+                openmax_unknown_probs,
+                energy_scores,
+                identity_confidence_source,
+                torch.zeros_like(identity_confidence_source)
+            ], dim=1)
+        
+        # 融合决策
+        fusion_weights = self.fusion_network(fusion_features).squeeze()
+        
+        # 综合预测：根据融合权重决定是否为入侵者
+        final_predictions = torch.where(fusion_weights > 0.5,
+                                      torch.tensor(-1, device=features_source.device),
+                                      torch.argmax(identity_probs_source, dim=1))
+        
+        return {
+            'predictions': final_predictions,
+            'openmax_predictions': openmax_predictions,
+            'energy_predictions': energy_predictions,
+            'openmax_probabilities': openmax_probs,
+            'energy_scores': energy_scores,
+            'fusion_weights': fusion_weights,
+            'openmax_details': openmax_details,
+            'inter_domain_features': inter_domain_features
+        }
+
+# 保持原有的传统检测器类，用于对比和初始化
 class OpenMaxIntruderDetector:
     """
     OpenMax入侵者检测器 - 基于极值理论检测未知入侵者
@@ -309,9 +600,8 @@ class EnergyIntruderDetector:
         predictions = np.where(energy_scores > self.threshold, -1, np.argmax(probabilities, axis=1))
         return predictions, energy_scores
 
-
 class ComprehensiveIntruderDetector:
-    """ 2、入侵者检测模型 """
+    """ 2、传统入侵者检测模型 """
     
     def __init__(self, num_classes=10, feature_dim=128):
         self.openmax_detector = OpenMaxIntruderDetector(num_classes, feature_dim)
