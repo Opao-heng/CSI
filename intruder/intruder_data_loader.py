@@ -20,16 +20,24 @@ class IntruderDetectionDataset(Dataset):
         label = self.labels[idx]
         
         # 检查数据维度并确保是float32类型
-        if data.dtype != torch.float32:
+        if not isinstance(data, torch.Tensor):
+            data = torch.tensor(data, dtype=torch.float32)
+        elif data.dtype != torch.float32:
             data = data.float()
             
         # 确保标签是long类型
-        if label.dtype != torch.long:
+        if not isinstance(label, torch.Tensor):
+            label = torch.tensor(label, dtype=torch.long)
+        elif label.dtype != torch.long:
             label = label.long()
             
         # 添加数据标准化
         # 对数据进行归一化处理，使其均值为0，标准差为1
-        data = (data - data.mean()) / (data.std() + 1e-8)
+        if data.numel() > 0:  # 确保数据不为空
+            mean = data.mean()
+            std = data.std()
+            if std > 0:
+                data = (data - mean) / (std + 1e-8)
             
         return data, label
 
@@ -42,6 +50,7 @@ def load_intruder_data():
     """
 
     # 加载源域数据（env0 和 env1 中 10 名已知用户的 CSI 数据）
+    print("\n----------------------------------------------------\n")
     print("研究内容二---入侵检测---加载数据...")
     print("加载源域数据...")
     source_data = torch.load('../data/SourceData/source_data.pt')
@@ -150,9 +159,9 @@ def load_intruder_data():
     legal_user_data = torch.cat([src_train_data, target_aux_data, src_val_data, target_val_data], dim=0)
     legal_user_labels = torch.cat([src_train_labels, target_aux_labels, src_val_labels, target_val_labels], dim=0)
 
-    # 4. 创建模拟入侵者数据（多种方法），数量为合法用户数据的10%
+    # 4. 创建模拟入侵者数据（多种方法），数量为合法用户数据的50%
     num_legal_samples = len(legal_user_data)
-    total_simulated_intruders = max(1, num_legal_samples // 10)  # 模拟入侵者数据数量为合法用户数据的10%
+    total_simulated_intruders = max(1, num_legal_samples // 2)  # 模拟入侵者数据数量为合法用户数据的50%
 
     simulated_intruder_list = []
 
@@ -298,10 +307,31 @@ def create_intruder_data_loaders(datasets, batch_size=32):
             batch_size=batch_size, 
             shuffle=(key != 'test' and not key.endswith('_test')),  # 测试集不打乱
             num_workers=0,  # Windows兼容性
-            drop_last=False  # 不丢弃不完整的batch
+            drop_last=False,  # 不丢弃不完整的batch
+            collate_fn=custom_collate_fn  # 使用自定义的collate函数处理不规则数据
         )
         
     return data_loaders
+
+
+def custom_collate_fn(batch):
+    """
+    自定义的collate函数，处理可能不规则的数据
+    """
+    # 分离数据和标签
+    data_list, labels_list = zip(*batch)
+    
+    # 转换为张量
+    try:
+        # 尝试直接堆叠（如果所有数据形状一致）
+        data = torch.stack(data_list, dim=0)
+        labels = torch.stack(labels_list, dim=0) if isinstance(labels_list[0], torch.Tensor) else torch.tensor(labels_list)
+    except RuntimeError:
+        # 如果形状不一致，返回列表形式
+        data = list(data_list)
+        labels = list(labels_list)
+    
+    return data, labels
 
 
 if __name__ == "__main__":

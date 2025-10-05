@@ -2,7 +2,7 @@ import torch
 import os
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from model import IdentifyDetectionSystem
+from model_identify import IdentifyDetectionSystem
 from loss import IdentifyDetectionLoss
 from identify_data_loader import load_identify_data, create_data_loaders
 

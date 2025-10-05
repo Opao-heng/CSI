@@ -44,6 +44,7 @@ def load_identify_data(save_datasets=True):
     """
 
     # 加载源域数据（env0 和 env1 中 10 名已知用户的 CSI 数据）
+    print("\n----------------------------------------------------\n")
     print("研究内容二---身份识别---加载数据...")
     print("加载源域数据...")
     source_data = torch.load('../data/SourceData/source_data.pt')

@@ -1,161 +1,103 @@
-# 入侵者检测系统
+# 综合入侵者检测系统
 
 ## 系统概述
 
-本系统基于CSI（Channel State Information）数据实现身份识别和入侵者检测功能。系统分为两个主要部分：
+本系统实现了一个综合入侵者检测模型，结合了以下三种检测方法：
 
-1. **身份识别模型**：用于识别已知合法用户
-2. **入侵者检测模型**：在身份识别模型基础上构建，用于检测未知入侵者
+1. **传统OpenMax检测** - 基于极值理论建模已知用户特征分布
+2. **传统能量检测** - 基于模型输出总置信度的能量检测方法
+3. **深度学习阈值优化检测** - 利用训练好的已知用户身份特征进行阈值优化
+
+## 模型架构
+
+### ComprehensiveIntruderDetector (综合入侵者检测器)
+
+综合入侵者检测器结合了多种检测方法的优点：
+
+- **TraditionalOpenMax**: 基于极值理论的开放集识别方法
+- **TraditionalEnergyDetector**: 基于模型输出能量的检测方法
+- **LearnableOpenMax**: 可学习的OpenMax检测器
+- **LearnableEnergyDetector**: 可学习的能量检测器
+- **LearnableThresholdDetector**: 可学习的多维阈值检测器
+
+所有检测结果通过一个融合网络进行加权融合，得到最终的入侵者检测结果。
 
 ## 文件结构
 
 ```
 intruder/
-├── model.py                 # 模型定义
-├── loss.py                  # 损失函数
-├── data_loader.py           # 数据加载器
-├── train_identify.py        # 身份识别模型训练
-├── train_intruder.py        # 入侵者检测器训练
-├── test.py                  # 系统测试
-└── README.md                # 本说明文件
+├── model_intruder.py          # 入侵者检测模型定义
+├── train_intruder.py          # 入侵者检测模型训练脚本
+├── test_intruder.py           # 入侵者检测模型测试脚本
+├── example_usage.py           # 使用示例
+├── intruder_data_loader.py    # 数据加载器
+├── README.md                  # 说明文档
+├── identify/                  # 身份识别模型权重文件
+│   └── best_identify_model.pth
+└── outputs/                   # 训练输出文件
+    ├── comprehensive_intruder_detector.pth
+    ├── final_comprehensive_intruder_detector.pth
+    ├── training_curves.png
+    ├── score_distribution.png
+    ├── confusion_matrix_*.png
+    └── test_results.json
 ```
 
-## 使用流程
+## 训练流程
 
-### 1. 训练身份识别模型
+1. 首先确保身份识别模型已训练完成，权重文件位于 `intruder/identify/best_identify_model.pth`
 
-首先训练身份识别模型，该模型将用于识别已知合法用户：
+2. 训练综合入侵者检测模型:
+   ```
+   python train_intruder.py
+   ```
 
-```bash
-python train_identify.py
+## 测试流程
+
+运行测试脚本评估模型性能:
+```
+python test_intruder.py
 ```
 
-训练完成后将生成以下模型文件：
-- `best_intruder_model.pth`：最佳身份识别模型
-- `identity_model_for_intruder.pth`：供入侵者检测器使用的身份识别模型
+## 使用示例
 
-### 2. 训练入侵者检测器
-
-在身份识别模型训练完成后，可以训练入侵者检测器：
-
-```bash
-python train_intruder.py
+查看使用示例了解如何在代码中使用模型:
+```
+python example_usage.py
 ```
 
-训练完成后将生成以下模型文件：
-- `learnable_intruder_detector.pth`：可学习的入侵者检测器（基于传统方法但具有学习能力）
-- `traditional_intruder_detector.pth`：传统的入侵者检测器（基于OpenMax和能量检测）
+## 输出文件
 
-### 3. 测试系统性能
+训练和测试过程会生成以下文件:
 
-使用测试脚本评估系统整体性能：
+- `comprehensive_intruder_detector.pth` - 最佳模型权重
+- `final_comprehensive_intruder_detector.pth` - 最终模型权重
+- `training_curves.png` - 训练曲线图
+- `score_distribution.png` - 决策分数分布图
+- `test_results.json` - 测试结果
+- `confusion_matrix_*.png` - 混淆矩阵图
 
-```bash
-python test.py
-```
+## 模型特点
 
-## 模型架构
+1. **多方法融合**: 结合传统方法和深度学习方法的优势
+2. **可学习参数**: 阈值和检测参数可通过训练优化
+3. **开放集识别**: 能够识别未知的入侵者
+4. **可视化支持**: 提供详细的性能评估和可视化图表
 
-### 身份识别模型 (IntruderDetectionSystem)
+## 使用说明
 
-- **FeatureExtractor**：特征提取器，处理CSI数据并提取128维特征向量
-- **AttentionModule**：注意力模块，增强特征表示
-- **ProjectionHead**：投影头，将特征映射到32维空间用于对比学习
-- **IdentityClassifier**：身份分类器，对已知用户进行身份识别
+1. 确保数据文件已准备就绪
+2. 按顺序运行训练脚本
+3. 使用测试脚本评估模型性能
+4. 查看生成的图表和结果文件
 
-### 入侵者检测模型
+## 模型输入输出
 
-入侵者检测模型有两种实现方式：
+### 输入
+- `features`: 身份识别模型提取的特征向量 (batch_size, feature_dim)
+- `logits`: 身份识别模型的输出logits (batch_size, num_classes)
 
-1. **可学习的入侵者检测器 (LearnableComprehensiveIntruderDetector)**：
-   - 基于传统OpenMax和能量检测方法，但具有可学习的参数
-   - 结合深度学习技术，使传统方法具备学习能力
-   - 利用身份识别模型的源域和目标域特征进行训练
-   - 包含可学习的类别中心、Weibull分布参数、特征变换网络等
-
-2. **传统的入侵者检测器 (ComprehensiveIntruderDetector)**：
-   - 基于OpenMax极值理论
-   - 基于能量检测
-   - 决策融合机制
-
-## 数据集划分
-
-### 身份识别任务
-- **训练集**：源域训练集 + 目标域辅助训练集
-- **验证集**：源域验证集 + 目标域验证集
-- **测试集**：
-  - 合并测试集：源域测试集 + 目标域测试集（用于整体评估）
-  - 源域测试集：仅包含源域数据（用于单独评估源域性能）
-  - 目标域测试集：仅包含目标域数据（用于单独评估目标域性能）
-
-### 入侵者检测任务
-- **训练集**：身份识别训练集 + 模拟入侵者数据
-- **验证集**：身份识别验证集 + 模拟入侵者数据
-- **测试集**：身份识别测试集 + 真实入侵者数据
-
-## 训练策略
-
-### 身份识别模型训练
-
-- 使用对比损失和身份分类损失的组合
-- 采用域适应策略，利用源域和目标域数据
-- 动态调整损失权重
-
-### 入侵者检测器训练
-
-- 可学习的入侵者检测器：利用身份识别模型提取的源域和目标域特征进行训练
-- 传统的入侵者检测器：使用合法用户数据拟合参数
-
-## 性能评估
-
-系统在以下指标上进行评估：
-- 身份识别准确率（分别评估源域和目标域）
-- 入侵者检测准确率、精确率、召回率、F1分数
-- 整体准确率
-
-## 创新点
-
-### 可学习的传统方法
-
-本系统的一个重要创新是将传统的入侵者检测方法（如OpenMax和能量检测）与深度学习相结合，使这些传统模型变成可学习的模型：
-
-1. **LearnableOpenMax**：
-   - 可学习的类别中心
-   - 可学习的Weibull分布参数
-   - 特征变换网络增强特征表示
-   - 注意力机制动态调整类别权重
-   - **域适应模块**：利用源域和目标域身份特征进行训练
-
-2. **LearnableEnergyDetector**：
-   - 可学习的能量计算网络
-   - 特征注意力机制
-   - 神经网络化的能量分数计算
-   - **域适应模块**：处理源域和目标域概率分布
-
-3. **LearnableComprehensiveIntruderDetector**：
-   - 融合网络用于决策融合
-   - 特征增强网络提升检测性能
-   - **域间关系建模**：建模源域和目标域之间的关系
-   - 端到端训练整个检测流程
-
-### 源域和目标域特征利用
-
-可学习的入侵者检测模型充分利用了身份识别模型的源域和目标域特征：
-
-1. **域适应处理**：
-   - 在LearnableOpenMax中，通过拼接源域和目标域特征并进行域适应处理
-   - 在LearnableEnergyDetector中，同时考虑源域和目标域的概率分布
-
-2. **域间关系建模**：
-   - 在LearnableComprehensiveIntruderDetector中，通过域间关系建模模块处理源域和目标域特征的关系
-
-3. **联合训练**：
-   - 训练过程中同时使用源域和目标域数据，提高模型的泛化能力
-
-这种设计既保留了传统方法的优势，又通过深度学习增强了其适应性和准确性，同时充分利用了身份识别模型的源域和目标域特征。
-
-## 注意事项
-
-1. 确保数据文件路径正确
-2. 训练身份识别模型是训练入侵者检测器的前提
-3. 可以根据实际需求调整模型超参数
+### 输出
+- `predictions`: 入侵者检测预测结果 (0=合法用户, 1=入侵者)
+- `fusion_weights`: 融合后的检测置信度
+- 各子检测器的详细输出结果
