@@ -10,7 +10,7 @@ class IntruderDetectionDataset(Dataset):
     def __init__(self, data, labels, identity_labels=None):
         self.data = data
         self.labels = labels  # 二分类标签：0-合法用户，1-入侵者
-        self.identity_labels = identity_labels  # 身份标签：0-9表示合法用户ID，None表示入侵者
+        self.identity_labels = identity_labels  # 身份标签：0-9表示合法用户ID，-1表示入侵者
         
     def __len__(self):
         return len(self.data)
@@ -31,14 +31,6 @@ class IntruderDetectionDataset(Dataset):
             label = torch.tensor(label, dtype=torch.long)
         elif label.dtype != torch.long:
             label = label.long()
-            
-        # 添加数据标准化
-        # 对数据进行归一化处理，使其均值为0，标准差为1
-        if data.numel() > 0:  # 确保数据不为空
-            mean = data.mean()
-            std = data.std()
-            if std > 0:
-                data = (data - mean) / (std + 1e-8)
             
         # 处理身份标签
         if self.identity_labels is not None:
@@ -97,8 +89,8 @@ def load_intruder_data():
     real_intruder_data = torch.cat(intruder_data_list, dim=0)
     # 真实入侵者标签为1
     real_intruder_labels = torch.full((real_intruder_data.size(0),), 1, dtype=torch.long)
-    # 真实入侵者没有身份标签
-    real_intruder_identity_labels = [None] * real_intruder_data.size(0)
+    # 真实入侵者身份标签为-1
+    real_intruder_identity_labels = torch.full((real_intruder_data.size(0),), -1, dtype=torch.long)
 
     print(f"真实入侵者数据形状: {real_intruder_data.shape}")
     print(f"真实入侵者标签形状: {real_intruder_labels.shape}")
@@ -234,8 +226,8 @@ def load_intruder_data():
     simulated_intruder_data = torch.cat(simulated_intruder_list, dim=0)
     # 模拟入侵者标签为1
     simulated_intruder_labels = torch.full((total_simulated_intruders,), 1, dtype=torch.long)
-    # 模拟入侵者没有身份标签
-    simulated_intruder_identity_labels = [None] * total_simulated_intruders
+    # 模拟入侵者身份标签为-1
+    simulated_intruder_identity_labels = torch.full((total_simulated_intruders,), -1, dtype=torch.long)
 
     print(f"\n-------------------------------------------------------")
     print(f"总共生成模拟入侵者数据形状: {simulated_intruder_data.shape}")
@@ -260,16 +252,15 @@ def load_intruder_data():
 
     sim_train_data = simulated_intruder_data[sim_train_indices]
     sim_train_labels = simulated_intruder_labels[sim_train_indices]
-    sim_train_identity_labels = [None] * len(sim_train_indices)
+    sim_train_identity_labels = simulated_intruder_identity_labels[sim_train_indices]
     sim_val_data = simulated_intruder_data[sim_val_indices]
     sim_val_labels = simulated_intruder_labels[sim_val_indices]
-    sim_val_identity_labels = [None] * len(sim_val_indices)
+    sim_val_identity_labels = simulated_intruder_identity_labels[sim_val_indices]
 
     # 入侵者检测训练集：合法用户训练数据 + 模拟入侵者训练数据（合法用户:模拟入侵者 = 10:1）
     intruder_train_data = torch.cat([legal_train_data, sim_train_data], dim=0)
     intruder_train_labels = torch.cat([legal_train_labels, sim_train_labels], dim=0)
-    intruder_train_identity_labels = torch.cat([legal_train_identity_labels, 
-                                               torch.tensor([-1]*len(sim_train_labels), dtype=torch.long)], dim=0)
+    intruder_train_identity_labels = torch.cat([legal_train_identity_labels, sim_train_identity_labels], dim=0)
 
     # 打乱入侵者检测训练集数据
     intruder_train_indices = np.random.permutation(len(intruder_train_data))
@@ -285,8 +276,7 @@ def load_intruder_data():
     # 入侵者检测验证集：合法用户验证数据 + 模拟入侵者验证数据（合法用户:模拟入侵者 = 10:1）
     intruder_val_data = torch.cat([legal_val_data, sim_val_data], dim=0)
     intruder_val_labels = torch.cat([legal_val_labels, sim_val_labels], dim=0)
-    intruder_val_identity_labels = torch.cat([legal_val_identity_labels, 
-                                             torch.tensor([-1]*len(sim_val_labels), dtype=torch.long)], dim=0)
+    intruder_val_identity_labels = torch.cat([legal_val_identity_labels, sim_val_identity_labels], dim=0)
 
     # 打乱入侵者检测验证集数据
     intruder_val_indices = np.random.permutation(len(intruder_val_data))
@@ -303,8 +293,7 @@ def load_intruder_data():
     # 入侵者检测测试集只使用目标域测试集数据（合法用户）+ 真实入侵者数据
     intruder_test_data = torch.cat([target_test_data, real_intruder_data], dim=0)
     intruder_test_labels = torch.cat([target_test_labels, real_intruder_labels], dim=0)
-    intruder_test_identity_labels = torch.cat([target_test_identity_labels, 
-                                              torch.tensor([-1]*len(real_intruder_labels), dtype=torch.long)], dim=0)
+    intruder_test_identity_labels = torch.cat([target_test_identity_labels, real_intruder_identity_labels], dim=0)
 
     # 打乱入侵者检测测试集数据
     intruder_test_indices = np.random.permutation(len(intruder_test_data))

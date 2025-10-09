@@ -87,10 +87,13 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
             # 使用综合入侵者检测器
             detector_outputs = model(features, logits, identity_labels)
             predictions = detector_outputs['predictions']
+            probabilities = detector_outputs['probabilities']
 
             # 确保预测结果和标签维度一致
             if predictions.dim() == 0:
                 predictions = predictions.unsqueeze(0)
+            if probabilities.dim() == 0:
+                probabilities = probabilities.unsqueeze(0)
 
             # 收集预测结果和真实标签
             all_predictions.extend(predictions.cpu().numpy())
@@ -357,19 +360,27 @@ def train_intruder_detector(model_path, output_path, device):
     # 初始化综合入侵者检测器（二分类模型）
     comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=128).to(device)
     
-    # 设置优化器，使用余弦退火学习率调度器
-    optimizer = torch.optim.Adam(comprehensive_detector.parameters(), lr=1e-4, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
+    # 设置优化器，使用更稳定的学习率和权重衰减
+    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=1e-3, weight_decay=1e-4)  # 调整学习率和权重衰减
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)  # 使用StepLR替代ReduceLROnPlateau
     
-    # 损失函数 - 使用BCELoss进行二分类
-    bce_criterion = torch.nn.BCELoss()
+    # 损失函数 - 使用带权重的BCEWithLogitsLoss处理类别不平衡问题
+    # 计算正负样本权重
+    train_dataset = datasets['intruder_train']
+    total_samples = len(train_dataset)
+    positive_samples = sum(1 for _, label, _ in train_dataset if label == 1)
+    negative_samples = total_samples - positive_samples
+
+    pos_weight = torch.tensor([negative_samples / positive_samples], device=device)
+    bce_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    print(f"数据集统计: 总样本数={total_samples}, 正样本数={positive_samples}, 负样本数={negative_samples}, 正负样本权重={pos_weight.item():.2f}")
 
     comprehensive_detector.train()
     
     num_epochs = 100
     best_f1_score = 0.0  # 基于F1分数进行早停
     early_stop_counter = 0
-    patience = 20  # 早停耐心值
+    patience = 40  # 增加早停耐心值
     
     # 记录训练历史
     train_losses = []
@@ -380,6 +391,8 @@ def train_intruder_detector(model_path, output_path, device):
         total_loss = 0.0
         correct = 0
         total = 0
+        positive_predictions = 0  # 记录正类预测数量
+        positive_labels = 0  # 记录实际正类数量
         
         batch_count = 0
         
@@ -403,27 +416,45 @@ def train_intruder_detector(model_path, output_path, device):
 
             # 使用综合入侵者检测器进行检测
             detector_outputs = comprehensive_detector(features, logits, identity_labels)
-            probabilities = detector_outputs['probabilities']
+            output_logits = detector_outputs['logits']  # 使用logits而不是probabilities
 
             # 计算损失
-            classification_loss = bce_criterion(probabilities, labels)
+            classification_loss = bce_criterion(output_logits, labels)
+            
+            # 添加L2正则化
+            l2_reg = torch.tensor(0., device=device)
+            for param in comprehensive_detector.parameters():
+                l2_reg += torch.norm(param)
+            total_loss_with_reg = classification_loss + 1e-4 * l2_reg  # 添加正则化项
             
             # 反向传播和优化
-            classification_loss.backward()
+            total_loss_with_reg.backward()
+            
+            # 使用梯度裁剪
             torch.nn.utils.clip_grad_norm_(comprehensive_detector.parameters(), max_norm=1.0)
             optimizer.step()
             
             total_loss += classification_loss.item()
             batch_count += 1
             
-            # 统计准确率
-            predicted_labels = (probabilities > 0.5).float()  # 使用float类型进行比较
-            correct += (predicted_labels == labels).sum().item()
-            total += labels.size(0)
+            # 统计准确率和正类预测数量
+            with torch.no_grad():
+                probabilities = torch.sigmoid(output_logits)
+                predicted_labels = (probabilities > 0.5).float()  # 使用float类型进行比较
+                correct += (predicted_labels == labels).sum().item()
+                positive_predictions += predicted_labels.sum().item()
+                positive_labels += labels.sum().item()
+                total += labels.size(0)
         
-        # 计算训练准确率
+        # 计算训练准确率和正类预测比例
         train_accuracy = correct / total if total > 0 else 0.0
-        train_losses.append(total_loss / batch_count if batch_count > 0 else 0)
+        positive_prediction_ratio = positive_predictions / total if total > 0 else 0.0
+        positive_label_ratio = positive_labels / total if total > 0 else 0.0
+        avg_loss = total_loss / batch_count if batch_count > 0 else 0
+        train_losses.append(avg_loss)
+        
+        # 更新学习率
+        scheduler.step()
         
         # 在每个epoch后测试入侵者检测器性能
         val_accuracy, val_f1, val_precision, val_recall = validate_intruder_detector(
@@ -435,13 +466,9 @@ def train_intruder_detector(model_path, output_path, device):
         val_metrics.append((val_accuracy, val_f1, val_precision, val_recall))
         test_metrics.append((test_accuracy, test_f1, test_precision, test_recall))
 
-        print(f'Epoch [{epoch+1}/{num_epochs}], 训练准确率: {train_accuracy:.4f}')
-        print(f'  验证集 - 准确率: {val_accuracy:.4f}, F1: {val_f1:.4f}, 精确率: {val_precision:.4f}, 召回率: {val_recall:.4f}')
-        print(f'  测试集 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}')
-        print(f'  训练损失: {total_loss/batch_count:.4f}, 当前学习率: {scheduler.get_last_lr()[0]:.6f}')
-
-        # 更新学习率
-        scheduler.step()
+        # 简化输出信息，只显示损失、学习率、验证集和测试集的准确率
+        print(f'Epoch [{epoch+1}/{num_epochs}], 损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
+        print(f'  验证集准确率: {val_accuracy:.4f}, 测试集准确率: {test_accuracy:.4f}')
 
         # 保存最佳模型（基于验证集F1分数）
         if val_f1 > best_f1_score:
@@ -459,7 +486,8 @@ def train_intruder_detector(model_path, output_path, device):
             print(f'  保存最佳模型 (验证集F1分数: {best_f1_score:.4f})')
         else:
             early_stop_counter += 1
-            print(f'  早停计数器: {early_stop_counter}/{patience}')
+            if early_stop_counter % 5 == 0:  # 每5个epoch显示一次早停计数器
+                print(f'  早停计数器: {early_stop_counter}/{patience}')
             
         # 早停检查
         if early_stop_counter >= patience:
@@ -487,8 +515,8 @@ def train_intruder_detector(model_path, output_path, device):
     torch.save({
         'model_state_dict': comprehensive_detector.state_dict(),
         'best_f1_score': best_f1_score,
-    }, 'intruder/final_comprehensive_intruder_detector.pth')
-    print("最终模型已保存到 intruder/final_comprehensive_intruder_detector.pth")
+    }, 'intruder/final_intruder_detector.pth')
+    print("最终模型已保存到 intruder/final_intruder_detector.pth")
 
 
 def main():
@@ -508,7 +536,7 @@ def main():
     
     # 模型路径
     model_path = "identify/best_identify_model.pth"  # 身份识别训练好的模型
-    output_path = "intruder/comprehensive_intruder_detector.pth"
+    output_path = "intruder/best_intruder_detector.pth"
 
     # 训练入侵者检测器
     train_intruder_detector(model_path, output_path, device)
