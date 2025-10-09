@@ -1,4 +1,4 @@
-# attention.py
+# model_ATT.py
 import torch
 import torch.nn as nn
 

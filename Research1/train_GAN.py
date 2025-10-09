@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
 # 导入必要的模块
-from model import build_model
-from pre_process.dataloder_GAN import CustomDataset, select_samples_by_label
-from loss import kl_divergence_loss, feature_matching_loss, discriminator_loss
+from Research1.model_GAN import build_model
+from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
+from Research1.loss_GAN import kl_divergence_loss, feature_matching_loss, discriminator_loss
 
 
 def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G, optimizer_D,
@@ -397,7 +397,7 @@ if __name__ == "__main__":
     target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
     # 开始训练
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='best_model.pth', epochs=100, lr=0.001)
+    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr=0.001)
 
     # 合并并保存数据
     output_dir = '../data/TargetData_hat'

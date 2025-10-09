@@ -282,7 +282,7 @@ def plot_training_curves(train_losses, val_metrics, test_metrics):
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig('intruder/training_curves.png')
+    plt.savefig('Research2/training_curves.png')
     plt.close()
 
 
@@ -333,7 +333,7 @@ def plot_score_distribution(scores, labels):
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig('intruder/score_distribution.png')
+    plt.savefig('Research2/score_distribution.png')
     plt.close()
 
 
@@ -498,7 +498,7 @@ def train_intruder_detector(model_path, output_path, device):
     
     # 绘制训练曲线
     plot_training_curves(train_losses, val_metrics, test_metrics)
-    print("训练曲线已保存到 intruder/training_curves.png")
+    print("训练曲线已保存到 Research2/training_curves.png")
 
     # 在测试集上进行最终评估并绘制分数分布图
     test_accuracy, test_f1, test_precision, test_recall, test_scores = test_intruder_detector(
@@ -509,14 +509,14 @@ def train_intruder_detector(model_path, output_path, device):
     # 绘制决策分数分布图
     _, _, test_labels, _ = extract_features(identity_model, data_loaders['intruder_test'], device)
     plot_score_distribution(test_scores, test_labels)
-    print("决策分数分布图已保存到 intruder/score_distribution.png")
+    print("决策分数分布图已保存到 Research2/score_distribution.png")
 
     # 保存最终模型
     torch.save({
         'model_state_dict': comprehensive_detector.state_dict(),
         'best_f1_score': best_f1_score,
     }, 'intruder/final_intruder_detector.pth')
-    print("最终模型已保存到 intruder/final_intruder_detector.pth")
+    print("最终模型已保存到 Research2/final_intruder_detector.pth")
 
 
 def main():

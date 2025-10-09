@@ -1,9 +1,9 @@
 # train_identify.py
 import torch
 import torch.optim as optim
-from attention import CrossAttentionModel
-from loss import LossFunction
-from pre_process.dataloder_ATT import source_loader, target_loader
+from model_ATT import CrossAttentionModel
+from loss_ATT import LossFunction
+from Research1.dataloder_ATT import source_loader, target_loader
 import matplotlib.pyplot as plt
 import os
 
@@ -190,7 +190,7 @@ def main():
 
     num_epochs = 100  # 增加训练轮数
     best_accuracy = 0.0
-    best_model_path = "models/best_cross_attention_model.pth"
+    best_model_path = "Attention/best_attention_model.pth"
     
     # 早停参数
     patience = 15
@@ -279,11 +279,11 @@ def main():
     if not os.path.exists("results"):
         os.makedirs("results")
     
-    plt.savefig("results/improved_training_curves.png", dpi=300, bbox_inches='tight')
+    plt.savefig("Attention/Attention_training_curves.png", dpi=300, bbox_inches='tight')
     plt.show()
 
     print(f"训练完成。最佳准确率: {best_accuracy:.4f}")
-    print(f"曲线已保存到 results/improved_training_curves.png")
+    print(f"曲线已保存到 Attention/Attention_training_curves.png")
 
 
 if __name__ == "__main__":
