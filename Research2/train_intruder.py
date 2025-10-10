@@ -1,16 +1,11 @@
 import torch
 import numpy as np
 import os
-import matplotlib.pyplot as plt
+import json
 from model_identify import IdentifyDetectionSystem
 from model_intruder import LearnableComprehensiveIntruderDetector
 from intruder_data_loader import load_intruder_data, create_intruder_data_loaders
 from sklearn.metrics import f1_score, precision_score, recall_score
-
-# 设置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'FangSong', 'Microsoft YaHei', 'Arial Unicode MS']
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
-
 
 def extract_features(model, data_loader, device):
     """
@@ -205,136 +200,19 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     
     return accuracy, f1, precision, recall, all_scores
 
-
-def plot_training_curves(train_losses, val_metrics, test_metrics):
+def save_training_history(train_losses, val_metrics, test_metrics, file_path):
     """
-    绘制训练曲线
+    保存训练历史数据到JSON文件
     """
-    epochs = range(1, len(train_losses) + 1)
+    history = {
+        'train_losses': train_losses,
+        'val_metrics': val_metrics,  # (accuracy, f1, precision, recall)
+        'test_metrics': test_metrics  # (accuracy, f1, precision, recall)
+    }
     
-    plt.figure(figsize=(15, 10))
-    
-    # 绘制训练损失曲线
-    plt.subplot(2, 3, 1)
-    plt.plot(epochs, train_losses, 'b-', label='训练损失', marker='o')
-    plt.title('训练损失变化')
-    plt.xlabel('训练轮数')
-    plt.ylabel('损失')
-    plt.legend()
-    plt.grid(True)
-    
-    # 绘制验证集指标曲线
-    val_accuracies = [m[0] for m in val_metrics]
-    val_f1_scores = [m[1] for m in val_metrics]
-    val_precisions = [m[2] for m in val_metrics]
-    val_recalls = [m[3] for m in val_metrics]
-    
-    plt.subplot(2, 3, 2)
-    plt.plot(epochs, val_accuracies, 'g-', label='验证集准确率', marker='s')
-    plt.plot(epochs, val_f1_scores, 'r-', label='验证集F1分数', marker='^')
-    plt.title('验证集性能指标')
-    plt.xlabel('训练轮数')
-    plt.ylabel('指标值')
-    plt.legend()
-    plt.grid(True)
-    
-    # 绘制测试集指标曲线
-    test_accuracies = [m[0] for m in test_metrics]
-    test_f1_scores = [m[1] for m in test_metrics]
-    test_precisions = [m[2] for m in test_metrics]
-    test_recalls = [m[3] for m in test_metrics]
-    
-    plt.subplot(2, 3, 3)
-    plt.plot(epochs, test_accuracies, 'g--', label='测试集准确率', marker='s')
-    plt.plot(epochs, test_f1_scores, 'r--', label='测试集F1分数', marker='^')
-    plt.title('测试集性能指标')
-    plt.xlabel('训练轮数')
-    plt.ylabel('指标值')
-    plt.legend()
-    plt.grid(True)
-    
-    # 分别绘制各项指标
-    plt.subplot(2, 3, 4)
-    plt.plot(epochs, val_precisions, 'b-', label='验证集精确率', marker='o')
-    plt.plot(epochs, test_precisions, 'b--', label='测试集精确率', marker='s')
-    plt.title('精确率变化')
-    plt.xlabel('训练轮数')
-    plt.ylabel('精确率')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.subplot(2, 3, 5)
-    plt.plot(epochs, val_recalls, 'm-', label='验证集召回率', marker='o')
-    plt.plot(epochs, test_recalls, 'm--', label='测试集召回率', marker='s')
-    plt.title('召回率变化')
-    plt.xlabel('训练轮数')
-    plt.ylabel('召回率')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.subplot(2, 3, 6)
-    plt.plot(epochs, val_f1_scores, 'c-', label='验证集F1分数', marker='o')
-    plt.plot(epochs, test_f1_scores, 'c--', label='测试集F1分数', marker='s')
-    plt.title('F1分数变化')
-    plt.xlabel('训练轮数')
-    plt.ylabel('F1分数')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('Research2/training_curves.png')
-    plt.close()
-
-
-def plot_score_distribution(scores, labels):
-    """
-    绘制决策分数分布图
-    """
-    plt.figure(figsize=(12, 8))
-    
-    # 分离合法用户和入侵者的分数
-    legal_scores = scores[labels == 0]
-    intruder_scores = scores[labels == 1]
-    
-    # 绘制合法用户分数分布
-    plt.subplot(2, 2, 1)
-    plt.hist(legal_scores, bins=50, alpha=0.7, label='合法用户', color='blue')
-    plt.xlabel('决策分数')
-    plt.ylabel('频次')
-    plt.title('合法用户决策分数分布')
-    plt.legend()
-    plt.grid(True)
-    
-    # 绘制入侵者分数分布
-    plt.subplot(2, 2, 2)
-    plt.hist(intruder_scores, bins=50, alpha=0.7, label='入侵者', color='red')
-    plt.xlabel('决策分数')
-    plt.ylabel('频次')
-    plt.title('入侵者决策分数分布')
-    plt.legend()
-    plt.grid(True)
-    
-    # 绘制对比图
-    plt.subplot(2, 2, 3)
-    plt.hist(legal_scores, bins=50, alpha=0.7, label='合法用户', color='blue')
-    plt.hist(intruder_scores, bins=50, alpha=0.7, label='入侵者', color='red')
-    plt.xlabel('决策分数')
-    plt.ylabel('频次')
-    plt.title('决策分数对比')
-    plt.legend()
-    plt.grid(True)
-    
-    # 绘制箱线图
-    plt.subplot(2, 2, 4)
-    data = [legal_scores, intruder_scores]
-    plt.boxplot(data, labels=['合法用户', '入侵者'])
-    plt.ylabel('决策分数')
-    plt.title('决策分数箱线图')
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('Research2/score_distribution.png')
-    plt.close()
+    with open(file_path, 'w') as f:
+        json.dump(history, f, indent=2)
+    print(f"训练历史已保存到 {file_path}")
 
 
 def train_intruder_detector(model_path, output_path, device):
@@ -496,27 +374,21 @@ def train_intruder_detector(model_path, output_path, device):
     
     print(f"训练完成! 最佳验证集F1分数: {best_f1_score:.4f}")
     
-    # 绘制训练曲线
-    plot_training_curves(train_losses, val_metrics, test_metrics)
-    print("训练曲线已保存到 Research2/training_curves.png")
-
-    # 在测试集上进行最终评估并绘制分数分布图
+    # 保存训练历史
+    save_training_history(train_losses, val_metrics, test_metrics, 'intruder/training_history.json')
+    
+    # 在测试集上进行最终评估
     test_accuracy, test_f1, test_precision, test_recall, test_scores = test_intruder_detector(
         comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
 
     print(f"最终测试结果 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}")
-
-    # 绘制决策分数分布图
-    _, _, test_labels, _ = extract_features(identity_model, data_loaders['intruder_test'], device)
-    plot_score_distribution(test_scores, test_labels)
-    print("决策分数分布图已保存到 Research2/score_distribution.png")
 
     # 保存最终模型
     torch.save({
         'model_state_dict': comprehensive_detector.state_dict(),
         'best_f1_score': best_f1_score,
     }, 'intruder/final_intruder_detector.pth')
-    print("最终模型已保存到 Research2/final_intruder_detector.pth")
+    print("最终模型已保存到 intruder/final_intruder_detector.pth")
 
 
 def main():

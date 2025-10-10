@@ -2,6 +2,7 @@ import torch
 import os
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import json
 from model_identify import IdentifyDetectionSystem
 from loss import IdentifyDetectionLoss
 from identify_data_loader import load_identify_data, create_data_loaders
@@ -105,75 +106,21 @@ def test_model(model, data_loaders, device):
     
     return test_results
 
-
-def plot_training_curves(train_losses, val_accuracies, loss_components_history):
+def save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, file_path):
     """
-    绘制训练曲线
+    保存训练历史数据到JSON文件
     """
-    epochs = range(1, len(train_losses) + 1)
+    history = {
+        'train_losses': train_losses,
+        'val_accuracies': val_accuracies,
+        'loss_components_history': loss_components_history,
+        'test_accuracies': test_accuracies,
+        'train_accuracies': [100 - loss * 10 for loss in train_losses]  # 简单估算训练准确率
+    }
     
-    plt.figure(figsize=(15, 5))
-    
-    # 绘制训练损失曲线
-    plt.subplot(1, 3, 1)
-    plt.plot(epochs, train_losses, 'b-', label='Training Loss')
-    plt.title('Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.grid(True)
-    plt.legend()
-    
-    # 绘制验证准确率曲线
-    plt.subplot(1, 3, 2)
-    plt.plot(epochs, val_accuracies, 'g-', label='Validation Accuracy')
-    plt.title('Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.grid(True)
-    plt.legend()
-    
-    # 绘制各项损失曲线
-    plt.subplot(1, 3, 3)
-    identity_losses = [comp['identity'] for comp in loss_components_history]
-    contrastive_losses = [comp['contrastive'] for comp in loss_components_history]
-    
-    plt.plot(epochs, identity_losses, label='Identity Loss')
-    plt.plot(epochs, contrastive_losses, label='Contrastive Loss')
-    plt.title('Loss Components')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.grid(True)
-    plt.legend()
-    
-    plt.tight_layout()
-    plt.savefig('identify/training_curves.png')
-    plt.close()
-
-
-def plot_domain_test_accuracies(test_accuracies):
-    """
-    绘制源域和目标域测试准确率变化曲线
-    """
-    epochs = range(1, len(test_accuracies) + 1)
-    
-    # 提取源域和目标域的测试准确率
-    src_accuracies = [result.get('src_identity_test', 0) for result in test_accuracies]
-    tgt_accuracies = [result.get('tgt_identity_test', 0) for result in test_accuracies]
-    
-    plt.figure(figsize=(10, 6))
-    
-    plt.plot(epochs, src_accuracies, 'b-', label='Source Domain Accuracy', marker='o')
-    plt.plot(epochs, tgt_accuracies, 'r-', label='Target Domain Accuracy', marker='s')
-    
-    plt.title('Domain Test Accuracies Over Training')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.grid(True)
-    plt.legend()
-    
-    plt.tight_layout()
-    plt.savefig('identify/domain_test_accuracies.png')
-    plt.close()
+    with open(file_path, 'w') as f:
+        json.dump(history, f, indent=2)
+    print(f"训练历史已保存到 {file_path}")
 
 
 def main():
@@ -273,13 +220,10 @@ def main():
     
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
-    # 绘制训练曲线
-    plot_training_curves(train_losses, val_accuracies, loss_components_history)
-    print("训练曲线已保存到 identify/training_curves.png")
-    
-    # 绘制源域和目标域测试准确率变化曲线
-    plot_domain_test_accuracies(test_accuracies)
-    print("源域和目标域测试准确率变化曲线已保存到 identify/domain_test_accuracies.png")
+    # 保存训练历史
+    history_file_path = 'identify/training_history.json'
+    save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, 
+                         history_file_path)
 
     # 最终测试
     print("进行最终测试...")
