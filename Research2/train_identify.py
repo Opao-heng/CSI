@@ -4,8 +4,8 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import json
 from model_identify import IdentifyDetectionSystem
-from loss import IdentifyDetectionLoss
-from identify_data_loader import load_identify_data, create_data_loaders
+from loss_identify import IdentifyDetectionLoss
+from dataloader_identify import load_identify_data, create_data_loaders
 
 
 def train_epoch(model, source_loader, target_loader, criterion, optimizer, device, epoch):
