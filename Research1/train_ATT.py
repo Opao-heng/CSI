@@ -8,47 +8,30 @@ from plot_ATT import plot_training_curves, save_training_history
 import os
 
 """
-设备配置：根据系统可用资源自动选择GPU或CPU
-"""
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-"""
-全局变量初始化：用于记录训练过程中的损失和准确率数据
-"""
-train_losses = []  # 训练损失记录
-test_losses = []   # 测试损失记录
-test_accuracies = []  # 测试准确率记录
-
-"""
-函数: train_epoch
-
-功能: 执行一个完整的训练周期，对模型进行源域和目标域的联合训练
-
+执行一个完整的训练周期，对模型进行源域和目标域的联合训练
 参数:
-  model: CrossAttentionModel - 跨域注意力模型
-  dataloader_source: DataLoader - 源域数据加载器
-  dataloader_target: DataLoader - 目标域数据加载器
-  criterion: LossFunction - 损失函数对象
-  optimizer: torch.optim.Optimizer - 优化器
-  scheduler: torch.optim.lr_scheduler (可选) - 学习率调度器，默认为None
-
-返回值:
+  model - CrossAttentionModel 跨域注意力模型
+  dataloader_source - DataLoader 源域数据加载器
+  dataloader_target - DataLoader 目标域数据加载器
+  criterion - LossFunction 损失函数对象
+  optimizer - torch.optim.Optimizer 优化器
+  scheduler - torch.optim.lr_scheduler 学习率调度器（可选），默认为None
+返回: tuple - (avg_loss, loss_components)
   avg_loss: float - 平均总损失
   loss_components: dict - 各类损失组成部分的字典
 """
 def train_epoch(model, dataloader_source, dataloader_target, criterion, optimizer, scheduler=None):
-    # 设置模型为训练模式
+    # 步骤1: 设置模型为训练模式
     model.train()
     total_loss = 0.0
     loss_components = {'source': 0.0, 'target': 0.0, 'cross_feature': 0.0, 'consistency': 0.0}
     
-    # 步骤1: 初始化数据加载器迭代器
+    # 步骤2: 初始化数据加载器迭代器
     max_batches = max(len(dataloader_source), len(dataloader_target))
     source_iter = iter(dataloader_source)
     target_iter = iter(dataloader_target)
     
-    # 步骤2: 遍历所有批次
+    # 步骤3: 遍历所有批次
     for batch_idx in range(max_batches):
         # 获取源域数据（支持循环迭代）
         try:
@@ -64,61 +47,54 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
             target_iter = iter(dataloader_target)
             tgt_data, tgt_labels = next(target_iter)
             
-        # 处理批次大小不一致：取两个批次中较小的大小
+        # 步骤4: 处理批次大小不一致，取较小的大小
         min_batch_size = min(src_data.size(0), tgt_data.size(0))
         src_data, src_labels = src_data[:min_batch_size], src_labels[:min_batch_size]
         tgt_data, tgt_labels = tgt_data[:min_batch_size], tgt_labels[:min_batch_size]
         
-        # 将数据移到指定设备
+        # 步骤5: 将数据移到指定设备
         src_data, src_labels = src_data.to(device), src_labels.to(device)
         tgt_data, tgt_labels = tgt_data.to(device), tgt_labels.to(device)
 
-        # 步骤3: 梯度清零
+        # 步骤6: 梯度清零
         optimizer.zero_grad()
 
-        # 步骤4: 前向传播（包含错误处理）
-        try:
-            pred_s, pred_t, F_s, F_t, F_c = model(src_data, tgt_data)
-        except Exception as e:
-            print(f"\n模型前向传播错误 (batch {batch_idx}):")
-            print(f"  源域数据形状: {src_data.shape}")
-            print(f"  目标域数据形状: {tgt_data.shape}")
-            print(f"  错误信息: {e}")
-            raise e
+        # 步骤7: 前向传播
+        pred_s, pred_t, F_s, F_t, F_c = model(src_data, tgt_data)
 
-        # 步骤5: 计算各项损失
+        # 步骤8: 计算各项损失
         ls = criterion.source_loss(pred_s, src_labels)  # 源域分类损失
         lt = criterion.target_loss(pred_t, tgt_labels)  # 目标域分类损失
         lsf = criterion.cross_feature_loss(F_s, F_t)   # 跨域特征对齐损失
         lc = criterion.consistency_loss(F_s, F_c)      # 一致性损失
 
-        # 步骤6: 加权组合损失
+        # 步骤9: 加权组合损失
         loss = (criterion.alpha * ls + 
                criterion.beta * lt + 
                criterion.gamma * lsf + 
                criterion.delta * lc)
                
-        # 步骤7: 反向传播
+        # 步骤10: 反向传播
         loss.backward()
         
         # 梯度裁剪防止梯度爆炸
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
-        # 步骤8: 参数更新
+        # 步骤11: 参数更新
         optimizer.step()
         
         # 学习率调度更新
         if scheduler:
             scheduler.step()
 
-        # 步骤9: 损失累积
+        # 步骤12: 损失累积
         total_loss += loss.item()
         loss_components['source'] += ls.item()
         loss_components['target'] += lt.item()
         loss_components['cross_feature'] += lsf.item()
         loss_components['consistency'] += lc.item()
 
-    # 步骤10: 计算平均损失
+    # 步骤13: 计算平均损失
     avg_loss = total_loss / max_batches
     for key in loss_components:
         loss_components[key] = loss_components[key] / max_batches
@@ -127,48 +103,44 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
 
 
 """
-函数: test_model
-
-功能: 在目标域数据集上评估模型性能，计算损失和准确率
-
+在目标域数据集上评估模型性能，计算损失和准确率
 参数:
-  model: CrossAttentionModel - 跨域注意力模型
-  dataloader_source: DataLoader - 源域数据加载器（此函数中未使用）
-  dataloader_target: DataLoader - 目标域数据加载器
-  criterion: LossFunction - 损失函数对象
-
-返回值:
+  model - CrossAttentionModel 跨域注意力模型
+  dataloader_source - DataLoader 源域数据加载器（此函数中未使用）
+  dataloader_target - DataLoader 目标域数据加载器
+  criterion - LossFunction 损失函数对象
+返回: tuple - (avg_loss, accuracy)
   avg_loss: float - 目标域平均损失
   accuracy: float - 目标域准确率 (0-1之间)
 """
 def test_model(model, dataloader_source, dataloader_target, criterion):
-    # 设置模型为评估模式（禁用dropout等）
+    # 步骤1: 设置模型为评估模式（禁用dropout等）
     model.eval()
     total_loss = 0.0
     correct = 0
     total = 0
 
-    # 禁用梯度计算提高效率
+    # 步骤2: 禁用梯度计算提高效率
     with torch.no_grad():
-        # 遍历目标域数据
+        # 步骤3: 遍历目标域数据
         for tgt_batch in dataloader_target:
             tgt_data, tgt_labels = tgt_batch
             tgt_data, tgt_labels = tgt_data.to(device), tgt_labels.to(device)
 
-            # 模型前向传播（源域输入为零张量）
+            # 步骤4: 模型前向传播（源域输入为零张量）
             _, pred_t, _, _, _ = model(torch.zeros_like(tgt_data).to(device), tgt_data)
 
-            # 计算目标域损失
+            # 步骤5: 计算目标域损失
             loss = criterion.target_loss(pred_t, tgt_labels)
             total_loss += loss.item()
 
-            # 计算准确率
+            # 步骤6: 计算准确率
             pred_t_prob = torch.softmax(pred_t, dim=1)
             _, predicted = torch.max(pred_t_prob, 1)
             total += tgt_labels.size(0)
             correct += (predicted == tgt_labels).sum().item()
 
-    # 计算平均指标
+    # 步骤7: 计算平均指标
     accuracy = correct / total
     avg_loss = total_loss / len(dataloader_target)
 
@@ -176,24 +148,20 @@ def test_model(model, dataloader_source, dataloader_target, criterion):
 
 
 """
-函数: save_best_model
-
-功能: 保存最佳模型权重和训练信息到指定路径
-
+保存最佳模型权重和训练信息到指定路径
 参数:
-  model: torch.nn.Module - 待保存的模型
-  path: str - 模型保存路径
-  accuracy: float - 当前模型的准确率
-  epoch: int - 当前训练轮数
-
-返回值: 无
+  model - torch.nn.Module 待保存的模型
+  path - str 模型保存路径
+  accuracy - float 当前模型的准确率
+  epoch - int 当前训练轮数
+返回: 无返回值
 """
 def save_best_model(model, path, accuracy, epoch):
-    # 创建保存路径目录（若不存在）
+    # 步骤1: 创建保存路径目录（若不存在）
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     
-    # 保存模型状态字典和元信息
+    # 步骤2: 保存模型状态字典和元信息
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
@@ -203,42 +171,46 @@ def save_best_model(model, path, accuracy, epoch):
 
 
 """
-函数: main
-功能: 主训练函数，组织完整的模型初始化、训练、验证和评估流程
+主训练函数，完整的模型初始化、训练、验证和评估流程
 工作流程:
-  1. 模型初始化和结构测试
-  2. 损失函数、优化器、学习率调度器配置
-  3. 数据加载器有效性验证
-  4. 训练循环：前向传播 -> 损失计算 -> 反向传播 -> 参数更新
-  5. 性能评估和最佳模型保存
-  6. 训练曲线可视化和绘制
+  1. 加载源域和目标域数据
+  2. 模型初始化和结构配置
+  3. 损失函数、优化器、学习率调度器配置
+  4. 数据加载器创建
+  5. 训练循环：前向传播 -> 损失计算 -> 反向传播 -> 参数更新
+  6. 性能评估和最佳模型保存
+  7. 训练曲线可视化和数据保存
 """
 if __name__ == "__main__":
 
-    # 加载数据文件示例
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # 步骤1: 加载数据文件
+    print("加载 Attention 数据文件...")
     source_data = torch.load('Data/source_env0_env1_data.pt')
     source_labels = torch.load('Data/source_env0_env1_labels.pt')
     target_data = torch.load('Data/target_env2_gan_data.pt')
     target_labels = torch.load('Data/target_env2_gan_labels.pt')
 
-    # 查看数据形状
+    # 步骤2: 查看数据形状
     print(f"Source data shape: {source_data.shape}")
     print(f"Source labels shape: {source_labels.shape}")
     print(f"Target data shape: {target_data.shape}")
     print(f"Target labels shape: {target_labels.shape}")
 
-    # 创建数据集
+    # 步骤3: 创建数据集
     source_dataset = CustomDataset(source_data, source_labels)
     target_dataset = CustomDataset(target_data, target_labels)
 
-    # 创建数据加载器
+    # 步骤4: 创建数据加载器
     source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
     target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
 
-    # 阶段1: 模型初始化
+    # 步骤5: 模型初始化
     model = CrossAttentionModel(num_classes=10).to(device)
 
-    # 阶段2: 损失函数配置
+    # 步骤6: 损失函数配置
     criterion = LossFunction(
         num_classes=10,
         alpha=1.0,      # 源域分类损失权重
@@ -247,31 +219,22 @@ if __name__ == "__main__":
         delta=0.2       # 一致性损失权重
     )
     
-    # 阶段3: 优化器与学习率调度器配置
+    # 步骤7: 优化器与学习率调度器配置
     optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
 
-    # 阶段4: 训练超参数设置
+    # 步骤8: 训练超参数设置
     num_epochs = 100
     best_accuracy = 0.0
     best_model_path = "Attention/best_attention_model.pth"
     patience = 15  # 早停耐心值
     early_stop_counter = 0
 
-    print("\n开始改进的训练和测试...")
-    
-    # 阶段5: 数据加载器验证
-    print("\n=== 数据加载器测试 ===")
-    for i, (src_batch, tgt_batch) in enumerate(zip(source_loader, target_loader)):
-        src_data, src_labels = src_batch
-        tgt_data, tgt_labels = tgt_batch
-        print(f"第{i+1}个批次 - 源域: {src_data.shape}, 目标域: {tgt_data.shape}")
-        print(f"  源域标签范围: [{src_labels.min()}, {src_labels.max()}]")
-        print(f"  目标域标签范围: [{tgt_labels.min()}, {tgt_labels.max()}]")
-        if i >= 2:  # 只检查前3个批次
-            break
-    
-    # 阶段6: 主训练循环
+    train_losses = []  # 训练损失记录
+    test_losses = []  # 测试损失记录
+    test_accuracies = []  # 测试准确率记录
+
+    # 步骤9: 主训练循环
     for epoch in range(num_epochs):
         # 执行一个训练周期
         train_loss, loss_components = train_epoch(model, source_loader, target_loader, criterion, optimizer, scheduler)
@@ -306,9 +269,9 @@ if __name__ == "__main__":
             criterion.gamma = float(max(0.1, criterion.gamma * 0.98))
             criterion.delta = float(max(0.05, criterion.delta * 0.98))
 
-    # 阶段7: 训练结果可视化与数据保存
+    # 步骤10: 训练结果可视化与数据保存
     plot_training_curves(train_losses, test_losses, test_accuracies, optimizer, save_dir='Attention')
     save_training_history(train_losses, test_losses, test_accuracies, best_accuracy, epoch + 1, save_dir='Attention')
 
-    print(f"训练完成。最佳准确率: {best_accuracy:.4f}")
-    print(f"所有结果已保存到 Attention 目录")
+    print(f"训练完成，最终训练损失: {train_loss:.4f}")
+    print(f"训练完成，最佳准确率: {best_accuracy:.4f}")
