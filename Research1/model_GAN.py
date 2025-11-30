@@ -306,68 +306,15 @@ class SpectralDiscriminator(nn.Module):
         return self.fc(x.squeeze(-1))
 
 
-"""
-补丁判别器
-作用：沿时间维进行局部补丁级判别，通过多个补丁的判别分数平均来判断整体样本真假
-参数：
-    in_channels (int): 输入通道数，默认3*56
-    use_spectral_norm (bool): 是否使用谱归一化，默认True
-返回：Tensor (B, 1) 全局判别分数
-"""
-class PatchDiscriminator(nn.Module):
-    def __init__(self, in_channels=3*56, use_spectral_norm=True):
-        super(PatchDiscriminator, self).__init__()
-        # 保存是否使用谱归一化的标志
-        self.use_spectral_norm = use_spectral_norm
-        # 第一层卷积：带步长的下采样卷积
-        conv1 = nn.Conv1d(in_channels, 64, kernel_size=5, stride=2, padding=2)
-        # 第二层卷积：继续下采样提取补丁特征
-        conv2 = nn.Conv1d(64, 128, kernel_size=5, stride=2, padding=2)
-        # 应用谱归一化稳定WGAN训练
-        if use_spectral_norm:
-            conv1 = spectral_norm(conv1)
-            conv2 = spectral_norm(conv2)
-        self.conv1 = conv1
-        self.bn1 = nn.BatchNorm1d(64)
-        self.act1 = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = conv2
-        self.bn2 = nn.BatchNorm1d(128)
-        self.act2 = nn.LeakyReLU(0.2, inplace=True)
-        # 输出层：为每个补丁位置输出一个判别分数
-        self.head = nn.Conv1d(128, 1, kernel_size=1)
-        if use_spectral_norm:
-            self.head = spectral_norm(self.head)
-
-    def forward(self, x):
-        # 解析输入维度
-        B, C, S, T = x.shape
-        # 展平通道和子载波维度为单一维度
-        x = x.view(B, C * S, T)
-        
-        # 第一层卷积提取局部补丁特征
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.act1(x)
-        # 第二层卷积进一步下采样和特征提取
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.act2(x)
-        
-        # 为每个补丁位置独立输出判别分数
-        score_map = self.head(x)
-        # 沿时间维求平均，将局部判别分数聚合为全局判别分数
-        return score_map.mean(dim=-1)
-
 
 """
 构建GAN模型
 作用：初始化并返回GAN的所有组件
-返回：tuple (E, G, D, D_spectral, D_patch)
+返回：tuple (E, G, D, D_spectral)
     E: 特征提取器
     G: 生成器
     D: 时域判别器
     D_spectral: 频域判别器
-    D_patch: 补丁判别器
 """
 def build_model():
     # 初始化特征提取器：从目标域提取环境特征
@@ -378,6 +325,4 @@ def build_model():
     D = Discriminator()
     # 初始化频域判别器：在频谱维度区分真假样本
     D_spectral = SpectralDiscriminator()
-    # 初始化补丁判别器：在补丁级别进行局部判别
-    D_patch = PatchDiscriminator()
-    return E, G, D, D_spectral, D_patch
+    return E, G, D, D_spectral

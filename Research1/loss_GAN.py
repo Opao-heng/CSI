@@ -2,26 +2,6 @@ import torch
 import torch.nn.functional as F
 import torch.autograd as autograd
 
-def kl_divergence_loss(target_features):
-    """
-    KL 散度用于衡量目标域数据样本特征分布的内部差异（已弃用，保留用于向后兼容）
-    推荐使用 mmd_loss 替代
-    """
-    eps = 1e-8
-    n = target_features.size(0)  # 样本数量
-
-    # 对 target_features 进行归一化
-    target_features_normalized = F.softmax(target_features, dim=-1)
-
-    # 计算所有样本对之间的KL散度
-    kl_loss = 0.0
-    for i in range(n):
-        for j in range(n):
-            # 计算第i个样本与第j个样本的KL散度
-            kl_loss += target_features_normalized[i] * torch.log((target_features_normalized[i] + eps) / (target_features_normalized[j] + eps))
-
-    return kl_loss.sum()
-
 
 def gaussian_kernel(x, y, sigma=1.0):
     """
@@ -49,7 +29,7 @@ def gaussian_kernel(x, y, sigma=1.0):
 
 def mmd_loss(real_features, fake_features, sigmas=[0.5, 1.0, 2.0]):
     """
-    【已优化】最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
+    最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
     使用多带宽高斯核，提升分布对齐的鲁棒性
     
     参数:
@@ -78,8 +58,8 @@ def mmd_loss(real_features, fake_features, sigmas=[0.5, 1.0, 2.0]):
 
 def frequency_consistency_loss(real_samples, fake_samples):
     """
-    频域一致性损失：约束生成样本与真实样本在频谱上的一致性
-    对时间维做 rFFT，比较幅度谱的 MSE
+    【优化版】频域一致性损失：约束生成样本与真实样本在频谱上的一致性
+    使用归一化的对数幅度谱，避免数值爆炸
     参数:
       real_samples - 真实样本, 形状为 (B, C, S, T)
       fake_samples - 生成样本, 形状为 (B, C, S, T)
@@ -88,12 +68,18 @@ def frequency_consistency_loss(real_samples, fake_samples):
     # 在时间维度做 FFT
     real_fft = torch.fft.rfft(real_samples, dim=-1)
     fake_fft = torch.fft.rfft(fake_samples, dim=-1)
-    real_mag = real_fft.abs()
-    fake_mag = fake_fft.abs()
-    # 可选：对 C、S 做均值以降低维度差异影响
-    # 这里直接在全维度计算 MSE
-    return torch.mean((real_mag - fake_mag) ** 2)
-
+    
+    # 使用对数幅度谱，稳定数值范围
+    eps = 1e-8
+    real_mag = torch.log(real_fft.abs() + eps)
+    fake_mag = torch.log(fake_fft.abs() + eps)
+    
+    # 对每个样本进行归一化，消除幅度尺度差异
+    real_mag_norm = F.normalize(real_mag.flatten(1), p=2, dim=1)
+    fake_mag_norm = F.normalize(fake_mag.flatten(1), p=2, dim=1)
+    
+    # 计算归一化后的MSE
+    return F.mse_loss(fake_mag_norm, real_mag_norm)
 
 
 def discriminator_loss(D, x_t_real, x_hat_t):
