@@ -11,11 +11,25 @@ from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import kl_divergence_loss, feature_matching_loss, discriminator_loss
 
 
+"""
+训练一个epoch，采用正确的GAN对抗训练机制
+参数:
+  E - 特征提取器
+  G - 生成器
+  D - 判别器
+  source_loader - 源域数据加载器
+  target_loader - 目标域数据加载器
+  optimizer_E - 特征提取器优化器
+  optimizer_G - 生成器优化器
+  optimizer_D - 判别器优化器
+  lambda_E - KL散度损失权重，默认0.5
+  lambda_feat - 特征匹配损失权重，默认0.5
+  device - 设备类型，默认cuda
+返回: tuple - (train_loss, eval_metrics) 训练损失和评估指标字典
+"""
 def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G, optimizer_D,
                 lambda_E=0.5, lambda_feat=0.5, device='cuda' if torch.cuda.is_available() else 'cpu'):
-    """
-    训练一个epoch，采用正确的GAN对抗训练机制
-    """
+    # 步骤1: 设置模型为训练模式
     E.train()
     G.train()
     D.train()
@@ -23,7 +37,7 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
     total_loss = 0.0
     num_batches = 0
 
-    # 从源域中选择样本
+    # 步骤2: 遍历源域数据批次
     for x_s, source_labels in source_loader:
         if x_s.size(0) < 100:  # 如果当前批次不足100组，则跳过
             continue
@@ -31,7 +45,7 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
         x_s = x_s.to(device)
         x_t_real = selected_target_data.cuda()
 
-        # 1. 提取目标域所有数据的特征
+        # 步骤3: 提取目标域所有数据的特征
         E.eval()
         all_features = []
         with torch.no_grad():
@@ -41,15 +55,15 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
                 all_features.append(features.cpu())
         target_features = torch.cat(all_features, dim=0).to(device)
 
-        # 2. 更新生成器 G 和 特征提取器 E
+        # 步骤4: 更新生成器G和特征提取器E
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
 
-        # 计算总体损失
+        # 计算KL散度损失和特征匹配损失
         L_E = kl_divergence_loss(target_features)
         L_feat = feature_matching_loss(G, E, x_s, target_features)
 
-        # 更新生成器和特征提取器
+        # 反向传播并更新
         L_total = lambda_E * L_E + lambda_feat * L_feat
         L_total.backward()
         optimizer_G.step()
@@ -58,37 +72,36 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
         total_loss += L_total.item()
         num_batches += 1
 
-        # 3. 更新判别器 D
+        # 步骤5: 更新判别器D
         optimizer_D.zero_grad()
 
         # 生成虚假样本
         x_hat_t = G(x_s, target_features)  # 使用完整的目标域特征
 
-        # 计算判别器损失
+        # 计算判别器损失并反向传播
         L_D = discriminator_loss(D, x_t_real, x_hat_t.detach())
         L_D.backward()
         optimizer_D.step()
 
+    # 步骤6: 评估生成样本质量
     eval_metrics = evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device)
     return total_loss / num_batches if num_batches > 0 else 0.0, eval_metrics
 
 
+"""
+评估生成样本的质量，包括判别器评分、特征匹配度和多样性
+参数:
+  E - 特征提取器
+  G - 生成器
+  D - 判别器
+  source_loader - 源域数据加载器
+  target_loader - 目标域数据加载器
+  target_features - 目标域特征张量
+  device - 设备类型，默认cuda
+返回: dict - 包含各种评估指标的字典 (avg_fake_score, avg_real_score, feature_mse, avg_cosine_similarity, feature_diversity)
+"""
 def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device='cuda'):
-    """
-    评估生成样本的质量
-
-    Args:
-        E: 特征提取器
-        G: 生成器
-        D: 判别器
-        source_loader: 源域数据加载器
-        target_loader: 目标域数据加载器
-        target_features: 目标域特征
-        device: 设备类型
-
-    Returns:
-        dict: 包含各种评估指标的字典
-    """
+    # 步骤1: 设置模型为评估模式
     E.eval()
     G.eval()
     D.eval()
@@ -96,7 +109,7 @@ def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_fea
     metrics = {}
 
     with torch.no_grad():
-        # 1. 生成样本质量评估 (通过判别器得分)
+        # 步骤2: 评估生成样本质量，获取判别器对真实和生成样本的评分
         discriminator_scores = []
         real_scores = []
 
@@ -117,7 +130,7 @@ def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_fea
         metrics['avg_fake_score'] = np.mean(discriminator_scores) if discriminator_scores else 0
         metrics['avg_real_score'] = np.mean(real_scores) if real_scores else 0
 
-        # 2. 特征匹配度评估
+        # 步骤3: 评估特征匹配度，计算源域特征与生成样本特征的距离和相似度
         source_features_list = []
         generated_features_list = []
 
@@ -144,31 +157,27 @@ def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_fea
             cos_sim = torch.nn.functional.cosine_similarity(source_features_all, generated_features_all, dim=1)
             metrics['avg_cosine_similarity'] = torch.mean(cos_sim).item()
 
-        # 3. 多样性评估 (生成样本之间的差异性)
+        # 步骤4: 评估多样性，计算生成样本特征的方差
         if 'generated_features_all' in locals():
-            # 计算生成特征的方差，衡量多样性
             gen_feature_variance = torch.var(generated_features_all, dim=0).mean().item()
             metrics['feature_diversity'] = gen_feature_variance
 
     return metrics
 
 
+"""
+生成虚假目标域样本用于数据扩充
+参数:
+  E - 特征提取器
+  G - 生成器
+  source_loader - 源域数据加载器
+  target_loader - 目标域数据加载器（用于提取目标域特征）
+  num_samples - 需要生成的样本数量，默认900
+  device - 设备类型，默认cuda
+返回: tuple - (synthetic_data, synthetic_labels) 生成的虚假样本数据和标签
+"""
 def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cuda'):
-    """
-    生成虚假目标域样本用于数据扩充
-
-    Args:
-        E: 特征提取器
-        G: 生成器
-        source_loader: 源域数据加载器
-        target_features: 预先提取的目标域特征 (目标域样本数, 128)
-        num_samples: 需要生成的样本数量
-        device: 设备类型
-
-    Returns:
-        synthetic_data: 生成的虚假样本数据
-        synthetic_labels: 生成的虚假样本标签
-    """
+    # 步骤1: 设置模型为评估模式
     E.eval()
     G.eval()
 
@@ -177,7 +186,7 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
     generated_count = 0
 
     with torch.no_grad():
-        # 使用源域数据和目标域特征生成虚假样本
+        # 步骤2: 使用源域数据和目标域特征生成虚假样本
         for x_s, source_labels in source_loader:
             if generated_count >= num_samples:
                 break
@@ -185,7 +194,7 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
             x_s = x_s.to(device)
             batch_size = x_s.size(0)
 
-            # 直接使用完整的目标域特征
+            # 步骤3: 提取完整的目标域特征
             E.eval()
             all_features = []
             with torch.no_grad():
@@ -196,15 +205,16 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
             target_features = torch.cat(all_features, dim=0).to(device)
             f_t = target_features
 
-            # 生成虚假样本
+            # 步骤4: 生成虚假样本
             x_hat_t = G(x_s, f_t)
 
-            # 收集生成的样本
+            # 步骤5: 收集生成的样本和对应的标签
             synthetic_data.append(x_hat_t.cpu())
             synthetic_labels.append(source_labels[:x_hat_t.size(0)])
 
             generated_count += x_hat_t.size(0)
 
+    # 步骤6: 合并所有生成样本并截断至指定数量
     if synthetic_data:
         synthetic_data = torch.cat(synthetic_data, dim=0)[:num_samples]
         synthetic_labels = torch.cat(synthetic_labels, dim=0)[:num_samples]
@@ -212,20 +222,20 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
     return synthetic_data, synthetic_labels
 
 
+"""
+将生成的虚假样本与原始目标域数据合并，并保存为.pt文件
+参数:
+  synthetic_data - 生成的虚假样本张量，形状为 (N, C, S, T)
+  synthetic_labels - 生成的虚假样本标签，形状为 (N,)
+  target_loader - 原始目标域数据加载器
+  output_dir - 输出目录路径
+返回: tuple - (combined_data, combined_labels) 合并后的数据和标签张量
+"""
 def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir):
-    """
-    将生成的虚假样本与原始目标域数据合并，并保存为 .pt 文件
-
-    Args:
-        synthetic_data: 生成的虚假样本张量 (N, C, S, T)
-        synthetic_labels: 生成的虚假样本标签 (N,)
-        target_loader: 原始目标域数据加载器
-        output_dir: 输出目录路径
-    """
-    # 创建输出目录
+    # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
-    # 提取原始目标域数据和标签
+    # 步骤2: 提取原始目标域数据和标签
     target_data_list = []
     target_label_list = []
 
@@ -233,63 +243,62 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
         target_data_list.append(x_t_real)
         target_label_list.append(labels)
 
-    # 合并所有原始目标域数据
+    # 步骤3: 合并所有原始目标域数据
     target_data = torch.cat(target_data_list, dim=0)  # (M, C, S, T)
     target_labels = torch.cat(target_label_list, dim=0)  # (M,)
 
-    # 合并生成数据和原始数据
+    # 步骤4: 将生成数据和原始数据拼接
     combined_data = torch.cat([target_data, synthetic_data], dim=0)  # (M+N, C, S, T)
     combined_labels = torch.cat([target_labels, synthetic_labels], dim=0)  # (M+N,)
 
-    # 保存到文件
-    target_data_path = os.path.join(output_dir, 'target_data.pt')
-    target_labels_path = os.path.join(output_dir, 'target_labels.pt')
+    # 步骤5: 保存合并后的数据到文件
+    target_data_path = os.path.join(output_dir, 'target_env2_gan_data.pt')
+    target_labels_path = os.path.join(output_dir, 'target_env2_gan_labels.pt')
 
     torch.save(combined_data, target_data_path)
     torch.save(combined_labels, target_labels_path)
 
-    print(f"Combined data saved to {target_data_path}")
-    print(f"Combined labels saved to {target_labels_path}")
+    return combined_data, combined_labels
 
 
+"""
+主训练函数，完整的GAN模型训练和评估流程
+参数:
+  model_path - 模型保存路径，默认'model.pth'
+  epochs - 训练轮数，默认100
+  lr - 学习率，默认0.001
+返回: tuple - (E, G, D, synthetic_data, synthetic_labels) 训练完的模型和生成的合成数据
+"""
 def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
-    """
-    主训练函数，包含评估过程
-
-    Args:
-        model_path: 模型保存路径
-        epochs: 训练轮数
-        lr: 学习率
-    """
-
-    # 设置设备
+    # 步骤1: 设置设备
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
 
-    # 构建模型
+    # 步骤2: 构建模型
     E, G, D = build_model()
     E.to(device)
     G.to(device)
     D.to(device)
 
-    # 定义优化器
+    # 步骤3: 定义优化器
     optimizer_E = optim.Adam(E.parameters(), lr=lr)
     optimizer_G = optim.Adam(G.parameters(), lr=lr)
     optimizer_D = optim.Adam(D.parameters(), lr=lr)
 
-    # 训练循环
+    # 步骤4: 初始化训练记录
     train_losses = []
     evaluation_metrics = []
 
+    # 步骤5: 训练循环
     for epoch in range(epochs):
-        # 训练和评估
+        # 训练一个epoch并评估
         train_loss , eval_metrics = train_epoch(
             E, G, D, source_loader, target_loader,
             optimizer_E, optimizer_G, optimizer_D,
             lambda_E=0.5, lambda_feat=1.0, device=device
         )
 
-        # 记录结果
+        # 记录训练结果
         train_losses.append(train_loss)
         evaluation_metrics.append(eval_metrics)
 
@@ -303,7 +312,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
         print(f"    Cosine Similarity: {eval_metrics.get('avg_cosine_similarity', 0):.4f}")
         print(f"    Feature Diversity: {eval_metrics.get('feature_diversity', 0):.4f}")
 
-        # 保存模型
+        # 步骤6: 每10个epoch保存一次模型
         if (epoch + 1) % 10 == 0:
             torch.save({
                 'epoch': epoch,
@@ -316,13 +325,13 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
             }, model_path)
             print(f"Model saved at {model_path}")
 
-    # 生成虚假样本进行数据扩充
+    # 步骤7: 训练完成后生成虚假样本
     print("Generating synthetic samples for data augmentation...")
     synthetic_data, synthetic_labels = generate_synthetic_samples(
         E, G, source_loader, num_samples=900, device=device
     )
 
-    # 绘制训练曲线和评估指标
+    # 步骤8: 绘制训练曲线和评估指标
     plt.figure(figsize=(15, 10))
 
     plt.subplot(2, 3, 1)
@@ -331,7 +340,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
 
-    # 绘制评估指标
+    # 绘制判别器评分
     epochs_range = range(1, len(evaluation_metrics)+1)
 
     plt.subplot(2, 3, 2)
@@ -344,6 +353,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     plt.ylabel('Score')
     plt.legend()
 
+    # 绘制特征匹配误差
     plt.subplot(2, 3, 3)
     feature_mse = [m.get('feature_mse', 0) for m in evaluation_metrics]
     plt.plot(epochs_range, feature_mse)
@@ -351,6 +361,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     plt.xlabel('Epoch')
     plt.ylabel('MSE')
 
+    # 绘制余弦相似度
     plt.subplot(2, 3, 4)
     cosine_sim = [m.get('avg_cosine_similarity', 0) for m in evaluation_metrics]
     plt.plot(epochs_range, cosine_sim)
@@ -358,6 +369,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     plt.xlabel('Epoch')
     plt.ylabel('Cosine Similarity')
 
+    # 绘制特征多样性
     plt.subplot(2, 3, 5)
     diversity = [m.get('feature_diversity', 0) for m in evaluation_metrics]
     plt.plot(epochs_range, diversity)
@@ -371,34 +383,60 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     return E, G, D, synthetic_data, synthetic_labels
 
 
-# 运行训练
+"""
+主程序入口：GAN模型训练和数据生成
+1. 设置随机种子保证可重现性
+2. 加载源域和目标域数据
+3. 创建数据加载器
+4. 执行训练
+5. 生成合成数据并保存
+"""
 if __name__ == "__main__":
-    # 设置随机种子以保证结果可重现
+    # 步骤1: 设置随机种子以保证结果可重现
     torch.manual_seed(40)
     np.random.seed(40)
     torch.backends.cudnn.benchmark = True
 
-    # 加载数据文件
-    source_data = torch.load('../data/SourceData/source_data.pt')
-    source_labels = torch.load('../data/SourceData/source_labels.pt')
-    target_data = torch.load('../data/TargetData/target_data.pt')
-    target_labels = torch.load('../data/TargetData/target_labels.pt')
+    # 步骤2: 加载数据文件
+    source_data = torch.load('Data/source_env0_env1_data.pt')
+    source_labels = torch.load('Data/source_env0_env1_labels.pt')
+    target_data = torch.load('Data/target_env2_data.pt')
+    target_labels = torch.load('Data/target_env2_labels.pt')
 
-    # 创建源域数据集和数据加载器
+    # 步骤3: 创建源域数据集和数据加载器
     source_dataset = CustomDataset(source_data, source_labels)
     source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
 
-    # 从目标域数据中选择每个标签10个样本
+    # 步骤4: 从目标域数据中选择每个标签10个样本
     selected_target_data, selected_target_labels = select_samples_by_label(
         target_data, target_labels, samples_per_label=10
     )
-    # 创建目标域数据集和数据加载器
+
+    # 查看数据形状
+    print("---------------------------------------------------------------------")
+    print(f"Source data shape: {source_data.shape}")
+    print(f"Source labels shape: {source_labels.shape}")
+    print(f"Selected target data shape: {selected_target_data.shape}")
+    print(f"Selected target labels shape: {selected_target_labels.shape}")
+
+    # 步骤5: 创建目标域数据集和数据加载器
     target_dataset = CustomDataset(selected_target_data, selected_target_labels)
     target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
-    # 开始训练
+    # 步骤6: 开始训练
     E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr=0.001)
 
-    # 合并并保存数据
-    output_dir = '../data/TargetData_hat'
-    save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
+    # 步骤7: 合并并保存生成的数据
+    output_dir = 'Data'
+    target_gan_data, target_gan_labels = save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
+
+    # 查看数据形状
+    print(f"Merge Generated target data shape: {target_gan_data.shape}")
+    print(f"Merge Generated target labels shape: {target_gan_labels.shape}")
+    print("---------------------------------------------------------------------")
+
+    # 用于ATTENTION的数据
+    print(f"Source data shape: {source_data.shape}")
+    print(f"Source labels shape: {source_labels.shape}")
+    print(f"target data shape: {target_gan_data.shape}")
+    print(f"target labels shape: {target_gan_labels.shape}")
