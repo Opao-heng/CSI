@@ -309,7 +309,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     print(f"设备: {device}")
     print(f"训练轮数: {epochs}")
     print(f"生成器学习率: {lr_g}, 判别器学习率: {lr_d}")
-    print(f"架构: WGAN-GP with MMD Loss, Feature Matching, and Frequency Constraint")
+    print(f"GAN生成样本数量：" + str(num_samples))
     print("="*70 + "\n")
 
     # 步骤2: 构建模型
@@ -324,12 +324,10 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     total_params_E = sum(p.numel() for p in E.parameters())
     total_params_G = sum(p.numel() for p in G.parameters())
     total_params_D = sum(p.numel() for p in D.parameters())
-    print(f"模型参数量:")
-    print(f"  - 特征提取器 (E): {total_params_E:,}")
-    print(f"  - 生成器 (G): {total_params_G:,}")
-    print(f"  - 判别器 (D): {total_params_D:,}")
-    total_params = total_params_E + total_params_G + total_params_D
-    print(f"  - 总计: {total_params:,}\n")
+    total_params_D_spec = sum(p.numel() for p in D_spec.parameters())
+    total_params_D_patch = sum(p.numel() for p in D_patch.parameters())
+    total_params = total_params_E + total_params_G + total_params_D + total_params_D_spec + total_params_D_patch
+    print(f"  模型参数量总量: {total_params:,}\n")
 
     # 步骤4: 定义优化器
     optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
@@ -357,7 +355,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     target_features_cache = torch.cat(all_target_features, dim=0)
     target_data_cache = torch.cat(all_target_data, dim=0)
     E.train()
-    print(f"目标域特征提取完成，形状: {target_features_cache.shape}\n")
+    print(f"目标域特征提取完成\n")
     
     # 步骤7: 训练循环
     for epoch in range(epochs):
@@ -517,9 +515,7 @@ if __name__ == "__main__":
     source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
 
     # 步骤3: 从目标域中均匀采样每个标签的样本
-    selected_target_data, selected_target_labels = select_samples_by_label(
-        target_data, target_labels, samples_per_label=10
-    )
+    selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels, samples_per_label=10)
 
     # 步骤4: 打印加载后的数据形状统计
     print(f"  源域数据: {source_data.shape}")
@@ -533,21 +529,12 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(
-        model_path='GAN/best_gan_model.pth',
-        epochs=10,
-        lr_g=1e-4,
-        lr_d=4e-4,
-        num_samples=900
-    )
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=10, lr_g=1e-4, lr_d=4e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")
     output_dir = 'Data'
-    target_gan_data, target_gan_labels = save_combined_target_data(
-        synthetic_data, synthetic_labels, target_loader, output_dir
-    )
-    
+    target_gan_data, target_gan_labels = save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
     print(f"  合并后数据形状: {target_gan_data.shape}")
     print(f"  合并后标签形状: {target_gan_labels.shape}")
     
