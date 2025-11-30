@@ -9,12 +9,10 @@ from torch.utils.data import DataLoader
 from Research1.model_GAN import build_model
 from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
-    mmd_loss, 
-    wasserstein_discriminator_loss, 
-    wasserstein_generator_loss,
-    perceptual_loss,
-    frequency_domain_loss,
-    feature_matching_loss  # 保留用于向后兼容
+    mmd_loss,
+    frequency_consistency_loss,
+    wasserstein_discriminator_loss,
+    wasserstein_generator_loss
 )
 from Research1.plot_GAN import plot_training_metrics
 from Research1.evaluator_GAN import evaluate_gan_comprehensive
@@ -39,9 +37,9 @@ from Research1.evaluator_GAN import evaluate_gan_comprehensive
   device - 设备类型，默认cuda
 返回: tuple - (train_loss_dict, eval_metrics) 训练损失字典和评估指标字典
 """
-def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G, optimizer_D,
+def train_epoch(E, G, D, source_loader, target_features, target_data, optimizer_E, optimizer_G, optimizer_D,
                 lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, lambda_gp=10.0, 
-                n_critic=5, device='cuda' if torch.cuda.is_available() else 'cpu'):
+                n_critic=3, device='cuda' if torch.cuda.is_available() else 'cpu'):
     # 步骤1: 设置模型为训练模式
     E.train()
     G.train()
@@ -56,19 +54,7 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
     total_gp_loss = 0.0
     num_batches = 0
     
-    # 预先提取目标域特征（避免重复计算）
-    E.eval()
-    all_target_features = []
-    all_target_data = []
-    with torch.no_grad():
-        for x_t_real, _ in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)
-            all_target_features.append(features)
-            all_target_data.append(x_t_real)
-    target_features = torch.cat(all_target_features, dim=0)  # (N_target, d)
-    target_data = torch.cat(all_target_data, dim=0)  # (N_target, C, S, T)
-    E.train()
+    # 使用预计算的目标域特征和数据（不再重复提取）
 
     # 步骤2: 遍历源域数据批次
     critic_iter = 0
@@ -121,19 +107,18 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
         generated_features = E(x_hat_t)
         mmd_loss_value = mmd_loss(target_features, generated_features)
         
-        # 3. 多层感知损失（特征匹配）
-        perc_loss, mse_loss, cos_loss, temp_loss = perceptual_loss(
-            G, E, x_s, target_features, source_features,
-            alpha_mse=1.0, alpha_cosine=0.5, alpha_temporal=0.2
-        )
+        # 3. 简化的特征匹配损失（仅使用MSE）
+        feat_loss = torch.nn.functional.mse_loss(generated_features, source_features, reduction='mean')
         
-        # 4. 频域约束损失
-        freq_loss = frequency_domain_loss(x_t_real, x_hat_t)
+        # 4. 频域一致性损失（新加模块）
+        rand_idx_freq = torch.randperm(target_data.size(0))[:batch_size]
+        x_t_real_freq = target_data[rand_idx_freq].to(device)
+        freq_loss = frequency_consistency_loss(x_t_real_freq, x_hat_t)
         
-        # 总生成器损失
+        # 总生成器损失（加入频域损失）
         g_total_loss = (g_adv_loss + 
                         lambda_mmd * mmd_loss_value + 
-                        lambda_feat * perc_loss + 
+                        lambda_feat * feat_loss +
                         lambda_freq * freq_loss)
         
         g_total_loss.backward()
@@ -143,12 +128,12 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
         # 记录损失
         total_g_loss += g_total_loss.item()
         total_mmd_loss += mmd_loss_value.item()
-        total_feat_loss += perc_loss.item()
-        total_freq_loss += freq_loss.item()
+        total_feat_loss += feat_loss.item()
+        total_freq_loss += freq_loss.item()  # 记录频域损失
         num_batches += 1
 
-    # 步骤5: 评估生成样本质量
-    eval_metrics = evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device)
+    # 步骤5: 简化评估（不再每个epoch都进行完整评估）
+    eval_metrics = {}
     
     # 返回平均损失
     loss_dict = {
@@ -163,80 +148,47 @@ def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G,
     return loss_dict, eval_metrics
 
 
-"""
-评估生成样本的质量，包括判别器评分、特征匹配度和多样性
+"""  
+【已优化】简化的评估函数，仅在需要时调用
 参数:
   E - 特征提取器
   G - 生成器
   D - 判别器
   source_loader - 源域数据加载器
-  target_loader - 目标域数据加载器
+  target_data - 目标域真实数据
   target_features - 目标域特征张量
   device - 设备类型，默认cuda
-返回: dict - 包含各种评估指标的字典 (avg_fake_score, avg_real_score, feature_mse, avg_cosine_similarity, feature_diversity)
+返回: dict - 包含核心评估指标的字典
 """
-def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device='cuda'):
-    # 步骤1: 设置模型为评估模式
+def evaluate_generated_samples_fast(E, G, D, source_loader, target_data, target_features, device='cuda'):
     E.eval()
     G.eval()
     D.eval()
-
+    
     metrics = {}
-
     with torch.no_grad():
-        # 步骤2: 评估生成样本质量，获取判别器对真实和生成样本的评分
-        discriminator_scores = []
-        real_scores = []
-
-        for x_s, _ in source_loader:
-            x_s = x_s.to(device)
-            # 生成虚假样本
-            x_hat_t = G(x_s, target_features)
-            # 获取判别器对生成样本的评分
-            fake_score = D(x_hat_t)
-            discriminator_scores.append(fake_score.mean().item())
-
-        # 获取判别器对真实样本的评分
-        for x_t, _ in target_loader:
-            x_t = x_t.to(device)
-            real_score = D(x_t)
-            real_scores.append(real_score.mean().item())
-
-        metrics['avg_fake_score'] = np.mean(discriminator_scores) if discriminator_scores else 0
-        metrics['avg_real_score'] = np.mean(real_scores) if real_scores else 0
-
-        # 步骤3: 评估特征匹配度，计算源域特征与生成样本特征的距离和相似度
-        source_features_list = []
-        generated_features_list = []
-
-        for x_s, _ in source_loader:
-            x_s = x_s.to(device)
-            # 提取源域特征
-            source_features = E(x_s)
-            source_features_list.append(source_features.cpu())
-
-            # 生成并提取生成样本特征
-            x_hat_t = G(x_s, target_features)
-            generated_features = E(x_hat_t)
-            generated_features_list.append(generated_features.cpu())
-
-        if source_features_list and generated_features_list:
-            source_features_all = torch.cat(source_features_list, dim=0)
-            generated_features_all = torch.cat(generated_features_list, dim=0)
-
-            # 计算特征距离 (MSE)
-            feature_mse = torch.mean((source_features_all - generated_features_all) ** 2).item()
-            metrics['feature_mse'] = feature_mse
-
-            # 计算特征相似度 (余弦相似度)
-            cos_sim = torch.nn.functional.cosine_similarity(source_features_all, generated_features_all, dim=1)
-            metrics['avg_cosine_similarity'] = torch.mean(cos_sim).item()
-
-        # 步骤4: 评估多样性，计算生成样本特征的方差
-        if 'generated_features_all' in locals():
-            gen_feature_variance = torch.var(generated_features_all, dim=0).mean().item()
-            metrics['feature_diversity'] = gen_feature_variance
-
+        # 仅对第一个batch进行快速评估
+        x_s, _ = next(iter(source_loader))
+        x_s = x_s.to(device)
+        
+        # 生成样本
+        x_hat_t = G(x_s, target_features)
+        
+        # 判别器评分
+        metrics['avg_fake_score'] = D(x_hat_t).mean().item()
+        
+        # 随机采样真实样本评分
+        rand_idx = torch.randperm(target_data.size(0))[:x_s.size(0)]
+        x_t_real = target_data[rand_idx].to(device)
+        metrics['avg_real_score'] = D(x_t_real).mean().item()
+        
+        # 特征MSE
+        source_feat = E(x_s)
+        gen_feat = E(x_hat_t)
+        metrics['feature_mse'] = torch.mean((source_feat - gen_feat) ** 2).item()
+        # 频域 MSE
+        metrics['spectral_mse'] = frequency_consistency_loss(x_t_real, x_hat_t).item()
+    
     return metrics
 
 
@@ -371,34 +323,46 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     train_loss_history = []
     evaluation_metrics = []
 
+    # 预先提取目标域特征（只提取一次，避免重复计算）
+    print("提取目标域特征...")
+    E.eval()
+    all_target_features = []
+    all_target_data = []
+    with torch.no_grad():
+        for x_t_real, _ in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            all_target_features.append(features)
+            all_target_data.append(x_t_real)
+    target_features_cache = torch.cat(all_target_features, dim=0)
+    target_data_cache = torch.cat(all_target_data, dim=0)
+    E.train()
+    print(f"目标域特征提取完成，shape: {target_features_cache.shape}")
+    
     # 步骤5: 训练循环
     for epoch in range(epochs):
-        # 训练一个epoch并评估
+        # 训练一个epoch（传入预计算的特征）
         loss_dict, eval_metrics = train_epoch(
-            E, G, D, source_loader, target_loader,
+            E, G, D, source_loader, target_features_cache, target_data_cache,
             optimizer_E, optimizer_G, optimizer_D,
-            lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, 
-            lambda_gp=10.0, n_critic=5, device=device
+            lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=1.0, 
+            lambda_gp=10.0, n_critic=3, device=device
         )
 
         # 记录训练结果
         train_loss_history.append(loss_dict)
         evaluation_metrics.append(eval_metrics)
 
-        # 打印进度和评估指标
+        # 打印进度（移除不必要的评估指标输出）
         print(f"\nEpoch [{epoch+1}/{epochs}]")
-        print(f"  Generator Loss: {loss_dict['g_loss']:.4f}")
-        print(f"  Discriminator Loss: {loss_dict['d_loss']:.4f}")
-        print(f"  MMD Loss: {loss_dict['mmd_loss']:.4f}")
-        print(f"  Feature Loss: {loss_dict['feat_loss']:.4f}")
-        print(f"  Frequency Loss: {loss_dict['freq_loss']:.4f}")
-        print(f"  Gradient Penalty: {loss_dict['gp_loss']:.4f}")
-        print(f"  Eval Metrics:")
-        print(f"    Avg Fake Score: {eval_metrics.get('avg_fake_score', 0):.4f}")
-        print(f"    Avg Real Score: {eval_metrics.get('avg_real_score', 0):.4f}")
-        print(f"    Feature MSE: {eval_metrics.get('feature_mse', 0):.4f}")
-        print(f"    Cosine Similarity: {eval_metrics.get('avg_cosine_similarity', 0):.4f}")
-        print(f"    Feature Diversity: {eval_metrics.get('feature_diversity', 0):.4f}")
+        print(f"  G_Loss: {loss_dict['g_loss']:.4f} | D_Loss: {loss_dict['d_loss']:.4f} | MMD: {loss_dict['mmd_loss']:.4f} | Feat: {loss_dict['feat_loss']:.4f} | GP: {loss_dict['gp_loss']:.4f}")
+        
+        # 每5个epoch进行一次快速评估
+        if (epoch + 1) % 5 == 0:
+            eval_metrics = evaluate_generated_samples_fast(
+                E, G, D, source_loader, target_data_cache, target_features_cache, device
+            )
+            print(f"  [Eval] Fake: {eval_metrics.get('avg_fake_score', 0):.4f} | Real: {eval_metrics.get('avg_real_score', 0):.4f} | MSE: {eval_metrics.get('feature_mse', 0):.4f} | Spec: {eval_metrics.get('spectral_mse', 0):.4f}")
 
         # 步骤6: 每10个epoch保存一次模型
         if (epoch + 1) % 10 == 0:
@@ -427,18 +391,13 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     train_losses_for_plot = [loss['g_loss'] for loss in train_loss_history]
     plot_training_metrics(train_losses_for_plot, evaluation_metrics, output_dir='GAN')
 
-    # 步骤9: 使用综合评估器进行完整的GAN性能评估
-    print("\nPerforming comprehensive GAN evaluation...")
-    comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
-    print("\nComprehensive GAN Evaluation Results:")
-    print(f"  FID Score: {comprehensive_metrics.get('fid', -1):.4f}")
-    print(f"  Spectral Fidelity: {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
-    print(f"  Temporal Correlation (Real): {comprehensive_metrics.get('temporal_correlation_real', -1):.4f}")
-    print(f"  Temporal Correlation (Fake): {comprehensive_metrics.get('temporal_correlation_fake', -1):.4f}")
-    print(f"  Channel Smoothness (Real): {comprehensive_metrics.get('channel_smoothness_real', -1):.4f}")
-    print(f"  Channel Smoothness (Fake): {comprehensive_metrics.get('channel_smoothness_fake', -1):.4f}")
-    print(f"  Precision: {comprehensive_metrics.get('precision', -1):.4f}")
-    print(f"  Recall: {comprehensive_metrics.get('recall', -1):.4f}")
+    # 步骤9: 【可选】仅在需要详细评估时取消注释
+    # print("\nPerforming comprehensive GAN evaluation...")
+    # comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
+    # print("\nComprehensive GAN Evaluation Results:")
+    # print(f"  FID Score: {comprehensive_metrics.get('fid', -1):.4f}")
+    # print(f"  Spectral Fidelity: {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
+    print("\n[提示] 已跳过综合评估以加速训练，如需详细评估请取消注释相关代码")
 
     return E, G, D, synthetic_data, synthetic_labels
 

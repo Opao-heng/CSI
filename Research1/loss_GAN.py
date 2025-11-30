@@ -47,15 +47,15 @@ def gaussian_kernel(x, y, sigma=1.0):
     return torch.exp(-distances / (2 * sigma ** 2))
 
 
-def mmd_loss(real_features, fake_features, sigmas=[0.1, 1.0, 10.0]):
+def mmd_loss(real_features, fake_features, sigmas=[0.5, 1.0, 2.0]):
     """
-    最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
-    使用多尺度高斯核，计算复杂度O(n²)但比KL散度更高效且鲁棒
+    【已优化】最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
+    使用多带宽高斯核，提升分布对齐的鲁棒性
     
     参数:
       real_features - 真实样本特征, 形状为 (n, d)
       fake_features - 生成样本特征, 形状为 (m, d)
-      sigmas - 高斯核带宽列表，支持多尺度
+      sigmas - 高斯核带宽列表，默认使用多核以提升鲁棒性
     返回: MMD损失值（标量）
     """
     loss = 0.0
@@ -74,6 +74,25 @@ def mmd_loss(real_features, fake_features, sigmas=[0.1, 1.0, 10.0]):
     
     # 对多个核取平均
     return loss / len(sigmas)
+
+
+def frequency_consistency_loss(real_samples, fake_samples):
+    """
+    频域一致性损失：约束生成样本与真实样本在频谱上的一致性
+    对时间维做 rFFT，比较幅度谱的 MSE
+    参数:
+      real_samples - 真实样本, 形状为 (B, C, S, T)
+      fake_samples - 生成样本, 形状为 (B, C, S, T)
+    返回: 频域 MSE（标量）
+    """
+    # 在时间维度做 FFT
+    real_fft = torch.fft.rfft(real_samples, dim=-1)
+    fake_fft = torch.fft.rfft(fake_samples, dim=-1)
+    real_mag = real_fft.abs()
+    fake_mag = fake_fft.abs()
+    # 可选：对 C、S 做均值以降低维度差异影响
+    # 这里直接在全维度计算 MSE
+    return torch.mean((real_mag - fake_mag) ** 2)
 
 
 def feature_matching_loss(G, E, x_s, f_t):
@@ -129,31 +148,6 @@ def perceptual_loss(G, E, x_s, f_t, source_features, alpha_mse=1.0, alpha_cosine
                   alpha_temporal * temporal_loss)
     
     return total_loss, mse_loss, cosine_loss, temporal_loss
-
-
-def frequency_domain_loss(x_real, x_fake):
-    """
-    频域约束损失 - 确保生成样本的频域特性与真实样本接近
-    计算功率谱密度(PSD)的L1距离
-    
-    参数:
-      x_real - 真实样本, 形状为 (B, C, S, T)
-      x_fake - 生成样本, 形状为 (B, C, S, T)
-    返回: 频域损失（标量）
-    """
-    # 在时间维度进行FFT
-    fft_real = torch.fft.rfft(x_real, dim=-1)
-    fft_fake = torch.fft.rfft(x_fake, dim=-1)
-    
-    # 计算功率谱密度（幅度的平方）
-    psd_real = torch.abs(fft_real) ** 2
-    psd_fake = torch.abs(fft_fake) ** 2
-    
-    # L1距离
-    freq_loss = F.l1_loss(psd_fake, psd_real, reduction='mean')
-    
-    return freq_loss
-
 
 
 def discriminator_loss(D, x_t_real, x_hat_t):

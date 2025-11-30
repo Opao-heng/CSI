@@ -4,6 +4,63 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 
 
+class SelfAttention1d(nn.Module):
+    """
+    1D 自注意力层（SAGAN 风格）用于长程依赖捕获
+    输入形状: (B, C, T)
+    """
+    def __init__(self, in_channels):
+        super(SelfAttention1d, self).__init__()
+        self.query = nn.Conv1d(in_channels, max(1, in_channels // 8), kernel_size=1)
+        self.key = nn.Conv1d(in_channels, max(1, in_channels // 8), kernel_size=1)
+        self.value = nn.Conv1d(in_channels, in_channels, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        B, C, T = x.shape
+        q = self.query(x)                # (B, Cq, T)
+        k = self.key(x)                  # (B, Cq, T)
+        v = self.value(x)                # (B, C, T)
+        attn = torch.bmm(q.transpose(1, 2), k)  # (B, T, T)
+        attn = F.softmax(attn, dim=-1)
+        o = torch.bmm(v, attn)           # (B, C, T)
+        return self.gamma * o + x
+
+
+class SqueezeExcite1d(nn.Module):
+    """
+    1D Squeeze-and-Excitation 通道注意力
+    """
+    def __init__(self, channels, reduction=16):
+        super(SqueezeExcite1d, self).__init__()
+        hidden = max(1, channels // reduction)
+        self.fc1 = nn.Linear(channels, hidden)
+        self.fc2 = nn.Linear(hidden, channels)
+
+    def forward(self, x):
+        B, C, T = x.shape
+        s = x.mean(dim=-1)           # (B, C)
+        s = F.relu(self.fc1(s))
+        s = torch.sigmoid(self.fc2(s))
+        s = s.unsqueeze(-1)          # (B, C, 1)
+        return x * s
+
+
+class NoiseInjection(nn.Module):
+    """
+    训练阶段噪声注入，提升多样性与鲁棒性
+    """
+    def __init__(self):
+        super(NoiseInjection, self).__init__()
+        self.weight = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        if self.training:
+            noise = torch.randn_like(x)
+            return x + self.weight * noise
+        return x
+
+
 class AdaptiveInstanceNorm1d(nn.Module):
     """
     自适应实例归一化(AdaIN)层
@@ -47,27 +104,21 @@ class FeatureExtractor(nn.Module):
         super(FeatureExtractor, self).__init__()
         # 假设输入为 (C, S, T)，即 (num_tx_rx, num_subcarriers, num_time)
         # 这里我们将其视为图像输入，使用 ResNet18 结构
+        # 简化的特征提取器，减少层数
         self.backbone = nn.Sequential(
-            nn.Conv1d(input_dim[0] * input_dim[1], 64, kernel_size=7, stride=2, padding=3),
+            nn.Conv1d(input_dim[0] * input_dim[1], 64, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm1d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
-
-            nn.Conv1d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=2, stride=2),
 
             nn.Conv1d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=2, stride=2),
 
-            nn.Conv1d(128, 128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
-
             nn.AdaptiveAvgPool1d(1)  # 使用自适应池化确保输出尺寸为1
         )
+        self.dropout = nn.Dropout(0.2)
         self.fc = nn.Linear(128, feature_dim)
 
     def forward(self, x):
@@ -78,6 +129,7 @@ class FeatureExtractor(nn.Module):
         # 经过骨干网络
         x = self.backbone(x)  # (B, 128, 1)
         x = x.squeeze(-1)  # (B, 128)
+        x = self.dropout(x)
         x = self.fc(x)  # (B, d)
         return x
 
@@ -87,7 +139,7 @@ class Generator(nn.Module):
     生成器 G: 融合源域身份特征与目标域环境特征，生成符合目标域分布的虚假样本
     输入: 源域数据 X_s + 目标域特征 F_t
     输出: 虚假目标域数据 X_hat_t
-    使用 U-Net 架构 + AdaIN条件调制
+    使用 U-Net 架构 + AdaIN条件调制 + 自注意力/SE/噪声注入 + 跳连
     """
 
     def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, feature_dim=128):
@@ -96,13 +148,14 @@ class Generator(nn.Module):
         self.subcarriers = subcarriers
         self.time_steps = time_steps
 
-        # 编码器
+        # 简化的编码器
         self.enc1 = nn.Sequential(
             nn.Conv1d(in_channels * subcarriers, 64, kernel_size=3, padding=1),
             nn.BatchNorm1d(64),
             nn.ReLU(inplace=True)
         )
         self.pool1 = nn.MaxPool1d(2)
+        self.se_e1 = SqueezeExcite1d(64)
         
         self.enc2 = nn.Sequential(
             nn.Conv1d(64, 128, kernel_size=3, padding=1),
@@ -110,31 +163,27 @@ class Generator(nn.Module):
             nn.ReLU(inplace=True)
         )
         self.pool2 = nn.MaxPool1d(2)
-        
-        self.enc3 = nn.Sequential(
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.pool3 = nn.MaxPool1d(2)
+        self.sa_enc = SelfAttention1d(128)
+        self.noise = NoiseInjection()
 
         # 目标域特征投影
-        self.feature_proj = nn.Linear(feature_dim, 256)
+        self.feature_proj = nn.Linear(feature_dim, 128)
         
-        # AdaIN层，在解码器中使用
-        self.adain1 = AdaptiveInstanceNorm1d(128, feature_dim)
-        self.adain2 = AdaptiveInstanceNorm1d(64, feature_dim)
+        # AdaIN层
+        self.adain1 = AdaptiveInstanceNorm1d(64, feature_dim)
 
-        # 解码器
-        self.dec1 = nn.ConvTranspose1d(256 + 256, 128, kernel_size=2, stride=2)
-        self.dec1_norm = nn.BatchNorm1d(128)
+        # 简化的解码器
+        self.dec1 = nn.ConvTranspose1d(128 + 128, 64, kernel_size=2, stride=2)
+        self.dec1_norm = nn.BatchNorm1d(64)
         self.dec1_act = nn.ReLU(inplace=True)
+        self.sa_dec1 = SelfAttention1d(64)
+
+        # 跳连融合后精炼
+        self.refine_conv = nn.Conv1d(64 + 64, 64, kernel_size=1)
+        self.refine_norm = nn.BatchNorm1d(64)
+        self.refine_act = nn.ReLU(inplace=True)
         
-        self.dec2 = nn.ConvTranspose1d(128, 64, kernel_size=2, stride=2)
-        self.dec2_norm = nn.BatchNorm1d(64)
-        self.dec2_act = nn.ReLU(inplace=True)
-        
-        self.dec3 = nn.ConvTranspose1d(64, in_channels * subcarriers, kernel_size=2, stride=2)
+        self.dec2 = nn.ConvTranspose1d(64, in_channels * subcarriers, kernel_size=2, stride=2)
         self.output_act = nn.Tanh()
 
     def forward(self, x_s, f_t):
@@ -146,13 +195,13 @@ class Generator(nn.Module):
 
         # 编码器
         e1 = self.enc1(x_s_flat)      # (B, 64, T)
-        p1 = self.pool1(e1)            # (B, 64, T/2)
+        e1 = self.se_e1(e1)
+        p1 = self.pool1(e1)           # (B, 64, T/2)
         
-        e2 = self.enc2(p1)             # (B, 128, T/2)
-        p2 = self.pool2(e2)            # (B, 128, T/4)
-        
-        e3 = self.enc3(p2)             # (B, 256, T/4)
-        encoded = self.pool3(e3)       # (B, 256, T/8)
+        e2 = self.enc2(p1)            # (B, 128, T/2)
+        e2 = self.sa_enc(e2)
+        encoded = self.pool2(e2)      # (B, 128, T/4)
+        encoded = self.noise(encoded)
 
         # 处理目标域特征，使其与编码特征匹配
         if f_t.size(0) >= B:
@@ -162,24 +211,27 @@ class Generator(nn.Module):
             selected_f_t = f_t.repeat(repeat_times, 1)[:B]
 
         # 投影目标域特征
-        projected_f = self.feature_proj(selected_f_t).unsqueeze(-1)  # (B, 256, 1)
-        projected_f = projected_f.expand(-1, -1, encoded.size(-1))   # (B, 256, T/8)
+        projected_f = self.feature_proj(selected_f_t).unsqueeze(-1)  # (B, 128, 1)
+        projected_f = projected_f.expand(-1, -1, encoded.size(-1))   # (B, 128, T/4)
 
         # 融合编码特征和目标域特征
-        combined = torch.cat([encoded, projected_f], dim=1)  # (B, 512, T/8)
+        combined = torch.cat([encoded, projected_f], dim=1)  # (B, 256, T/4)
         
-        # 解码器（使用AdaIN调制）
-        d1 = self.dec1(combined)                  # (B, 128, T/4)
+        # 解码器 + AdaIN 调制
+        d1 = self.dec1(combined)                  # (B, 64, T/2)
         d1 = self.dec1_norm(d1)
         d1 = self.adain1(d1, selected_f_t)        # AdaIN调制
         d1 = self.dec1_act(d1)
+        d1 = self.sa_dec1(d1)
         
-        d2 = self.dec2(d1)                        # (B, 64, T/2)
-        d2 = self.dec2_norm(d2)
-        d2 = self.adain2(d2, selected_f_t)        # AdaIN调制
-        d2 = self.dec2_act(d2)
+        # 跳连（将 e1 下采样到 T/2 并与 d1 融合）
+        e1_down = F.avg_pool1d(e1, kernel_size=2, stride=2)  # (B, 64, T/2)
+        refined = torch.cat([d1, e1_down], dim=1)            # (B, 128, T/2)
+        refined = self.refine_conv(refined)                  # (B, 64, T/2)
+        refined = self.refine_norm(refined)
+        refined = self.refine_act(refined)
         
-        output_flat = self.dec3(d2)               # (B, C*S, T)
+        output_flat = self.dec2(refined)                     # (B, C*S, T)
         output_flat = self.output_act(output_flat)
 
         # 恢复为四维 (B, C, S, T)
@@ -190,40 +242,42 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     """
     判别器 D: 区分真实目标域样本 vs 虚假生成样本
-    使用谱归一化增强训练稳定性
+    使用谱归一化增强训练稳定性，加入膨胀卷积分支与自注意力/SE
     输入: (B, C, S, T) -> 输出: (B, 1)
     """
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
         super(Discriminator, self).__init__()
         self.use_spectral_norm = use_spectral_norm
         
-        # 如果启用谱归一化，对所有卷积层应用
+        # 主干与膨胀分支（多尺度）
         conv1 = nn.Conv1d(in_channels, 64, kernel_size=3, padding=1)
-        conv2 = nn.Conv1d(64, 128, kernel_size=3, padding=1)
-        conv3 = nn.Conv1d(128, 256, kernel_size=3, padding=1)
+        conv1_dilated = nn.Conv1d(in_channels, 64, kernel_size=3, padding=2, dilation=2)
         
         if use_spectral_norm:
             conv1 = spectral_norm(conv1)
-            conv2 = spectral_norm(conv2)
-            conv3 = spectral_norm(conv3)
+            conv1_dilated = spectral_norm(conv1_dilated)
         
         self.conv1 = conv1
+        self.conv1_dilated = conv1_dilated
         self.bn1 = nn.BatchNorm1d(64)
+        self.bn1d = nn.BatchNorm1d(64)
         self.act1 = nn.LeakyReLU(0.2, inplace=True)
+        self.act1d = nn.LeakyReLU(0.2, inplace=True)
         self.pool1 = nn.MaxPool1d(2)
+        self.pool1d = nn.MaxPool1d(2)
+        self.sa = SelfAttention1d(64)
         
+        conv2 = nn.Conv1d(64, 128, kernel_size=3, padding=1)
+        if use_spectral_norm:
+            conv2 = spectral_norm(conv2)
         self.conv2 = conv2
         self.bn2 = nn.BatchNorm1d(128)
         self.act2 = nn.LeakyReLU(0.2, inplace=True)
-        self.pool2 = nn.MaxPool1d(2)
+        self.se2 = SqueezeExcite1d(128)
+        self.pool2 = nn.AdaptiveAvgPool1d(1)
         
-        self.conv3 = conv3
-        self.bn3 = nn.BatchNorm1d(256)
-        self.act3 = nn.LeakyReLU(0.2, inplace=True)
-        self.pool3 = nn.AdaptiveAvgPool1d(1)
-        
-        # 最后的全连接层，也应用谱归一化
-        fc = nn.Linear(256, 1)
+        # 最后的全连接层
+        fc = nn.Linear(128, 1)
         if use_spectral_norm:
             fc = spectral_norm(fc)
         self.fc = fc
@@ -233,25 +287,20 @@ class Discriminator(nn.Module):
         B, C, S, T = x.shape
         x = x.view(B, C * S, T)
         
-        # 第一层
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.act1(x)
-        x = self.pool1(x)
+        # 多尺度第一层
+        x_base = self.pool1(self.act1(self.bn1(self.conv1(x))))
+        x_dilated = self.pool1d(self.act1d(self.bn1d(self.conv1_dilated(x))))
+        x = 0.5 * (x_base + x_dilated)
+        x = self.sa(x)
         
         # 第二层
         x = self.conv2(x)
         x = self.bn2(x)
         x = self.act2(x)
-        x = self.pool2(x)
+        x = self.se2(x)
+        x = self.pool2(x)  # 自适应池化
         
-        # 第三层
-        x = self.conv3(x)
-        x = self.bn3(x)
-        x = self.act3(x)
-        x = self.pool3(x)
-        
-        x = x.squeeze(-1)  # (B, 256)
+        x = x.squeeze(-1)  # (B, 128)
         x = self.fc(x)     # (B, 1)
         
         # 注意：WGAN不需要sigmoid，直接输出分数
