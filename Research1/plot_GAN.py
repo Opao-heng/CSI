@@ -1,4 +1,6 @@
 import os
+from datetime import datetime
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -11,7 +13,7 @@ import numpy as np
   output_dir - 图形保存目录，默认为'GAN'
 返回: 无返回值，直接保存图形文件
 """
-def plot_training_metrics(train_losses, evaluation_metrics, output_dir='GAN'):
+def plot_training_metrics(train_losses, output_dir='GAN'):
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
@@ -25,47 +27,7 @@ def plot_training_metrics(train_losses, evaluation_metrics, output_dir='GAN'):
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.grid(True, alpha=0.3)
-    
-    # 步骤4: 绘制判别器评分（真实样本vs生成样本）
-    epochs_range = range(1, len(evaluation_metrics)+1)
-    
-    plt.subplot(2, 3, 2)
-    fake_scores = [m.get('avg_fake_score', 0) for m in evaluation_metrics]
-    real_scores = [m.get('avg_real_score', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, fake_scores, label='Fake Score', marker='o', markersize=3)
-    plt.plot(epochs_range, real_scores, label='Real Score', marker='s', markersize=3)
-    plt.title('Discriminator Scores')
-    plt.xlabel('Epoch')
-    plt.ylabel('Score')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # 步骤5: 绘制特征匹配误差(MSE)
-    plt.subplot(2, 3, 3)
-    feature_mse = [m.get('feature_mse', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, feature_mse, color='green', marker='^', markersize=3)
-    plt.title('Feature Matching MSE')
-    plt.xlabel('Epoch')
-    plt.ylabel('MSE')
-    plt.grid(True, alpha=0.3)
-    
-    # 步骤6: 绘制特征余弦相似度
-    plt.subplot(2, 3, 4)
-    cosine_sim = [m.get('avg_cosine_similarity', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, cosine_sim, color='orange', marker='d', markersize=3)
-    plt.title('Average Cosine Similarity')
-    plt.xlabel('Epoch')
-    plt.ylabel('Cosine Similarity')
-    plt.grid(True, alpha=0.3)
-    
-    # 步骤7: 绘制特征多样性（方差）
-    plt.subplot(2, 3, 5)
-    diversity = [m.get('feature_diversity', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, diversity, color='red', marker='*', markersize=8)
-    plt.title('Feature Diversity')
-    plt.xlabel('Epoch')
-    plt.ylabel('Variance')
-    plt.grid(True, alpha=0.3)
+
     
     # 步骤8: 调整布局并保存图形
     plt.tight_layout()
@@ -79,7 +41,7 @@ def plot_training_metrics(train_losses, evaluation_metrics, output_dir='GAN'):
     plt.show()
     
     # 步骤9: 生成并保存统计信息
-    save_metrics_summary(train_losses, evaluation_metrics, output_dir)
+    save_metrics_summary(train_losses, output_dir)
 
 
 """
@@ -139,3 +101,38 @@ Total Epochs: {len(evaluation_metrics)}
     with open(summary_path, 'w') as f:
         f.write(summary)
     print(f"Training summary saved to {summary_path}")
+
+
+"""
+将GAN的评估结果保存为JSON文件
+
+作用:
+    将综合评估指标和训练损失历史保存为JSON格式，便于后续模型性能分析。
+
+返回:
+    无
+"""
+
+
+def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
+    # 步骤1: 创建输出目录
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 步骤2: 整理评估指标和训练损失统计
+    results = {
+        'timestamp': datetime.now().isoformat(),
+        'evaluation_metrics': comprehensive_metrics,
+        'training_loss_summary': {
+            'min_loss': min([l['g_loss'] for l in train_losses]) if train_losses else 0,
+            'max_loss': max([l['g_loss'] for l in train_losses]) if train_losses else 0,
+            'final_loss': train_losses[-1]['g_loss'] if train_losses else 0,
+            'total_epochs': len(train_losses)
+        },
+        'full_training_history': train_losses
+    }
+
+    # 步骤3: 将结果保存为JSON文件
+    result_path = os.path.join(output_dir, 'gan_evaluation_results.json')
+    with open(result_path, 'w') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False)
+    print(f"评估结果已保存到: {result_path}")

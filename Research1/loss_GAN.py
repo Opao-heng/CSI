@@ -95,60 +95,6 @@ def frequency_consistency_loss(real_samples, fake_samples):
     return torch.mean((real_mag - fake_mag) ** 2)
 
 
-def feature_matching_loss(G, E, x_s, f_t):
-    """
-    基础特征匹配损失 L_feat = E||E(G(x_s, f_t)) - E(x_t)||^2（简化版）
-    推荐使用 perceptual_loss 获得更好的效果
-    """
-    f_hat = E(G(x_s, f_t))
-    # 计算特征匹配损失
-    return F.mse_loss(f_hat, f_t, reduction='mean')
-
-
-def perceptual_loss(G, E, x_s, f_t, source_features, alpha_mse=1.0, alpha_cosine=0.5, alpha_temporal=0.2):
-    """
-    多层感知损失 - 增强版特征匹配损失
-    包含MSE损失、余弦相似度损失和时序平滑损失
-    
-    参数:
-      G - 生成器网络
-      E - 特征提取器网络
-      x_s - 源域样本
-      f_t - 目标域特征（用于生成）
-      source_features - 源域样本的特征（预计算）
-      alpha_mse - MSE损失权重
-      alpha_cosine - 余弦相似度损失权重
-      alpha_temporal - 时序平滑损失权重
-    返回: tuple - (总损失, MSE损失, 余弦损失, 时序损失)
-    """
-    # 生成虚假样本
-    x_hat_t = G(x_s, f_t)
-    
-    # 提取生成样本的特征
-    generated_features = E(x_hat_t)
-    
-    # 1. MSE损失：特征空间的欧氏距离
-    mse_loss = F.mse_loss(generated_features, source_features, reduction='mean')
-    
-    # 2. 余弦相似度损失：确保特征方向对齐
-    cosine_sim = F.cosine_similarity(generated_features, source_features, dim=1)
-    cosine_loss = (1 - cosine_sim).mean()  # 1 - cos(θ)
-    
-    # 3. 时序平滑损失：确保生成样本的时间连续性
-    # 计算相邻时间步的差分
-    if x_hat_t.size(-1) > 1:  # 确保时间维度大于1
-        temporal_diff = x_hat_t[:, :, :, 1:] - x_hat_t[:, :, :, :-1]
-        temporal_loss = torch.mean(torch.abs(temporal_diff))
-    else:
-        temporal_loss = torch.tensor(0.0, device=x_hat_t.device)
-    
-    # 总损失
-    total_loss = (alpha_mse * mse_loss + 
-                  alpha_cosine * cosine_loss + 
-                  alpha_temporal * temporal_loss)
-    
-    return total_loss, mse_loss, cosine_loss, temporal_loss
-
 
 def discriminator_loss(D, x_t_real, x_hat_t):
     """

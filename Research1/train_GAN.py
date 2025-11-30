@@ -1,13 +1,9 @@
 import torch
 import os
-import json
 import torch.optim as optim
 import numpy as np
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
-from typing import Tuple, Dict, Any
 from datetime import datetime
-
 from Research1.model_GAN import build_model
 from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
@@ -16,22 +12,129 @@ from Research1.loss_GAN import (
     wasserstein_discriminator_loss,
     wasserstein_generator_loss
 )
-from Research1.plot_GAN import plot_training_metrics
+from Research1.plot_GAN import plot_training_metrics, save_evaluation_results
 from Research1.evaluator_GAN import evaluate_gan_comprehensive
+
+"""
+执行完整的GAN模型训练和评估流程
+"""
+def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num_samples=900):
+    # 步骤1: 初始化设备和打印配置
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print("\n" + "=" * 70)
+    print("GAN 训练配置")
+    print("=" * 70)
+    print(f"设备: {device}")
+    print(f"训练轮数: {epochs}")
+    print(f"生成器学习率: {lr_g}, 判别器学习率: {lr_d}")
+    print(f"GAN生成样本数量：" + str(num_samples))
+    print("=" * 70 + "\n")
+
+    # 步骤2: 构建模型
+    E, G, D, D_spec, D_patch = build_model()
+    E.to(device)
+    G.to(device)
+    D.to(device)
+    D_spec.to(device)
+    D_patch.to(device)
+
+    # 步骤3: 打印模型参数统计
+    total_params_E = sum(p.numel() for p in E.parameters())
+    total_params_G = sum(p.numel() for p in G.parameters())
+    total_params_D = sum(p.numel() for p in D.parameters())
+    total_params_D_spec = sum(p.numel() for p in D_spec.parameters())
+    total_params_D_patch = sum(p.numel() for p in D_patch.parameters())
+    total_params = total_params_E + total_params_G + total_params_D + total_params_D_spec + total_params_D_patch
+    print(f"  模型参数量总量: {total_params:,}\n")
+
+    # 步骤4: 定义优化器
+    optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
+    optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.5, 0.999))
+    optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.5, 0.999))
+    optimizer_D_spec = optim.Adam(D_spec.parameters(), lr=lr_d, betas=(0.5, 0.999))
+    optimizer_D_patch = optim.Adam(D_patch.parameters(), lr=lr_d, betas=(0.5, 0.999))
+
+    # 步骤5: 初始化训练记录
+    train_loss_history = []
+    training_start_time = datetime.now()
+
+    # 步骤6: 预先提取目标域特征（只提取一次，避免重复计算）
+    print("正在提取目标域特征...")
+    E.eval()
+    all_target_features = []
+    all_target_data = []
+    with torch.no_grad():
+        for x_t_real, _ in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            all_target_features.append(features)
+            all_target_data.append(x_t_real)
+    target_features_cache = torch.cat(all_target_features, dim=0)
+    target_data_cache = torch.cat(all_target_data, dim=0)
+    E.train()
+    print(f"目标域特征提取完成\n")
+
+    # 步骤7: 训练循环
+    for epoch in range(epochs):
+        # 步骤7: 训练循环
+        loss_dict = train_epoch(
+            E, G, D, D_spec, D_patch, source_loader, target_features_cache, target_data_cache,
+            optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, optimizer_D_patch,
+            lambda_mmd=5.0, lambda_freq=1.0,
+            lambda_gp=10.0, n_critic=3, device=device
+        )
+
+        # 步骤8: 记录训练损失变化
+        train_loss_history.append(loss_dict)
+
+        # 步骤9: 打印训练进度
+        elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
+        print(f"轮数 [{epoch + 1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
+        print(f"  生成器损失: {loss_dict['total_loss']:.4f} | 判别器损失: {loss_dict['d_loss']:.4f} | "
+              f"MMD: {loss_dict['mmd_loss']:.4f} | " f"频域约束: {loss_dict['freq_loss']:.4f} ")
+
+    # 保存最优模型
+    torch.save(E.state_dict(), model_path)
+
+    # 步骤12: 训练完成后生成虚假样本
+    print("=" * 70 + "\n")
+    print("GAN模型训练完成")
+    print("正在生成合成样本用于数据增强...")
+    synthetic_data, synthetic_labels = generate_synthetic_samples(
+        E, G, source_loader, target_loader, num_samples=num_samples, device=device
+    )
+    print(f"  已生成 {len(synthetic_data)} 个合成样本\n")
+
+    # 步骤13: 绘制训练指标
+    print("正在绘制训练指标...")
+    train_losses_for_plot = [loss['g_loss'] for loss in train_loss_history]
+    plot_training_metrics(train_losses_for_plot, output_dir='GAN')
+
+    # 步骤14: 执行全面的GAN质量评估
+    print("正在执行GAN质量综合评估...")
+    comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
+    print("=" * 70)
+    print(f"FID分数 (越低越好): {comprehensive_metrics.get('fid', -1):.4f}")
+    print(f"频谱保真度 (越低越好): {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
+    print(f"时间相关性-真实样本: {comprehensive_metrics.get('temporal_correlation_real', -1):.4f}")
+    print(f"时间相关性-生成样本: {comprehensive_metrics.get('temporal_correlation_fake', -1):.4f}")
+    print(f"信道平滑度-真实样本: {comprehensive_metrics.get('channel_smoothness_real', -1):.4f}")
+    print(f"信道平滑度-生成样本: {comprehensive_metrics.get('channel_smoothness_fake', -1):.4f}")
+    print(f"精确度 (Precision): {comprehensive_metrics.get('precision', -1):.4f}")
+    print(f"召回率 (Recall): {comprehensive_metrics.get('recall', -1):.4f}")
+    print("=" * 70 + "\n")
+
+    # 步骤15: 保存全面评估结果
+    print("步骤4: 正在保存评估结果...")
+    save_evaluation_results(comprehensive_metrics, train_loss_history, 'GAN')
+
+    return synthetic_data, synthetic_labels
 
 
 """
 执行单个epoch的GAN对抗训练
-
-作用:
-    使用WGAN-GP框架进行对抗训练，实现判别器和生成器的交替更新。
-    每个epoch中，判别器更新n_critic次，生成器更新1次。
-
-返回:
-    loss_dict: 各项损失的平均值字典 (g_loss, d_loss, mmd_loss, feat_loss, freq_loss, gp_loss)
-    eval_metrics: 评估指标字典
 """
-def train_epoch(E, G, D, D_spec, D_patch, source_loader, target_features, target_data, optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, optimizer_D_patch, lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, lambda_gp=10.0, n_critic=3, device='cuda' if torch.cuda.is_available() else 'cpu'):
+def train_epoch(E, G, D, D_spec, D_patch, source_loader, target_features, target_data, optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, optimizer_D_patch, lambda_mmd=5.0, lambda_freq=2.0, lambda_gp=10.0, n_critic=3, device='cuda' if torch.cuda.is_available() else 'cpu'):
     # 步骤1: 设置模型为训练模式
     E.train()
     G.train()
@@ -43,9 +146,7 @@ def train_epoch(E, G, D, D_spec, D_patch, source_loader, target_features, target
     total_g_loss = 0.0
     total_d_loss = 0.0
     total_mmd_loss = 0.0
-    total_feat_loss = 0.0
     total_freq_loss = 0.0
-    total_gp_loss = 0.0
     num_batches = 0
     critic_iter = 0
     
@@ -89,120 +190,61 @@ def train_epoch(E, G, D, D_spec, D_patch, source_loader, target_features, target
             
             # 4.4 累计损失记录
             total_d_loss += d_loss.item()
-            total_gp_loss += ((gp_main + gp_spec + gp_patch) / 3.0).item()
             critic_iter += 1
 
         # 步骤5: 更新生成器G和特征提取器E
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
         
-        # 5.1 提取源域特征
-        source_features = E(x_s)
-        
-        # 5.2 生成虚假样本
+        # 5.1 生成虚假样本
         x_hat_t = G(x_s, target_features)
         
-        # 5.3 计算WGAN对抗损失
+        # 5.2 计算WGAN对抗损失
         g_adv_main = wasserstein_generator_loss(D, x_hat_t)
         g_adv_spec = wasserstein_generator_loss(D_spec, x_hat_t)
         g_adv_patch = wasserstein_generator_loss(D_patch, x_hat_t)
         g_adv_loss = (g_adv_main + g_adv_spec + g_adv_patch) / 3.0
         
-        # 5.4 计算MMD损失（分布对齐）
+        # 5.3 计算MMD损失（分布对齐）
         generated_features = E(x_hat_t)
         mmd_loss_value = mmd_loss(target_features, generated_features)
         
-        # 5.5 计算特征匹配损失
-        feat_loss = torch.nn.functional.mse_loss(generated_features, source_features, reduction='mean')
-        
-        # 5.6 计算频域一致性损失
+        # 5.4 计算频域一致性损失
         rand_idx_freq = torch.randperm(target_data.size(0))[:batch_size]
         x_t_real_freq = target_data[rand_idx_freq].to(device)
         freq_loss = frequency_consistency_loss(x_t_real_freq, x_hat_t)
         
-        # 5.7 计算加权的总生成器损失
-        g_total_loss = (g_adv_loss + 
-                        lambda_mmd * mmd_loss_value + 
-                        lambda_feat * feat_loss +
-                        lambda_freq * freq_loss)
+        # 5.5 计算加权的总生成器损失
+        g_total_loss = (g_adv_loss + lambda_mmd * mmd_loss_value + lambda_freq * freq_loss)
         
-        # 5.8 反向传播与优化器更新
+        # 5.7 反向传播与优化器更新
         g_total_loss.backward()
         optimizer_G.step()
         optimizer_E.step()
         
-        # 5.9 累计各项损失
+        # 5.8 累计各项损失
         total_g_loss += g_total_loss.item()
         total_mmd_loss += mmd_loss_value.item()
-        total_feat_loss += feat_loss.item()
         total_freq_loss += freq_loss.item()
         num_batches += 1
 
     # 步骤6: 计算并返回平均损失
+    # train_epoch函数共使用了以下5类损失函数：
+    # 1. total_loss - 生成器总损失，包含WGAN对抗损失、MMD损失和频域一致性损失的加权和
+    # 2. d_loss - Wasserstein判别器损失（WGAN-GP框架），用于三个判别器（D、D_spec、D_patch）的平均值
+    # 3. mmd_loss - 最大均值差异损失(来自loss_GAN.py的mmd_loss函数)，衡量生成样本特征与目标域特征分布的差异
+    # 4. freq_loss - 频域一致性损失(来自loss_GAN.py的frequency_consistency_loss函数)，在频谱上约束生成样本
     loss_dict = {
-        'g_loss': total_g_loss / num_batches if num_batches > 0 else 0,
+        'total_loss': total_g_loss / num_batches if num_batches > 0 else 0,
         'd_loss': total_d_loss / critic_iter if critic_iter > 0 else 0,
         'mmd_loss': total_mmd_loss / num_batches if num_batches > 0 else 0,
-        'feat_loss': total_feat_loss / num_batches if num_batches > 0 else 0,
         'freq_loss': total_freq_loss / num_batches if num_batches > 0 else 0,
-        'gp_loss': total_gp_loss / critic_iter if critic_iter > 0 else 0
     }
-    eval_metrics = {}
-    return loss_dict, eval_metrics
-
-
-"""
-快速评估生成样本的质量指标
-
-作用:
-    计算生成样本与真实样本的多项评估指标，包括判别器评分、特征匹配误差和频域一致性，
-    用于在训练过程中监控生成器的表现。
-
-返回:
-    metrics: 包含avg_fake_score、avg_real_score、feature_mse、spectral_mse的字典
-"""
-def evaluate_generated_samples_fast(E, G, D, source_loader, target_data, target_features, device='cuda'):
-    # 步骤1: 设置模型为评估模式
-    E.eval()
-    G.eval()
-    D.eval()
-    
-    metrics = {}
-    with torch.no_grad():
-        # 步骤2: 从源域加载第一个批次数据
-        x_s, _ = next(iter(source_loader))
-        x_s = x_s.to(device)
-        
-        # 步骤3: 使用生成器生成虚假样本
-        x_hat_t = G(x_s, target_features)
-        
-        # 步骤4: 计算生成样本的判别器评分
-        metrics['avg_fake_score'] = D(x_hat_t).mean().item()
-        
-        # 步骤5: 随机采样真实目标域数据并计算其判别器评分
-        rand_idx = torch.randperm(target_data.size(0))[:x_s.size(0)]
-        x_t_real = target_data[rand_idx].to(device)
-        metrics['avg_real_score'] = D(x_t_real).mean().item()
-        
-        # 步骤6: 计算特征匹配误差和频域一致性
-        source_feat = E(x_s)
-        gen_feat = E(x_hat_t)
-        metrics['feature_mse'] = torch.mean((source_feat - gen_feat) ** 2).item()
-        metrics['spectral_mse'] = frequency_consistency_loss(x_t_real, x_hat_t).item()
-    
-    return metrics
+    return loss_dict
 
 
 """
 使用训练的生成器生成虚假样本进行数据增强
-
-作用:
-    利用训练好的生成器从源域数据生成与目标域分布匹配的虚假样本，
-    用于扩充目标域训练数据集。
-
-返回:
-    synthetic_data: 生成的虚假样本张量 (N, C, S, T)
-    synthetic_labels: 生成样本对应的标签张量 (N,)
 """
 def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=900, device='cuda'):
     # 步骤1: 设置模型为评估模式
@@ -250,14 +292,6 @@ def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=9
 
 """
 合并生成的虚假样本与原始目标域数据，并保存为文件
-
-作用:
-    将GAN生成的虚假样本与原始目标域数据进行拼接，形成扩充后的数据集，
-    并将结果保存为PyTorch张量文件。
-
-返回:
-    combined_data: 合并后的数据张量 (M+N, C, S, T)
-    combined_labels: 合并后的标签张量 (M+N,)
 """
 def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir):
     # 步骤1: 创建输出目录
@@ -287,206 +321,6 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
     torch.save(combined_labels, target_labels_path)
 
     return combined_data, combined_labels
-
-
-"""
-执行完整的GAN模型训练和评估流程
-
-作用:
-    完成从模型构建、优化器配置、训练循环、模型评估到数据生成的全过程。
-    采用WGAN-GP框架，集成MMD损失、特征匹配损失和频域约束损失。
-
-返回:
-    synthetic_data: 生成的虚假样本张量
-    synthetic_labels: 生成样本的标签张量
-"""
-def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num_samples=900):
-    # 步骤1: 初始化设备和打印配置
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print("\n" + "="*70)
-    print("GAN 训练配置")
-    print("="*70)
-    print(f"设备: {device}")
-    print(f"训练轮数: {epochs}")
-    print(f"生成器学习率: {lr_g}, 判别器学习率: {lr_d}")
-    print(f"GAN生成样本数量：" + str(num_samples))
-    print("="*70 + "\n")
-
-    # 步骤2: 构建模型
-    E, G, D, D_spec, D_patch = build_model()
-    E.to(device)
-    G.to(device)
-    D.to(device)
-    D_spec.to(device)
-    D_patch.to(device)
-    
-    # 步骤3: 打印模型参数统计
-    total_params_E = sum(p.numel() for p in E.parameters())
-    total_params_G = sum(p.numel() for p in G.parameters())
-    total_params_D = sum(p.numel() for p in D.parameters())
-    total_params_D_spec = sum(p.numel() for p in D_spec.parameters())
-    total_params_D_patch = sum(p.numel() for p in D_patch.parameters())
-    total_params = total_params_E + total_params_G + total_params_D + total_params_D_spec + total_params_D_patch
-    print(f"  模型参数量总量: {total_params:,}\n")
-
-    # 步骤4: 定义优化器
-    optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
-    optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.5, 0.999))
-    optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.5, 0.999))
-    optimizer_D_spec = optim.Adam(D_spec.parameters(), lr=lr_d, betas=(0.5, 0.999))
-    optimizer_D_patch = optim.Adam(D_patch.parameters(), lr=lr_d, betas=(0.5, 0.999))
-
-    # 步骤5: 初始化训练记录
-    train_loss_history = []
-    evaluation_metrics = []
-    training_start_time = datetime.now()
-
-    # 步骤6: 预先提取目标域特征（只提取一次，避免重复计算）
-    print("正在提取目标域特征...")
-    E.eval()
-    all_target_features = []
-    all_target_data = []
-    with torch.no_grad():
-        for x_t_real, _ in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)
-            all_target_features.append(features)
-            all_target_data.append(x_t_real)
-    target_features_cache = torch.cat(all_target_features, dim=0)
-    target_data_cache = torch.cat(all_target_data, dim=0)
-    E.train()
-    print(f"目标域特征提取完成\n")
-    
-    # 步骤7: 训练循环
-    for epoch in range(epochs):
-        # 训练一个epoch（传入预计算的特征）
-        loss_dict, eval_metrics = train_epoch(
-            E, G, D, D_spec, D_patch, source_loader, target_features_cache, target_data_cache,
-            optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, optimizer_D_patch,
-            lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=1.0, 
-            lambda_gp=10.0, n_critic=3, device=device
-        )
-
-        # 步骤8: 记录训练结果
-        train_loss_history.append(loss_dict)
-        evaluation_metrics.append(eval_metrics)
-
-        # 步骤9: 打印训练进度
-        elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
-        print(f"轮数 [{epoch+1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
-        print(f"  生成器损失: {loss_dict['g_loss']:.4f} | 判别器损失: {loss_dict['d_loss']:.4f} | "
-              f"MMD: {loss_dict['mmd_loss']:.4f} | 特征匹配: {loss_dict['feat_loss']:.4f} | "
-              f"频域约束: {loss_dict['freq_loss']:.4f} | 梯度惩罚: {loss_dict['gp_loss']:.4f}")
-        
-        # 步骤10: 每5个epoch进行一次快速评估
-        if (epoch + 1) % 5 == 0:
-            eval_metrics = evaluate_generated_samples_fast(
-                E, G, D, source_loader, target_data_cache, target_features_cache, device
-            )
-            print(f"  [评估] 生成样本评分: {eval_metrics.get('avg_fake_score', 0):.4f} | "
-                  f"真实样本评分: {eval_metrics.get('avg_real_score', 0):.4f} | "
-                  f"特征MSE: {eval_metrics.get('feature_mse', 0):.4f} | "
-                  f"频域MSE: {eval_metrics.get('spectral_mse', 0):.4f}")
-
-        # 步骤11: 每10个epoch保存一次模型检查点
-        if (epoch + 1) % 10 == 0:
-            os.makedirs(os.path.dirname(model_path) or '.', exist_ok=True)
-            torch.save({
-                'epoch': epoch,
-                'E_state_dict': E.state_dict(),
-                'G_state_dict': G.state_dict(),
-                'D_state_dict': D.state_dict(),
-                'D_spec_state_dict': D_spec.state_dict(),
-                'D_patch_state_dict': D_patch.state_dict(),
-                'optimizer_E_state_dict': optimizer_E.state_dict(),
-                'optimizer_G_state_dict': optimizer_G.state_dict(),
-                'optimizer_D_state_dict': optimizer_D.state_dict(),
-                'optimizer_D_spec_state_dict': optimizer_D_spec.state_dict(),
-                'optimizer_D_patch_state_dict': optimizer_D_patch.state_dict(),
-                'train_loss_history': train_loss_history,
-                'evaluation_metrics': evaluation_metrics,
-                'hyperparameters': {
-                    'lr_g': lr_g,
-                    'lr_d': lr_d,
-                    'epochs': epochs,
-                    'num_samples': num_samples
-                }
-            }, model_path)
-            print(f"  模型检查点已保存: {model_path}")
-
-    training_time = (datetime.now() - training_start_time).total_seconds() / 60
-    print(f"\n{'='*70}")
-    print(f"训练完成，耗时 {training_time:.2f} 分钟")
-    print(f"{'='*70}\n")
-
-    # 步骤12: 训练完成后生成虚假样本
-    print("步骤1: 正在生成合成样本用于数据增强...")
-    synthetic_data, synthetic_labels = generate_synthetic_samples(
-        E, G, source_loader, target_loader, num_samples=num_samples, device=device
-    )
-    print(f"  已生成 {len(synthetic_data)} 个合成样本\n")
-
-    # 步骤13: 绘制训练指标
-    print("步骤2: 正在绘制训练指标...")
-    train_losses_for_plot = [loss['g_loss'] for loss in train_loss_history]
-    plot_training_metrics(train_losses_for_plot, evaluation_metrics, output_dir='GAN')
-    print()
-
-    # 步骤14: 执行全面的GAN质量评估
-    print("步骤3: 正在执行GAN质量综合评估...")
-    comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
-    
-    print("\n" + "="*70)
-    print("GAN质量综合评估结果")
-    print("="*70)
-    print(f"FID分数 (越低越好): {comprehensive_metrics.get('fid', -1):.4f}")
-    print(f"频谱保真度 (越低越好): {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
-    print(f"时间相关性-真实样本: {comprehensive_metrics.get('temporal_correlation_real', -1):.4f}")
-    print(f"时间相关性-生成样本: {comprehensive_metrics.get('temporal_correlation_fake', -1):.4f}")
-    print(f"信道平滑度-真实样本: {comprehensive_metrics.get('channel_smoothness_real', -1):.4f}")
-    print(f"信道平滑度-生成样本: {comprehensive_metrics.get('channel_smoothness_fake', -1):.4f}")
-    print(f"精确度 (Precision): {comprehensive_metrics.get('precision', -1):.4f}")
-    print(f"召回率 (Recall): {comprehensive_metrics.get('recall', -1):.4f}")
-    print("="*70 + "\n")
-    
-    # 步骤15: 保存全面评估结果
-    print("步骤4: 正在保存评估结果...")
-    _save_evaluation_results(comprehensive_metrics, train_loss_history, 'GAN')
-
-    return synthetic_data, synthetic_labels
-
-
-"""
-将GAN的评估结果保存为JSON文件
-
-作用:
-    将综合评估指标和训练损失历史保存为JSON格式，便于后续模型性能分析。
-
-返回:
-    无
-"""
-def _save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
-    # 步骤1: 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 步骤2: 整理评估指标和训练损失统计
-    results = {
-        'timestamp': datetime.now().isoformat(),
-        'evaluation_metrics': comprehensive_metrics,
-        'training_loss_summary': {
-            'min_loss': min([l['g_loss'] for l in train_losses]) if train_losses else 0,
-            'max_loss': max([l['g_loss'] for l in train_losses]) if train_losses else 0,
-            'final_loss': train_losses[-1]['g_loss'] if train_losses else 0,
-            'total_epochs': len(train_losses)
-        },
-        'full_training_history': train_losses
-    }
-    
-    # 步骤3: 将结果保存为JSON文件
-    result_path = os.path.join(output_dir, 'gan_evaluation_results.json')
-    with open(result_path, 'w') as f:
-        json.dump(results, f, indent=4, ensure_ascii=False)
-    print(f"评估结果已保存到: {result_path}")
 
 
 if __name__ == "__main__":
