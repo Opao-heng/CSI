@@ -37,8 +37,8 @@ from Research1.evaluator_GAN import evaluate_gan_comprehensive
   device - 设备类型，默认cuda
 返回: tuple - (train_loss_dict, eval_metrics) 训练损失字典和评估指标字典
 """
-def train_epoch(E, G, D, source_loader, target_features, target_data, optimizer_E, optimizer_G, optimizer_D,
-                lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, lambda_gp=10.0, 
+def train_epoch(E, G, D, D_spec, D_patch, source_loader, target_features, target_data, optimizer_E, optimizer_G, optimizer_D,
+                optimizer_D_spec, optimizer_D_patch, lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, lambda_gp=10.0, 
                 n_critic=3, device='cuda' if torch.cuda.is_available() else 'cpu'):
     # 步骤1: 设置模型为训练模式
     E.train()
@@ -72,21 +72,32 @@ def train_epoch(E, G, D, source_loader, target_features, target_data, optimizer_
         # 步骤3: 更新判别器D（每n_critic次更新一次生成器）
         for _ in range(n_critic):
             optimizer_D.zero_grad()
+            optimizer_D_spec.zero_grad()
+            optimizer_D_patch.zero_grad()
             
             # 生成虚假样本
             with torch.no_grad():
                 x_hat_t = G(x_s, target_features)
             
-            # 计算WGAN判别器损失（带梯度惩罚）
-            d_loss, w_dist, gp = wasserstein_discriminator_loss(
+            # 计算三个判别器的 WGAN-GP 损失
+            d_loss_main, w_main, gp_main = wasserstein_discriminator_loss(
                 D, x_t_real, x_hat_t, lambda_gp=lambda_gp, device=device
             )
+            d_loss_spec, w_spec, gp_spec = wasserstein_discriminator_loss(
+                D_spec, x_t_real, x_hat_t, lambda_gp=lambda_gp, device=device
+            )
+            d_loss_patch, w_patch, gp_patch = wasserstein_discriminator_loss(
+                D_patch, x_t_real, x_hat_t, lambda_gp=lambda_gp, device=device
+            )
             
+            d_loss = (d_loss_main + d_loss_spec + d_loss_patch) / 3.0
             d_loss.backward()
             optimizer_D.step()
+            optimizer_D_spec.step()
+            optimizer_D_patch.step()
             
             total_d_loss += d_loss.item()
-            total_gp_loss += gp.item()
+            total_gp_loss += ((gp_main + gp_spec + gp_patch) / 3.0).item()
             critic_iter += 1
 
         # 步骤4: 更新生成器G和特征提取器E
@@ -100,8 +111,11 @@ def train_epoch(E, G, D, source_loader, target_features, target_data, optimizer_
         x_hat_t = G(x_s, target_features)
         
         # 计算各项损失
-        # 1. WGAN生成器损失（对抗损失）
-        g_adv_loss = wasserstein_generator_loss(D, x_hat_t)
+        # 1. WGAN生成器损失（对抗损失，与多判别器平均）
+        g_adv_main = wasserstein_generator_loss(D, x_hat_t)
+        g_adv_spec = wasserstein_generator_loss(D_spec, x_hat_t)
+        g_adv_patch = wasserstein_generator_loss(D_patch, x_hat_t)
+        g_adv_loss = (g_adv_main + g_adv_spec + g_adv_patch) / 3.0
         
         # 2. MMD损失（分布对齐）
         generated_features = E(x_hat_t)
@@ -303,10 +317,12 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     print(f"Optimized GAN with WGAN-GP, MMD Loss, Perceptual Loss, and Frequency Constraint")
 
     # 步骤2: 构建模型
-    E, G, D = build_model()
+    E, G, D, D_spec, D_patch = build_model()
     E.to(device)
     G.to(device)
     D.to(device)
+    D_spec.to(device)
+    D_patch.to(device)
     
     # 打印模型参数量
     total_params_E = sum(p.numel() for p in E.parameters())
@@ -318,6 +334,8 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
     optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.5, 0.999))
     optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.5, 0.999))
+    optimizer_D_spec = optim.Adam(D_spec.parameters(), lr=lr_d, betas=(0.5, 0.999))
+    optimizer_D_patch = optim.Adam(D_patch.parameters(), lr=lr_d, betas=(0.5, 0.999))
 
     # 步骤4: 初始化训练记录
     train_loss_history = []
@@ -343,8 +361,8 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     for epoch in range(epochs):
         # 训练一个epoch（传入预计算的特征）
         loss_dict, eval_metrics = train_epoch(
-            E, G, D, source_loader, target_features_cache, target_data_cache,
-            optimizer_E, optimizer_G, optimizer_D,
+            E, G, D, D_spec, D_patch, source_loader, target_features_cache, target_data_cache,
+            optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, optimizer_D_patch,
             lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=1.0, 
             lambda_gp=10.0, n_critic=3, device=device
         )
@@ -371,9 +389,13 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
                 'E_state_dict': E.state_dict(),
                 'G_state_dict': G.state_dict(),
                 'D_state_dict': D.state_dict(),
+                'D_spec_state_dict': D_spec.state_dict(),
+                'D_patch_state_dict': D_patch.state_dict(),
                 'optimizer_E_state_dict': optimizer_E.state_dict(),
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
+                'optimizer_D_spec_state_dict': optimizer_D_spec.state_dict(),
+                'optimizer_D_patch_state_dict': optimizer_D_patch.state_dict(),
                 'train_loss_history': train_loss_history,
                 'evaluation_metrics': evaluation_metrics
             }, model_path)
@@ -391,15 +413,13 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     train_losses_for_plot = [loss['g_loss'] for loss in train_loss_history]
     plot_training_metrics(train_losses_for_plot, evaluation_metrics, output_dir='GAN')
 
-    # 步骤9: 【可选】仅在需要详细评估时取消注释
-    # print("\nPerforming comprehensive GAN evaluation...")
-    # comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
-    # print("\nComprehensive GAN Evaluation Results:")
-    # print(f"  FID Score: {comprehensive_metrics.get('fid', -1):.4f}")
-    # print(f"  Spectral Fidelity: {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
-    print("\n[提示] 已跳过综合评估以加速训练，如需详细评估请取消注释相关代码")
+    print("\nPerforming comprehensive GAN evaluation...")
+    comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
+    print("\nComprehensive GAN Evaluation Results:")
+    print(f"  FID Score: {comprehensive_metrics.get('fid', -1):.4f}")
+    print(f"  Spectral Fidelity: {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
 
-    return E, G, D, synthetic_data, synthetic_labels
+    return synthetic_data, synthetic_labels
 
 
 """
@@ -446,7 +466,7 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("Starting GAN Training with Optimized Architecture and Loss Functions")
     print("="*70)
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(
+    synthetic_data, synthetic_labels = train_and_test(
         model_path='GAN/best_gan_model.pth', 
         epochs=10,  # 可根据需要调整
         lr_g=1e-4,  # 生成器学习率
