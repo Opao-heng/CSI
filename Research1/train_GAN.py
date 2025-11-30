@@ -380,7 +380,7 @@ if __name__ == "__main__":
     target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
     # 步骤6: 开始训练
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr=0.001, num_samples=900)
+    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=10, lr=0.001, num_samples=900)
 
     # 步骤7: 合并并保存生成的数据
     output_dir = 'Data'
