@@ -8,12 +8,20 @@ from torch.utils.data import DataLoader
 # 导入必要的模块
 from Research1.model_GAN import build_model
 from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
-from Research1.loss_GAN import kl_divergence_loss, feature_matching_loss, discriminator_loss
+from Research1.loss_GAN import (
+    mmd_loss, 
+    wasserstein_discriminator_loss, 
+    wasserstein_generator_loss,
+    perceptual_loss,
+    frequency_domain_loss,
+    feature_matching_loss  # 保留用于向后兼容
+)
 from Research1.plot_GAN import plot_training_metrics
+from Research1.evaluator_GAN import evaluate_gan_comprehensive
 
 
 """
-训练一个epoch，采用正确的GAN对抗训练机制
+训练一个epoch，采用WGAN-GP对抗训练机制
 参数:
   E - 特征提取器
   G - 生成器
@@ -23,70 +31,136 @@ from Research1.plot_GAN import plot_training_metrics
   optimizer_E - 特征提取器优化器
   optimizer_G - 生成器优化器
   optimizer_D - 判别器优化器
-  lambda_E - KL散度损失权重，默认0.5
-  lambda_feat - 特征匹配损失权重，默认0.5
+  lambda_mmd - MMD损失权重，默认5.0
+  lambda_feat - 特征匹配损失权重，默认10.0
+  lambda_freq - 频域约束损失权重，默认2.0
+  lambda_gp - 梯度惩罚权重，默认10.0
+  n_critic - 判别器更新次数/生成器更新次数，默认5
   device - 设备类型，默认cuda
-返回: tuple - (train_loss, eval_metrics) 训练损失和评估指标字典
+返回: tuple - (train_loss_dict, eval_metrics) 训练损失字典和评估指标字典
 """
 def train_epoch(E, G, D, source_loader, target_loader, optimizer_E, optimizer_G, optimizer_D,
-                lambda_E=0.5, lambda_feat=0.5, device='cuda' if torch.cuda.is_available() else 'cpu'):
+                lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, lambda_gp=10.0, 
+                n_critic=5, device='cuda' if torch.cuda.is_available() else 'cpu'):
     # 步骤1: 设置模型为训练模式
     E.train()
     G.train()
     D.train()
 
-    total_loss = 0.0
+    # 损失记录
+    total_g_loss = 0.0
+    total_d_loss = 0.0
+    total_mmd_loss = 0.0
+    total_feat_loss = 0.0
+    total_freq_loss = 0.0
+    total_gp_loss = 0.0
     num_batches = 0
+    
+    # 预先提取目标域特征（避免重复计算）
+    E.eval()
+    all_target_features = []
+    all_target_data = []
+    with torch.no_grad():
+        for x_t_real, _ in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            all_target_features.append(features)
+            all_target_data.append(x_t_real)
+    target_features = torch.cat(all_target_features, dim=0)  # (N_target, d)
+    target_data = torch.cat(all_target_data, dim=0)  # (N_target, C, S, T)
+    E.train()
 
     # 步骤2: 遍历源域数据批次
-    for x_s, source_labels in source_loader:
-        if x_s.size(0) < 100:  # 如果当前批次不足100组，则跳过
+    critic_iter = 0
+    for batch_idx, (x_s, source_labels) in enumerate(source_loader):
+        if x_s.size(0) < 2:  # 至少需要2个样本
             continue
 
         x_s = x_s.to(device)
-        x_t_real = selected_target_data.cuda()
+        batch_size = x_s.size(0)
+        
+        # 随机采样目标域真实数据
+        rand_idx = torch.randperm(target_data.size(0))[:batch_size]
+        x_t_real = target_data[rand_idx].to(device)
 
-        # 步骤3: 提取目标域所有数据的特征
-        E.eval()
-        all_features = []
-        with torch.no_grad():
-            for x_t_real, _ in target_loader:
-                x_t_real = x_t_real.to(device)
-                features = E(x_t_real)  # 提取特征
-                all_features.append(features.cpu())
-        target_features = torch.cat(all_features, dim=0).to(device)
+        # 步骤3: 更新判别器D（每n_critic次更新一次生成器）
+        for _ in range(n_critic):
+            optimizer_D.zero_grad()
+            
+            # 生成虚假样本
+            with torch.no_grad():
+                x_hat_t = G(x_s, target_features)
+            
+            # 计算WGAN判别器损失（带梯度惩罚）
+            d_loss, w_dist, gp = wasserstein_discriminator_loss(
+                D, x_t_real, x_hat_t, lambda_gp=lambda_gp, device=device
+            )
+            
+            d_loss.backward()
+            optimizer_D.step()
+            
+            total_d_loss += d_loss.item()
+            total_gp_loss += gp.item()
+            critic_iter += 1
 
         # 步骤4: 更新生成器G和特征提取器E
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
-
-        # 计算KL散度损失和特征匹配损失
-        L_E = kl_divergence_loss(target_features)
-        L_feat = feature_matching_loss(G, E, x_s, target_features)
-
-        # 反向传播并更新
-        L_total = lambda_E * L_E + lambda_feat * L_feat
-        L_total.backward()
+        
+        # 提取源域特征（用于感知损失）
+        source_features = E(x_s)
+        
+        # 生成虚假样本
+        x_hat_t = G(x_s, target_features)
+        
+        # 计算各项损失
+        # 1. WGAN生成器损失（对抗损失）
+        g_adv_loss = wasserstein_generator_loss(D, x_hat_t)
+        
+        # 2. MMD损失（分布对齐）
+        generated_features = E(x_hat_t)
+        mmd_loss_value = mmd_loss(target_features, generated_features)
+        
+        # 3. 多层感知损失（特征匹配）
+        perc_loss, mse_loss, cos_loss, temp_loss = perceptual_loss(
+            G, E, x_s, target_features, source_features,
+            alpha_mse=1.0, alpha_cosine=0.5, alpha_temporal=0.2
+        )
+        
+        # 4. 频域约束损失
+        freq_loss = frequency_domain_loss(x_t_real, x_hat_t)
+        
+        # 总生成器损失
+        g_total_loss = (g_adv_loss + 
+                        lambda_mmd * mmd_loss_value + 
+                        lambda_feat * perc_loss + 
+                        lambda_freq * freq_loss)
+        
+        g_total_loss.backward()
         optimizer_G.step()
         optimizer_E.step()
-
-        total_loss += L_total.item()
+        
+        # 记录损失
+        total_g_loss += g_total_loss.item()
+        total_mmd_loss += mmd_loss_value.item()
+        total_feat_loss += perc_loss.item()
+        total_freq_loss += freq_loss.item()
         num_batches += 1
 
-        # 步骤5: 更新判别器D
-        optimizer_D.zero_grad()
-
-        # 生成虚假样本
-        x_hat_t = G(x_s, target_features)  # 使用完整的目标域特征
-
-        # 计算判别器损失并反向传播
-        L_D = discriminator_loss(D, x_t_real, x_hat_t.detach())
-        L_D.backward()
-        optimizer_D.step()
-
-    # 步骤6: 评估生成样本质量
+    # 步骤5: 评估生成样本质量
     eval_metrics = evaluate_generated_samples(E, G, D, source_loader, target_loader, target_features, device)
-    return total_loss / num_batches if num_batches > 0 else 0.0, eval_metrics
+    
+    # 返回平均损失
+    loss_dict = {
+        'g_loss': total_g_loss / num_batches if num_batches > 0 else 0,
+        'd_loss': total_d_loss / critic_iter if critic_iter > 0 else 0,
+        'mmd_loss': total_mmd_loss / num_batches if num_batches > 0 else 0,
+        'feat_loss': total_feat_loss / num_batches if num_batches > 0 else 0,
+        'freq_loss': total_freq_loss / num_batches if num_batches > 0 else 0,
+        'gp_loss': total_gp_loss / critic_iter if critic_iter > 0 else 0
+    }
+    
+    return loss_dict, eval_metrics
 
 
 """
@@ -177,7 +251,7 @@ def evaluate_generated_samples(E, G, D, source_loader, target_loader, target_fea
   device - 设备类型，默认cuda
 返回: tuple - (synthetic_data, synthetic_labels) 生成的虚假样本数据和标签
 """
-def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cuda'):
+def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=900, device='cuda'):
     # 步骤1: 设置模型为评估模式
     E.eval()
     G.eval()
@@ -185,6 +259,15 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
     synthetic_data = []
     synthetic_labels = []
     generated_count = 0
+    
+    # 预先提取目标域特征
+    all_features = []
+    with torch.no_grad():
+        for x_t_real, _ in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            all_features.append(features)
+    target_features = torch.cat(all_features, dim=0).to(device)
 
     with torch.no_grad():
         # 步骤2: 使用源域数据和目标域特征生成虚假样本
@@ -195,27 +278,16 @@ def generate_synthetic_samples(E, G, source_loader, num_samples=900, device='cud
             x_s = x_s.to(device)
             batch_size = x_s.size(0)
 
-            # 步骤3: 提取完整的目标域特征
-            E.eval()
-            all_features = []
-            with torch.no_grad():
-                for x_t_real, _ in target_loader:
-                    x_t_real = x_t_real.to(device)
-                    features = E(x_t_real)  # 提取特征
-                    all_features.append(features.cpu())
-            target_features = torch.cat(all_features, dim=0).to(device)
-            f_t = target_features
+            # 步骤3: 生成虚假样本
+            x_hat_t = G(x_s, target_features)
 
-            # 步骤4: 生成虚假样本
-            x_hat_t = G(x_s, f_t)
-
-            # 步骤5: 收集生成的样本和对应的标签
+            # 步骤4: 收集生成的样本和对应的标签
             synthetic_data.append(x_hat_t.cpu())
             synthetic_labels.append(source_labels[:x_hat_t.size(0)])
 
             generated_count += x_hat_t.size(0)
 
-    # 步骤6: 合并所有生成样本并截断至指定数量
+    # 步骤5: 合并所有生成样本并截断至指定数量
     if synthetic_data:
         synthetic_data = torch.cat(synthetic_data, dim=0)[:num_samples]
         synthetic_labels = torch.cat(synthetic_labels, dim=0)[:num_samples]
@@ -263,50 +335,64 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
 
 
 """
-主训练函数，完整的GAN模型训练和评估流程
+主训练函数，完整的GAN模型训练和评估流程（使用WGAN-GP）
 参数:
   model_path - 模型保存路径，默认'model.pth'
   epochs - 训练轮数，默认100
-  lr - 学习率，默认0.001
+  lr_g - 生成器和特征提取器学习率，默认1e-4
+  lr_d - 判别器学习率，默认4e-4
   num_samples - 需要生成的合成样本数量，默认900
 返回: tuple - (E, G, D, synthetic_data, synthetic_labels) 训练完的模型和生成的合成数据
 """
-def train_and_test(model_path='model.pth', epochs=100, lr=0.001, num_samples=900):
+def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num_samples=900):
     # 步骤1: 设置设备
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
+    print(f"Optimized GAN with WGAN-GP, MMD Loss, Perceptual Loss, and Frequency Constraint")
 
     # 步骤2: 构建模型
     E, G, D = build_model()
     E.to(device)
     G.to(device)
     D.to(device)
+    
+    # 打印模型参数量
+    total_params_E = sum(p.numel() for p in E.parameters())
+    total_params_G = sum(p.numel() for p in G.parameters())
+    total_params_D = sum(p.numel() for p in D.parameters())
+    print(f"Model Parameters - E: {total_params_E:,}, G: {total_params_G:,}, D: {total_params_D:,}")
 
-    # 步骤3: 定义优化器
-    optimizer_E = optim.Adam(E.parameters(), lr=lr)
-    optimizer_G = optim.Adam(G.parameters(), lr=lr)
-    optimizer_D = optim.Adam(D.parameters(), lr=lr)
+    # 步骤3: 定义优化器（判别器学习率略高）
+    optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
+    optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.5, 0.999))
+    optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.5, 0.999))
 
     # 步骤4: 初始化训练记录
-    train_losses = []
+    train_loss_history = []
     evaluation_metrics = []
 
     # 步骤5: 训练循环
     for epoch in range(epochs):
         # 训练一个epoch并评估
-        train_loss , eval_metrics = train_epoch(
+        loss_dict, eval_metrics = train_epoch(
             E, G, D, source_loader, target_loader,
             optimizer_E, optimizer_G, optimizer_D,
-            lambda_E=0.5, lambda_feat=1.0, device=device
+            lambda_mmd=5.0, lambda_feat=10.0, lambda_freq=2.0, 
+            lambda_gp=10.0, n_critic=5, device=device
         )
 
         # 记录训练结果
-        train_losses.append(train_loss)
+        train_loss_history.append(loss_dict)
         evaluation_metrics.append(eval_metrics)
 
         # 打印进度和评估指标
-        print(f"Epoch [{epoch+1}/{epochs}]")
-        print(f"  Train Loss: {train_loss:.4f}")
+        print(f"\nEpoch [{epoch+1}/{epochs}]")
+        print(f"  Generator Loss: {loss_dict['g_loss']:.4f}")
+        print(f"  Discriminator Loss: {loss_dict['d_loss']:.4f}")
+        print(f"  MMD Loss: {loss_dict['mmd_loss']:.4f}")
+        print(f"  Feature Loss: {loss_dict['feat_loss']:.4f}")
+        print(f"  Frequency Loss: {loss_dict['freq_loss']:.4f}")
+        print(f"  Gradient Penalty: {loss_dict['gp_loss']:.4f}")
         print(f"  Eval Metrics:")
         print(f"    Avg Fake Score: {eval_metrics.get('avg_fake_score', 0):.4f}")
         print(f"    Avg Real Score: {eval_metrics.get('avg_real_score', 0):.4f}")
@@ -324,17 +410,35 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001, num_samples=900
                 'optimizer_E_state_dict': optimizer_E.state_dict(),
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
+                'train_loss_history': train_loss_history,
+                'evaluation_metrics': evaluation_metrics
             }, model_path)
-            print(f"Model saved at {model_path}")
+            print(f"  Model checkpoint saved at {model_path}")
 
     # 步骤7: 训练完成后生成虚假样本
-    print("Generating synthetic samples for data augmentation...")
+    print("\nGenerating synthetic samples for data augmentation...")
     synthetic_data, synthetic_labels = generate_synthetic_samples(
-        E, G, source_loader, num_samples=num_samples, device=device
+        E, G, source_loader, target_loader, num_samples=num_samples, device=device
     )
+    print(f"Generated {len(synthetic_data)} synthetic samples")
 
     # 步骤8: 调用绘图模块绘制训练指标
-    plot_training_metrics(train_losses, evaluation_metrics, output_dir='GAN')
+    # 提取生成器损失作为主要损失曲线
+    train_losses_for_plot = [loss['g_loss'] for loss in train_loss_history]
+    plot_training_metrics(train_losses_for_plot, evaluation_metrics, output_dir='GAN')
+
+    # 步骤9: 使用综合评估器进行完整的GAN性能评估
+    print("\nPerforming comprehensive GAN evaluation...")
+    comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
+    print("\nComprehensive GAN Evaluation Results:")
+    print(f"  FID Score: {comprehensive_metrics.get('fid', -1):.4f}")
+    print(f"  Spectral Fidelity: {comprehensive_metrics.get('spectral_fidelity', -1):.4f}")
+    print(f"  Temporal Correlation (Real): {comprehensive_metrics.get('temporal_correlation_real', -1):.4f}")
+    print(f"  Temporal Correlation (Fake): {comprehensive_metrics.get('temporal_correlation_fake', -1):.4f}")
+    print(f"  Channel Smoothness (Real): {comprehensive_metrics.get('channel_smoothness_real', -1):.4f}")
+    print(f"  Channel Smoothness (Fake): {comprehensive_metrics.get('channel_smoothness_fake', -1):.4f}")
+    print(f"  Precision: {comprehensive_metrics.get('precision', -1):.4f}")
+    print(f"  Recall: {comprehensive_metrics.get('recall', -1):.4f}")
 
     return E, G, D, synthetic_data, synthetic_labels
 
@@ -379,10 +483,19 @@ if __name__ == "__main__":
     target_dataset = CustomDataset(selected_target_data, selected_target_labels)
     target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
-    # 步骤6: 开始训练
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=10, lr=0.001, num_samples=900)
+    # 步骤6: 开始训练（使用优化后的参数）
+    print("\n" + "="*70)
+    print("Starting GAN Training with Optimized Architecture and Loss Functions")
+    print("="*70)
+    E, G, D, synthetic_data, synthetic_labels = train_and_test(
+        model_path='GAN/best_gan_model.pth', 
+        epochs=10,  # 可根据需要调整
+        lr_g=1e-4,  # 生成器学习率
+        lr_d=4e-4,  # 判别器学习率
+        num_samples=900
+    )
 
-    # 步骤7: 合并并保存生成的数据
+    # 步骤8: 合并并保存生成的数据
     output_dir = 'Data'
     target_gan_data, target_gan_labels = save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
 
