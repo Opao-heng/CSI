@@ -39,7 +39,6 @@ def select_samples_by_label(data, labels, samples_per_label=10):
     
     # 步骤2: 获取整个数据集中的不同标签
     unique_labels = torch.unique(labels_flat)
-    print(f"Unique labels in target domain: {unique_labels}")
     
     selected_data_list = []
     selected_labels_list = []
@@ -56,8 +55,6 @@ def select_samples_by_label(data, labels, samples_per_label=10):
         # 添加选择后的样本到结果列表
         selected_data_list.append(data[selected_indices])
         selected_labels_list.append(labels[selected_indices])
-        
-        print(f"Label {label}: selected {num_samples} samples")
     
     # 步骤4: 合并所有选择的样本
     if selected_data_list:
