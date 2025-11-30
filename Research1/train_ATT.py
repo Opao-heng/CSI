@@ -2,8 +2,9 @@ import torch
 import torch.optim as optim
 from model_ATT import CrossAttentionModel
 from loss_ATT import LossFunction
-from Research1.dataloder_ATT import source_loader, target_loader
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from Research1.dataloder_ATT import CustomDataset
+from plot_ATT import plot_training_curves, save_training_history
 import os
 
 """
@@ -203,13 +204,7 @@ def save_best_model(model, path, accuracy, epoch):
 
 """
 函数: main
-
 功能: 主训练函数，组织完整的模型初始化、训练、验证和评估流程
-
-参数: 无
-
-返回值: 无
-
 工作流程:
   1. 模型初始化和结构测试
   2. 损失函数、优化器、学习率调度器配置
@@ -218,33 +213,31 @@ def save_best_model(model, path, accuracy, epoch):
   5. 性能评估和最佳模型保存
   6. 训练曲线可视化和绘制
 """
-def main():
+if __name__ == "__main__":
+
+    # 加载数据文件示例
+    source_data = torch.load('Data/source_env0_env1_data.pt')
+    source_labels = torch.load('Data/source_env0_env1_labels.pt')
+    target_data = torch.load('Data/target_env2_gan_data.pt')
+    target_labels = torch.load('Data/target_env2_gan_labels.pt')
+
+    # 查看数据形状
+    print(f"Source data shape: {source_data.shape}")
+    print(f"Source labels shape: {source_labels.shape}")
+    print(f"Target data shape: {target_data.shape}")
+    print(f"Target labels shape: {target_labels.shape}")
+
+    # 创建数据集
+    source_dataset = CustomDataset(source_data, source_labels)
+    target_dataset = CustomDataset(target_data, target_labels)
+
+    # 创建数据加载器
+    source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
+    target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
+
     # 阶段1: 模型初始化
     model = CrossAttentionModel(num_classes=10).to(device)
-    
-    # 模型结构验证：检查输入输出维度是否正确
-    print("\n=== 模型结构测试 ===")
-    try:
-        test_src = torch.randn(2, 56, 3, 6000).to(device)
-        test_tgt = torch.randn(2, 56, 3, 6000).to(device)
-        
-        print(f"测试输入形状: src={test_src.shape}, tgt={test_tgt.shape}")
-        
-        with torch.no_grad():
-            pred_s, pred_t, F_s, F_t, F_c = model(test_src, test_tgt)
-            print(f"模型输出形状:")
-            print(f"  pred_s: {pred_s.shape}")
-            print(f"  pred_t: {pred_t.shape}")
-            print(f"  F_s: {F_s.shape}")
-            print(f"  F_t: {F_t.shape}")
-            print(f"  F_c: {F_c.shape}")
-            print("模型结构测试通过！")
-            
-    except Exception as e:
-        print(f"模型测试失败: {e}")
-        print("请检查模型结构...")
-        return
-    
+
     # 阶段2: 损失函数配置
     criterion = LossFunction(
         num_classes=10,
@@ -269,18 +262,14 @@ def main():
     
     # 阶段5: 数据加载器验证
     print("\n=== 数据加载器测试 ===")
-    try:
-        for i, (src_batch, tgt_batch) in enumerate(zip(source_loader, target_loader)):
-            src_data, src_labels = src_batch
-            tgt_data, tgt_labels = tgt_batch
-            print(f"第{i+1}个批次 - 源域: {src_data.shape}, 目标域: {tgt_data.shape}")
-            print(f"  源域标签范围: [{src_labels.min()}, {src_labels.max()}]")
-            print(f"  目标域标签范围: [{tgt_labels.min()}, {tgt_labels.max()}]")
-            if i >= 2:  # 只检查前3个批次
-                break
-    except Exception as e:
-        print(f"数据加载器测试失败: {e}")
-        return
+    for i, (src_batch, tgt_batch) in enumerate(zip(source_loader, target_loader)):
+        src_data, src_labels = src_batch
+        tgt_data, tgt_labels = tgt_batch
+        print(f"第{i+1}个批次 - 源域: {src_data.shape}, 目标域: {tgt_data.shape}")
+        print(f"  源域标签范围: [{src_labels.min()}, {src_labels.max()}]")
+        print(f"  目标域标签范围: [{tgt_labels.min()}, {tgt_labels.max()}]")
+        if i >= 2:  # 只检查前3个批次
+            break
     
     # 阶段6: 主训练循环
     for epoch in range(num_epochs):
@@ -317,54 +306,9 @@ def main():
             criterion.gamma = float(max(0.1, criterion.gamma * 0.98))
             criterion.delta = float(max(0.05, criterion.delta * 0.98))
 
-    # 阶段7: 训练结果可视化
-    plt.figure(figsize=(15, 5))
-
-    # 绘制损失曲线
-    plt.subplot(1, 3, 1)
-    plt.plot(train_losses, label='Train Loss', color='blue')
-    plt.plot(test_losses, label='Test Loss', color='red')
-    plt.title('Loss Curves')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-
-    # 绘制准确率曲线
-    plt.subplot(1, 3, 2)
-    plt.plot(test_accuracies, label='Test Accuracy', color='green')
-    plt.title('Accuracy Curve')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # 绘制学习率变化曲线
-    plt.subplot(1, 3, 3)
-    lrs = [group['lr'] for group in optimizer.param_groups]
-    plt.plot(range(len(lrs)), lrs, label='Learning Rate', color='purple')
-    plt.title('Learning Rate Schedule')
-    plt.xlabel('Step')
-    plt.ylabel('Learning Rate')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    
-    # 确保输出目录存在
-    if not os.path.exists("results"):
-        os.makedirs("results")
-    
-    # 保存和显示训练曲线
-    plt.savefig("Attention/Attention_training_curves.png", dpi=300, bbox_inches='tight')
-    plt.show()
+    # 阶段7: 训练结果可视化与数据保存
+    plot_training_curves(train_losses, test_losses, test_accuracies, optimizer, save_dir='Attention')
+    save_training_history(train_losses, test_losses, test_accuracies, best_accuracy, epoch + 1, save_dir='Attention')
 
     print(f"训练完成。最佳准确率: {best_accuracy:.4f}")
-    print(f"曲线已保存到 Attention/Attention_training_curves.png")
-
-
-"""
-脚本入口点：当该模块被直接运行时执行主函数
-"""
-if __name__ == "__main__":
-    main()
+    print(f"所有结果已保存到 Attention 目录")
