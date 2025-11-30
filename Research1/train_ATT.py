@@ -184,7 +184,6 @@ def save_best_model(model, path, accuracy, epoch):
 if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
 
     # 步骤1: 加载数据文件
     print("加载 Attention 数据文件...")
@@ -193,24 +192,22 @@ if __name__ == "__main__":
     target_data = torch.load('Data/target_env2_gan_data.pt')
     target_labels = torch.load('Data/target_env2_gan_labels.pt')
 
-    # 步骤2: 查看数据形状
+    # 查看数据形状
     print(f"Source data shape: {source_data.shape}")
     print(f"Source labels shape: {source_labels.shape}")
     print(f"Target data shape: {target_data.shape}")
     print(f"Target labels shape: {target_labels.shape}")
 
-    # 步骤3: 创建数据集
+    # 步骤3: 创建数据集数据加载器
     source_dataset = CustomDataset(source_data, source_labels)
     target_dataset = CustomDataset(target_data, target_labels)
-
-    # 步骤4: 创建数据加载器
     source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
     target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
 
     # 步骤5: 模型初始化
     model = CrossAttentionModel(num_classes=10).to(device)
 
-    # 步骤6: 损失函数配置
+    # 步骤6: 损失函数配置，优化器与学习率调度器配置
     criterion = LossFunction(
         num_classes=10,
         alpha=1.0,      # 源域分类损失权重
@@ -218,13 +215,11 @@ if __name__ == "__main__":
         gamma=0.3,      # 跨域特征对齐损失权重
         delta=0.2       # 一致性损失权重
     )
-    
-    # 步骤7: 优化器与学习率调度器配置
     optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
 
     # 步骤8: 训练超参数设置
-    num_epochs = 100
+    num_epochs = 10
     best_accuracy = 0.0
     best_model_path = "Attention/best_attention_model.pth"
     patience = 15  # 早停耐心值
