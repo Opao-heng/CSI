@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from Research1.model_GAN import build_model
 from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import kl_divergence_loss, feature_matching_loss, discriminator_loss
+from Research1.plot_GAN import plot_training_metrics
 
 
 """
@@ -267,9 +268,10 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
   model_path - 模型保存路径，默认'model.pth'
   epochs - 训练轮数，默认100
   lr - 学习率，默认0.001
+  num_samples - 需要生成的合成样本数量，默认900
 返回: tuple - (E, G, D, synthetic_data, synthetic_labels) 训练完的模型和生成的合成数据
 """
-def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
+def train_and_test(model_path='model.pth', epochs=100, lr=0.001, num_samples=900):
     # 步骤1: 设置设备
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
@@ -328,57 +330,11 @@ def train_and_test(model_path='model.pth', epochs=100, lr=0.001):
     # 步骤7: 训练完成后生成虚假样本
     print("Generating synthetic samples for data augmentation...")
     synthetic_data, synthetic_labels = generate_synthetic_samples(
-        E, G, source_loader, num_samples=900, device=device
+        E, G, source_loader, num_samples=num_samples, device=device
     )
 
-    # 步骤8: 绘制训练曲线和评估指标
-    plt.figure(figsize=(15, 10))
-
-    plt.subplot(2, 3, 1)
-    plt.plot(train_losses)
-    plt.title('Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-
-    # 绘制判别器评分
-    epochs_range = range(1, len(evaluation_metrics)+1)
-
-    plt.subplot(2, 3, 2)
-    fake_scores = [m.get('avg_fake_score', 0) for m in evaluation_metrics]
-    real_scores = [m.get('avg_real_score', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, fake_scores, label='Fake Score')
-    plt.plot(epochs_range, real_scores, label='Real Score')
-    plt.title('Discriminator Scores')
-    plt.xlabel('Epoch')
-    plt.ylabel('Score')
-    plt.legend()
-
-    # 绘制特征匹配误差
-    plt.subplot(2, 3, 3)
-    feature_mse = [m.get('feature_mse', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, feature_mse)
-    plt.title('Feature Matching MSE')
-    plt.xlabel('Epoch')
-    plt.ylabel('MSE')
-
-    # 绘制余弦相似度
-    plt.subplot(2, 3, 4)
-    cosine_sim = [m.get('avg_cosine_similarity', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, cosine_sim)
-    plt.title('Average Cosine Similarity')
-    plt.xlabel('Epoch')
-    plt.ylabel('Cosine Similarity')
-
-    # 绘制特征多样性
-    plt.subplot(2, 3, 5)
-    diversity = [m.get('feature_diversity', 0) for m in evaluation_metrics]
-    plt.plot(epochs_range, diversity)
-    plt.title('Feature Diversity')
-    plt.xlabel('Epoch')
-    plt.ylabel('Variance')
-
-    plt.tight_layout()
-    plt.show()
+    # 步骤8: 调用绘图模块绘制训练指标
+    plot_training_metrics(train_losses, evaluation_metrics, output_dir='GAN')
 
     return E, G, D, synthetic_data, synthetic_labels
 
@@ -424,7 +380,7 @@ if __name__ == "__main__":
     target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
 
     # 步骤6: 开始训练
-    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr=0.001)
+    E, G, D, synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr=0.001, num_samples=900)
 
     # 步骤7: 合并并保存生成的数据
     output_dir = 'Data'
