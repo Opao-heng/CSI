@@ -92,5 +92,5 @@ if __name__ == "__main__":
         print(f"目标域标签形状: {target_labels.shape}")
 
     # 步骤4: 可选：保存合并后的数据为PyTorch格式
-    torch.save(target_data, 'Data/target_env2_data.pt')
-    torch.save(target_labels, 'Data/target_env2_labels.pt')
+    torch.save(target_data, '../../Data/target_env2_data.pt')
+    torch.save(target_labels, '../../Data/target_env2_labels.pt')

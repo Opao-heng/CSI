@@ -5,7 +5,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from datetime import datetime
 from Research1.model_GAN import build_model
-from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
+from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
     mmd_loss,
     frequency_consistency_loss,
@@ -15,9 +15,9 @@ from Research1.plot_GAN import (
     plot_training_metrics, 
     save_evaluation_results,
     plot_synthetic_sample_amplitude,
-    plot_feature_distribution_2d
+    plot_feature_distribution_2d,
+    evaluate_gan_comprehensive  # 从plot_GAN.py导入评估函数
 )
-from Research1.evaluator_GAN import evaluate_gan_comprehensive
 
 """
 执行GAN模型的完整训练流程。
