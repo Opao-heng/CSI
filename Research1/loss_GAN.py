@@ -27,11 +27,13 @@ def gaussian_kernel(x, y, sigma=1.0):
     return torch.exp(-distances / (2 * sigma ** 2))
 
 
-def mmd_loss(real_features, fake_features, sigmas=[1.0], y_real=None, y_fake=None):
+def mmd_loss(real_features, fake_features, sigmas=None, y_real=None, y_fake=None):
     """
     最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
     支持按标签均衡：若提供 y_real/y_fake，则对每个标签分别计算MMD后做均衡平均。
     """
+    if sigmas is None:
+        sigmas = [1.0, 2.0, 4.0]
     if y_real is not None and y_fake is not None:
         unique_labels = torch.unique(y_fake)
         loss_sum = 0.0
@@ -98,11 +100,10 @@ def frequency_consistency_loss(real_samples, fake_samples, y_real=None, y_fake=N
 def wasserstein_discriminator_loss_simple(D, x_t_real, x_hat_t, y_real=None, y_fake=None):
     """
     Wasserstein GAN判别器损失(支持按标签均衡)
-    判别器要最大化 E[D(real)] - E[D(fake)]
-    返回正数表示判别器性能,数值越大说明判别器越强
+    判别器要最大化 E[D(real)] - E[D(fake)]，这里返回的是需要“最小化”的损失：
+    L_D = -(E[D(real)] - E[D(fake)])
     """
     if y_real is not None and y_fake is not None:
-        # 计算每个样本的判别分数
         s_fake = D(x_hat_t).view(-1)
         s_real = D(x_t_real).view(-1)
         unique_labels = torch.unique(y_fake)
@@ -114,18 +115,15 @@ def wasserstein_discriminator_loss_simple(D, x_t_real, x_hat_t, y_real=None, y_f
             if mask_fake.any() and mask_real.any():
                 d_fake_mean = s_fake[mask_fake].mean()
                 d_real_mean = s_real[mask_real].mean()
-                # 返回 real - fake (正数,越大越好)
-                loss_sum += (d_real_mean - d_fake_mean)
+                # 判别器期望 real_score - fake_score 越大越好 => 损失为 -(real - fake)
+                loss_sum += (-(d_real_mean - d_fake_mean))
                 count += 1
         d_loss = loss_sum / max(count, 1)
     else:
         fake_score = D(x_hat_t).mean()
         real_score = D(x_t_real).mean()
-        # 返回 real - fake (正数,越大越好)
-        d_loss = real_score - fake_score
-    
-    # 返回负值用于梯度下降(最小化-loss = 最大化loss)
-    return -d_loss
+        d_loss = -(real_score - fake_score)
+    return d_loss
 
 
 def wasserstein_generator_loss(D, x_hat_t, y_fake=None):

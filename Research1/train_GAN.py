@@ -79,8 +79,8 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
         loss_dict = train_epoch(
             E, G, D, D_spec, source_loader, target_features_cache, target_data_cache, target_labels_cache,
             optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec,
-            lambda_mmd=0.5, lambda_freq=0.2,
-            n_critic=1, device=device
+            lambda_mmd=0.8, lambda_freq=0.3,
+            n_critic=5, device=device
         )
 
         # 步骤7.2: 记录训练损失变化
@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=5, lr_g=1e-4, lr_d=4e-4, num_samples=900)
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=50, lr_g=2e-4, lr_d=1e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")
