@@ -4,24 +4,10 @@ from model_ATT import CrossAttentionModel
 from loss_ATT import LossFunction
 from torch.utils.data import DataLoader
 from Research1.Process.dataloder_ATT import CustomDataset
-from plot_ATT import plot_training_curves, save_training_history
 import os
 
 """
 执行一个完整的训练周期，对模型进行源域和目标域的联合训练。
-
-参数:
-    model (CrossAttentionModel): 跨域注意力模型
-    dataloader_source (DataLoader): 源域数据加载器
-    dataloader_target (DataLoader): 目标域数据加载器
-    criterion (LossFunction): 损失函数对象
-    optimizer (torch.optim.Optimizer): 优化器
-    scheduler (torch.optim.lr_scheduler, optional): 学习率调度器，默认为None
-
-返回:
-    tuple: (avg_loss, loss_components)
-        - avg_loss (float): 平均总损失
-        - loss_components (dict): 各类损失组成部分的字典
 """
 def train_epoch(model, dataloader_source, dataloader_target, criterion, optimizer, scheduler=None):
     model.train()
@@ -105,19 +91,43 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
 
 """
 在目标域数据集上评估模型性能，计算损失和准确率。
+"""
+def validate_on_domain(model, dataloader, device, domain_type='target'):
+    """
+    在指定域的数据集上评估模型性能
+    domain_type: 'source' 或 'target'
+    """
+    model.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data, labels = batch
+            data, labels = data.to(device), labels.to(device)
+            
+            # 根据域类型选择不同的前向传播方式
+            if domain_type == 'target':
+                # 目标域：源域输入为零张量
+                _, pred, _, _, _ = model(torch.zeros_like(data).to(device), data)
+            else:
+                # 源域：目标域输入为零张量
+                pred, _, _, _, _ = model(data, torch.zeros_like(data).to(device))
+            
+            # 计算准确率
+            _, predicted = torch.max(pred, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * correct / total if total > 0 else 0.0
+    return accuracy
 
-参数:
-    model (CrossAttentionModel): 跨域注意力模型
-    dataloader_source (DataLoader): 源域数据加载器（此函数中未使用）
-    dataloader_target (DataLoader): 目标域数据加载器
-    criterion (LossFunction): 损失函数对象
 
-返回:
-    tuple: (avg_loss, accuracy)
-        - avg_loss (float): 目标域平均损失
-        - accuracy (float): 目标域准确率 (0-1之间)
+"""
+在测试集上评估模型
 """
 def test_model(model, dataloader_source, dataloader_target, criterion):
+
     model.eval()
     total_loss = 0.0
     correct = 0
@@ -136,12 +146,11 @@ def test_model(model, dataloader_source, dataloader_target, criterion):
             total_loss += loss.item()
 
             # 计算准确率
-            pred_t_prob = torch.softmax(pred_t, dim=1)
-            _, predicted = torch.max(pred_t_prob, 1)
+            _, predicted = torch.max(pred_t, 1)
             total += tgt_labels.size(0)
             correct += (predicted == tgt_labels).sum().item()
 
-    accuracy = correct / total
+    accuracy = correct / total if total > 0 else 0.0
     avg_loss = total_loss / len(dataloader_target)
 
     return avg_loss, accuracy
@@ -149,17 +158,8 @@ def test_model(model, dataloader_source, dataloader_target, criterion):
 
 """
 保存最佳模型权重和训练信息到指定路径。
-
-参数:
-    model (torch.nn.Module): 待保存的模型
-    path (str): 模型保存路径
-    accuracy (float): 当前模型的准确率
-    epoch (int): 当前训练轮数
-
-返回:
-    无返回值
 """
-def save_best_model(model, path, accuracy, epoch):
+def save_best_model(model, optimizer, scheduler, path, accuracy, epoch, loss_components):
     # 创建保存路径目录（若不存在）
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
@@ -168,25 +168,47 @@ def save_best_model(model, path, accuracy, epoch):
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
         'accuracy': accuracy,
+        'loss_components': loss_components
     }, path)
-    print(f"Best model saved at {path} with accuracy: {accuracy:.4f}")
+    print(f"  保存最佳模型 (准确率: {accuracy:.2f}%)")
+
+
+def save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention'):
+    """
+    保存训练历史数据到JSON文件
+    """
+    import json
+    
+    # 创建保存目录
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    # 构建历史数据字典
+    history = {
+        'train_losses': train_losses,
+        'val_accuracies': val_accuracies,
+        'loss_components_history': loss_components_history,
+        'test_results_history': test_results_history,
+        'train_accuracies': [100 - loss * 10 for loss in train_losses]  # 简单估算
+    }
+    
+    # 保存为JSON格式
+    save_path = os.path.join(save_dir, 'training_history.json')
+    with open(save_path, 'w') as f:
+        json.dump(history, f, indent=4)
+    
+    print(f"训练历史已保存到 {save_path}")
 
 
 """
 主训练函数，完整的模型初始化、训练、验证和评估流程。
-
-工作流程:
-    1. 加载源域和目标域数据
-    2. 模型初始化和结构配置
-    3. 损失函数、优化器、学习率调度器配置
-    4. 数据加载器创建
-    5. 训练循环：前向传播 -> 损失计算 -> 反向传播 -> 参数更新
-    6. 性能评估和最佳模型保存
-    7. 训练曲线可视化和数据保存
 """
 if __name__ == "__main__":
-
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 加载数据文件
@@ -230,47 +252,80 @@ if __name__ == "__main__":
     early_stop_counter = 0
 
     train_losses = []  # 训练损失记录
-    test_losses = []  # 测试损失记录
-    test_accuracies = []  # 测试准确率记录
+    val_accuracies = []  # 验证准确率记录
+    loss_components_history = []  # 损失组件历史
+    test_results_history = []  # 测试结果历史
 
     # 主训练循环
+    print("开始训练循环...")
     for epoch in range(num_epochs):
+        print(f'\nEpoch [{epoch+1}/{num_epochs}]')
+        
         # 执行一个训练周期
         train_loss, loss_components = train_epoch(model, source_loader, target_loader, criterion, optimizer, scheduler)
-        # 在目标域上评估模型
-        test_loss, accuracy = test_model(model, source_loader, target_loader, criterion)
-
+        
+        # 验证模型（使用目标域数据）
+        val_accuracy = validate_on_domain(model, target_loader, device, domain_type='target')
+        
         # 记录历史数据
         train_losses.append(train_loss)
-        test_losses.append(test_loss)
-        test_accuracies.append(accuracy)
-
-        # 输出训练进度
-        print(f"Epoch [{epoch+1}/{num_epochs}]")
-        print(f"  Train Loss: {train_loss:.4f} (S:{loss_components['source']:.3f}, T:{loss_components['target']:.3f}, SF:{loss_components['cross_feature']:.3f}, C:{loss_components['consistency']:.3f})")
-        print(f"  Test Loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}, LR: {scheduler.get_last_lr()[0]:.6f}")
-
+        val_accuracies.append(val_accuracy)
+        loss_components_history.append(loss_components)
+        
+        # 打印训练进度
+        print(f'  训练损失: {train_loss:.4f} '
+              f'(源域: {loss_components["source"]:.4f}, '
+              f'目标: {loss_components["target"]:.4f}, '
+              f'跨域: {loss_components["cross_feature"]:.4f}, '
+              f'一致: {loss_components["consistency"]:.4f})')
+        print(f'  验证准确率: {val_accuracy:.2f}%')
+        print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
+        
+        # 在每个epoch后测试模型
+        print(f'  测试效果:')
+        src_test_accuracy = validate_on_domain(model, source_loader, device, domain_type='source')
+        tgt_test_accuracy = validate_on_domain(model, target_loader, device, domain_type='target')
+        test_results = {
+            'src_test_accuracy': src_test_accuracy,
+            'tgt_test_accuracy': tgt_test_accuracy
+        }
+        test_results_history.append(test_results)
+        print(f'    源域测试准确率: {src_test_accuracy:.2f}%')
+        print(f'    目标域测试准确率: {tgt_test_accuracy:.2f}%')
+        
         # 保存最佳模型
-        if accuracy > best_accuracy:
-            best_accuracy = accuracy
+        if val_accuracy > best_accuracy:
+            best_accuracy = val_accuracy
             early_stop_counter = 0
-            save_best_model(model, best_model_path, accuracy, epoch)
+            save_best_model(model, optimizer, scheduler, best_model_path, val_accuracy, epoch, loss_components)
         else:
             early_stop_counter += 1
+            print(f'  早停计数器: {early_stop_counter}/{patience}')
             
         # 早停检查：若无改进，提前终止训练
         if early_stop_counter >= patience:
-            print(f"早停在第 {epoch+1} 轮，最佳准确率: {best_accuracy:.4f}")
+            print(f'  验证准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
             
         # 动态调整损失权重：随训练进展逐步减少领域适应的重要性
         if epoch > 20:
             criterion.gamma = float(max(0.1, criterion.gamma * 0.98))
             criterion.delta = float(max(0.05, criterion.delta * 0.98))
+            print(f'  调整损失权重: gamma={criterion.gamma:.4f}, delta={criterion.delta:.4f}')
 
-    # 训练结果可视化与数据保存
-    plot_training_curves(train_losses, test_losses, test_accuracies, optimizer, save_dir='Attention')
-    save_training_history(train_losses, test_losses, test_accuracies, best_accuracy, epoch + 1, save_dir='Attention')
-
-    print(f"训练完成，最终训练损失: {train_loss:.4f}")
-    print(f"训练完成，最佳准确率: {best_accuracy:.4f}")
+    print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
+    
+    # 保存训练历史
+    save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention')
+    
+    # 训练结果可视化
+    from plot_ATT import plot_all_training_results
+    plot_all_training_results('Attention/training_history.json', save_dir='Attention')
+    
+    # 保存最终模型
+    final_model_path = 'Attention/final_attention_model.pth'
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'best_accuracy': best_accuracy,
+    }, final_model_path)
+    print(f"最终模型已保存到 {final_model_path}")
