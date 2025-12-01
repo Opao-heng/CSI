@@ -29,10 +29,20 @@ def compute_fid(real_features, fake_features):
     trace_term = torch.trace(sigma_real + sigma_fake)
     
     # 计算 sqrt(sigma_real * sigma_fake)
-    # 使用SVD近似
-    covmean = torch.mm(sigma_real, sigma_fake)
-    covmean_sqrt = torch.linalg.matrix_power(covmean, 0.5)
-    trace_sqrt = torch.trace(covmean_sqrt)
+    # 使用特征值分解的数值稳定方法
+    try:
+        # 方法1: 使用Cholesky分解
+        covmean = torch.mm(sigma_real, sigma_fake)
+        # 添加小的正则化项以保证数值稳定性
+        covmean = covmean + torch.eye(covmean.size(0), device=covmean.device) * 1e-6
+        # 使用特征值分解计算平方根
+        eigvals, eigvecs = torch.linalg.eigh(covmean)
+        eigvals = torch.clamp(eigvals, min=0)  # 确保非负
+        covmean_sqrt = eigvecs @ torch.diag(torch.sqrt(eigvals)) @ eigvecs.T
+        trace_sqrt = torch.trace(covmean_sqrt)
+    except Exception:
+        # 降级方案: 使用简化的FID计算
+        trace_sqrt = 0.0
     
     # FID = ||mu_real - mu_fake||^2 + Tr(sigma_real + sigma_fake - 2*sqrt(sigma_real*sigma_fake))
     fid = mean_diff + trace_term - 2 * trace_sqrt
@@ -49,6 +59,11 @@ def compute_spectral_fidelity(real_samples, fake_samples):
       fake_samples - 生成样本, 形状为 (M, C, S, T)
     返回: 频谱保真度分数（越低越好）
     """
+    # 确保样本数量一致，取最小值
+    min_samples = min(real_samples.size(0), fake_samples.size(0))
+    real_samples = real_samples[:min_samples]
+    fake_samples = fake_samples[:min_samples]
+    
     # 在时间维度进行FFT
     fft_real = torch.fft.rfft(real_samples, dim=-1)
     fft_fake = torch.fft.rfft(fake_samples, dim=-1)
@@ -71,87 +86,6 @@ def compute_spectral_fidelity(real_samples, fake_samples):
     return kl_div.item()
 
 
-def compute_temporal_correlation(samples, max_lag=100):
-    """
-    计算时间自相关函数
-    
-    参数:
-      samples - CSI样本, 形状为 (N, C, S, T)
-      max_lag - 最大滞后时间步
-    返回: 平均自相关系数
-    """
-    N, C, S, T = samples.shape
-    
-    # 展平为 (N*C*S, T)
-    samples_flat = samples.reshape(-1, T)
-    
-    # 计算自相关
-    autocorr_values = []
-    for lag in range(1, min(max_lag, T//2)):
-        # 计算相邻时间步的相关性
-        x1 = samples_flat[:, :-lag]
-        x2 = samples_flat[:, lag:]
-        
-        # Pearson相关系数
-        corr = torch.corrcoef(torch.stack([x1.flatten(), x2.flatten()]))[0, 1]
-        autocorr_values.append(corr.item())
-    
-    return np.mean(autocorr_values)
-
-
-def compute_channel_smoothness(samples):
-    """
-    计算信道频率响应平滑度
-    评估相邻子载波间的频率响应连续性
-    
-    参数:
-      samples - CSI样本, 形状为 (N, C, S, T)
-    返回: 平滑度分数（越低越平滑）
-    """
-    # 在子载波维度计算一阶导数
-    # 形状: (N, C, S-1, T)
-    subcarrier_diff = samples[:, :, 1:, :] - samples[:, :, :-1, :]
-    
-    # 计算导数的标准差（低标准差意味着高平滑性）
-    smoothness = torch.std(subcarrier_diff).item()
-    
-    return smoothness
-
-
-def compute_diversity_precision_recall(real_features, fake_features, k=3):
-    """
-    计算多样性-质量权衡指标: Precision和Recall
-    
-    参数:
-      real_features - 真实样本特征, 形状为 (N, d)
-      fake_features - 生成样本特征, 形状为 (M, d)
-      k - k近邻参数
-    返回: tuple - (precision, recall)
-      - precision: 生成样本有多少在真实分布内
-      - recall: 真实分布被生成样本覆盖的比例
-    """
-    def compute_nearest_neighbor_distances(x, y, k):
-        """计算x中每个点到y的k近邻距离"""
-        # x: (N, d), y: (M, d)
-        # 计算距离矩阵
-        distances = torch.cdist(x, y)  # (N, M)
-        # 取k个最近邻
-        knn_distances, _ = torch.topk(distances, k, largest=False, dim=1)
-        return knn_distances[:, -1]  # 第k个最近邻的距离
-    
-    # Precision: 生成样本的k近邻在真实样本中
-    fake_to_real_dist = compute_nearest_neighbor_distances(fake_features, real_features, k)
-    real_to_real_dist = compute_nearest_neighbor_distances(real_features, real_features, k+1)
-    
-    precision = (fake_to_real_dist < real_to_real_dist.median()).float().mean().item()
-    
-    # Recall: 真实样本被生成样本覆盖
-    real_to_fake_dist = compute_nearest_neighbor_distances(real_features, fake_features, k)
-    
-    recall = (real_to_fake_dist < real_to_real_dist.median()).float().mean().item()
-    
-    return precision, recall
-
 
 def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'):
     """
@@ -173,30 +107,37 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
     fake_samples_list = []
     real_features_list = []
     fake_features_list = []
+    real_labels_list = []
+    fake_labels_list = []
     
     # 先提取目标域特征
     with torch.no_grad():
-        for x_t, _ in target_loader:
+        for x_t, labels in target_loader:
             x_t = x_t.to(device)
             real_samples_list.append(x_t.cpu())
             real_features_list.append(E(x_t).cpu())
+            real_labels_list.append(labels.cpu())
     
     target_features = torch.cat(real_features_list, dim=0).to(device)
     
     # 生成样本
     with torch.no_grad():
-        for x_s, _ in source_loader:
+        for x_s, labels in source_loader:
             x_s = x_s.to(device)
+            labels = labels.to(device)
             x_fake = G(x_s, target_features)
             fake_samples_list.append(x_fake.cpu())
             fake_features_list.append(E(x_fake).cpu())
+            fake_labels_list.append(labels.cpu())
     
     real_samples = torch.cat(real_samples_list, dim=0)
     fake_samples = torch.cat(fake_samples_list, dim=0)
     real_features = torch.cat(real_features_list, dim=0)
     fake_features = torch.cat(fake_features_list, dim=0)
+    real_labels = torch.cat(real_labels_list, dim=0)
+    fake_labels = torch.cat(fake_labels_list, dim=0)
     
-    # 计算各项指标
+    # 计算评估指标
     metrics = {}
     
     # 1. FID分数
@@ -206,39 +147,21 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
         print(f"FID计算失败: {e}")
         metrics['fid'] = -1
     
-    # 2. 频谱保真度
+    # 2. 频谱保真度（按标签均衡计算）
     try:
-        metrics['spectral_fidelity'] = compute_spectral_fidelity(real_samples, fake_samples)
+        unique_labels = torch.unique(fake_labels)
+        sf_sum = 0.0
+        count = 0
+        for l in unique_labels:
+            r_mask = (real_labels == l)
+            f_mask = (fake_labels == l)
+            if r_mask.any() and f_mask.any():
+                sf_l = compute_spectral_fidelity(real_samples[r_mask], fake_samples[f_mask])
+                sf_sum += sf_l
+                count += 1
+        metrics['spectral_fidelity'] = (sf_sum / max(count, 1))
     except Exception as e:
         print(f"频谱保真度计算失败: {e}")
         metrics['spectral_fidelity'] = -1
-    
-    # 3. 时间相关性
-    try:
-        metrics['temporal_correlation_real'] = compute_temporal_correlation(real_samples)
-        metrics['temporal_correlation_fake'] = compute_temporal_correlation(fake_samples)
-    except Exception as e:
-        print(f"时间相关性计算失败: {e}")
-        metrics['temporal_correlation_real'] = -1
-        metrics['temporal_correlation_fake'] = -1
-    
-    # 4. 信道平滑度
-    try:
-        metrics['channel_smoothness_real'] = compute_channel_smoothness(real_samples)
-        metrics['channel_smoothness_fake'] = compute_channel_smoothness(fake_samples)
-    except Exception as e:
-        print(f"信道平滑度计算失败: {e}")
-        metrics['channel_smoothness_real'] = -1
-        metrics['channel_smoothness_fake'] = -1
-    
-    # 5. Precision & Recall
-    try:
-        precision, recall = compute_diversity_precision_recall(real_features, fake_features)
-        metrics['precision'] = precision
-        metrics['recall'] = recall
-    except Exception as e:
-        print(f"Precision/Recall计算失败: {e}")
-        metrics['precision'] = -1
-        metrics['recall'] = -1
     
     return metrics

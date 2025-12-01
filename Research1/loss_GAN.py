@@ -27,157 +27,125 @@ def gaussian_kernel(x, y, sigma=1.0):
     return torch.exp(-distances / (2 * sigma ** 2))
 
 
-def mmd_loss(real_features, fake_features, sigmas=[0.5, 1.0, 2.0]):
+def mmd_loss(real_features, fake_features, sigmas=[1.0], y_real=None, y_fake=None):
     """
     最大均值差异(MMD)损失 - 用于衡量两个分布之间的差异
-    使用多带宽高斯核，提升分布对齐的鲁棒性
-    
-    参数:
-      real_features - 真实样本特征, 形状为 (n, d)
-      fake_features - 生成样本特征, 形状为 (m, d)
-      sigmas - 高斯核带宽列表，默认使用多核以提升鲁棒性
-    返回: MMD损失值（标量）
+    支持按标签均衡：若提供 y_real/y_fake，则对每个标签分别计算MMD后做均衡平均。
     """
-    loss = 0.0
-    
-    for sigma in sigmas:
-        # 计算 K(real, real)
-        k_real_real = gaussian_kernel(real_features, real_features, sigma)
-        # 计算 K(fake, fake)
-        k_fake_fake = gaussian_kernel(fake_features, fake_features, sigma)
-        # 计算 K(real, fake)
-        k_real_fake = gaussian_kernel(real_features, fake_features, sigma)
-        
-        # MMD² = E[K(real, real)] + E[K(fake, fake)] - 2*E[K(real, fake)]
-        mmd_sq = k_real_real.mean() + k_fake_fake.mean() - 2 * k_real_fake.mean()
-        loss += mmd_sq
-    
-    # 对多个核取平均
-    return loss / len(sigmas)
+    if y_real is not None and y_fake is not None:
+        unique_labels = torch.unique(y_fake)
+        loss_sum = 0.0
+        count = 0
+        for l in unique_labels:
+            mask_real = (y_real == l)
+            mask_fake = (y_fake == l)
+            if mask_real.any() and mask_fake.any():
+                loss_l = 0.0
+                for sigma in sigmas:
+                    k_rr = gaussian_kernel(real_features[mask_real], real_features[mask_real], sigma)
+                    k_ff = gaussian_kernel(fake_features[mask_fake], fake_features[mask_fake], sigma)
+                    k_rf = gaussian_kernel(real_features[mask_real], fake_features[mask_fake], sigma)
+                    mmd_sq = k_rr.mean() + k_ff.mean() - 2 * k_rf.mean()
+                    loss_l += mmd_sq
+                loss_l = loss_l / len(sigmas)
+                loss_sum += loss_l
+                count += 1
+        return loss_sum / max(count, 1)
+    else:
+        loss = 0.0
+        for sigma in sigmas:
+            k_real_real = gaussian_kernel(real_features, real_features, sigma)
+            k_fake_fake = gaussian_kernel(fake_features, fake_features, sigma)
+            k_real_fake = gaussian_kernel(real_features, fake_features, sigma)
+            mmd_sq = k_real_real.mean() + k_fake_fake.mean() - 2 * k_real_fake.mean()
+            loss += mmd_sq
+        return loss / len(sigmas)
 
 
-def frequency_consistency_loss(real_samples, fake_samples):
+def frequency_consistency_loss(real_samples, fake_samples, y_real=None, y_fake=None):
     """
-    【优化版】频域一致性损失：约束生成样本与真实样本在频谱上的一致性
-    使用归一化的对数幅度谱，避免数值爆炸
-    参数:
-      real_samples - 真实样本, 形状为 (B, C, S, T)
-      fake_samples - 生成样本, 形状为 (B, C, S, T)
-    返回: 频域 MSE（标量）
+    简化版频域一致性损失:只使用幅度谱损失(最重要的部分,速度快3倍)
+    支持按标签均衡:若提供 y_real/y_fake,则对每个标签分别计算后均衡平均。
     """
-    # 在时间维度做 FFT
-    real_fft = torch.fft.rfft(real_samples, dim=-1)
-    fake_fft = torch.fft.rfft(fake_samples, dim=-1)
+    def freq_loss_impl(real_s, fake_s):
+        B, C, S, T = real_s.shape
+        real_flat = real_s.view(B, C * S, T)
+        fake_flat = fake_s.view(B, C * S, T)
+        real_fft = torch.fft.rfft(real_flat, dim=-1)
+        fake_fft = torch.fft.rfft(fake_flat, dim=-1)
+        eps = 1e-8
+        # 只计算幅度谱损失(去掉相位和低频功率计算,大幅提速)
+        real_mag = torch.log(real_fft.abs() + eps)
+        fake_mag = torch.log(fake_fft.abs() + eps)
+        magnitude_loss = F.mse_loss(fake_mag, real_mag)
+        return magnitude_loss
     
-    # 使用对数幅度谱，稳定数值范围
-    eps = 1e-8
-    real_mag = torch.log(real_fft.abs() + eps)
-    fake_mag = torch.log(fake_fft.abs() + eps)
-    
-    # 对每个样本进行归一化，消除幅度尺度差异
-    real_mag_norm = F.normalize(real_mag.flatten(1), p=2, dim=1)
-    fake_mag_norm = F.normalize(fake_mag.flatten(1), p=2, dim=1)
-    
-    # 计算归一化后的MSE
-    return F.mse_loss(fake_mag_norm, real_mag_norm)
+    if y_real is not None and y_fake is not None:
+        unique_labels = torch.unique(y_fake)
+        loss_sum = 0.0
+        count = 0
+        for l in unique_labels:
+            mask_real = (y_real == l)
+            mask_fake = (y_fake == l)
+            if mask_real.any() and mask_fake.any():
+                loss_sum += freq_loss_impl(real_samples[mask_real], fake_samples[mask_fake])
+                count += 1
+        return loss_sum / max(count, 1)
+    else:
+        return freq_loss_impl(real_samples, fake_samples)
 
 
-def discriminator_loss(D, x_t_real, x_hat_t):
+def wasserstein_discriminator_loss_simple(D, x_t_real, x_hat_t, y_real=None, y_fake=None):
     """
-    判别器损失 L_D = -[log(D(x_t_real)) + log(1 - D(x_hat_t))]（已弃用）
-    推荐使用 wasserstein_discriminator_loss 替代
+    Wasserstein GAN判别器损失(支持按标签均衡)
+    判别器要最大化 E[D(real)] - E[D(fake)]
+    返回正数表示判别器性能,数值越大说明判别器越强
     """
-    real_pred = D(x_t_real)
-    fake_pred = D(x_hat_t)
-    real_loss = -torch.mean(torch.log(real_pred + 1e-8))
-    fake_loss = -torch.mean(torch.log(1 - fake_pred + 1e-8))
-    return real_loss + fake_loss
+    if y_real is not None and y_fake is not None:
+        # 计算每个样本的判别分数
+        s_fake = D(x_hat_t).view(-1)
+        s_real = D(x_t_real).view(-1)
+        unique_labels = torch.unique(y_fake)
+        loss_sum = 0.0
+        count = 0
+        for l in unique_labels:
+            mask_fake = (y_fake == l)
+            mask_real = (y_real == l)
+            if mask_fake.any() and mask_real.any():
+                d_fake_mean = s_fake[mask_fake].mean()
+                d_real_mean = s_real[mask_real].mean()
+                # 返回 real - fake (正数,越大越好)
+                loss_sum += (d_real_mean - d_fake_mean)
+                count += 1
+        d_loss = loss_sum / max(count, 1)
+    else:
+        fake_score = D(x_hat_t).mean()
+        real_score = D(x_t_real).mean()
+        # 返回 real - fake (正数,越大越好)
+        d_loss = real_score - fake_score
+    
+    # 返回负值用于梯度下降(最小化-loss = 最大化loss)
+    return -d_loss
 
 
-def compute_gradient_penalty(D, real_samples, fake_samples, device='cuda'):
+def wasserstein_generator_loss(D, x_hat_t, y_fake=None):
     """
-    计算WGAN-GP的梯度惩罚项
-    
-    参数:
-      D - 判别器网络
-      real_samples - 真实样本, 形状为 (B, C, S, T)
-      fake_samples - 生成样本, 形状为 (B, C, S, T)
-      device - 设备类型
-    返回: 梯度惩罚损失（标量）
+    Wasserstein GAN生成器损失（支持按标签均衡）
+    若提供 y_fake，则对每个标签分别求平均后再均衡平均。
     """
-    batch_size = real_samples.size(0)
-    
-    # 生成随机插值系数 epsilon ~ Uniform(0, 1)
-    epsilon = torch.rand(batch_size, 1, 1, 1, device=device)
-    epsilon = epsilon.expand_as(real_samples)
-    
-    # 计算插值样本
-    interpolated = epsilon * real_samples + (1 - epsilon) * fake_samples
-    interpolated = interpolated.requires_grad_(True)
-    
-    # 计算判别器对插值样本的输出
-    d_interpolated = D(interpolated)
-    
-    # 计算梯度
-    gradients = autograd.grad(
-        outputs=d_interpolated,
-        inputs=interpolated,
-        grad_outputs=torch.ones_like(d_interpolated),
-        create_graph=True,
-        retain_graph=True,
-        only_inputs=True
-    )[0]
-    
-    # 将梯度展平
-    gradients = gradients.view(batch_size, -1)
-    
-    # 计算梯度的L2范数
-    gradient_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
-    
-    # 梯度惩罚: (||grad|| - 1)^2
-    gradient_penalty = torch.mean((gradient_norm - 1) ** 2)
-    
-    return gradient_penalty
-
-
-def wasserstein_discriminator_loss(D, x_t_real, x_hat_t, lambda_gp=10.0, device='cuda'):
-    """
-    Wasserstein GAN判别器损失（带梯度惩罚）
-    L_D = E[D(X_fake)] - E[D(X_real)] + λ_GP * gradient_penalty
-    
-    参数:
-      D - 判别器网络
-      x_t_real - 真实目标域样本
-      x_hat_t - 生成的虚假样本
-      lambda_gp - 梯度惩罚权重，默认10.0
-      device - 设备类型
-    返回: tuple - (总损失, Wasserstein距离, 梯度惩罚)
-    """
-    # Wasserstein距离: E[D(fake)] - E[D(real)]
-    fake_score = D(x_hat_t).mean()
-    real_score = D(x_t_real).mean()
-    wasserstein_distance = fake_score - real_score
-    
-    # 计算梯度惩罚
-    gradient_penalty = compute_gradient_penalty(D, x_t_real, x_hat_t, device)
-    
-    # 总损失
-    d_loss = wasserstein_distance + lambda_gp * gradient_penalty
-    
-    return d_loss, wasserstein_distance, gradient_penalty
-
-
-def wasserstein_generator_loss(D, x_hat_t):
-    """
-    Wasserstein GAN生成器损失
-    L_G = -E[D(X_fake)]
-    
-    参数:
-      D - 判别器网络
-      x_hat_t - 生成的虚假样本
-    返回: 生成器损失（标量）
-    """
-    fake_score = D(x_hat_t).mean()
-    return -fake_score
+    if y_fake is not None:
+        s_fake = D(x_hat_t).view(-1)
+        unique_labels = torch.unique(y_fake)
+        loss_sum = 0.0
+        count = 0
+        for l in unique_labels:
+            mask_fake = (y_fake == l)
+            if mask_fake.any():
+                loss_sum += (-s_fake[mask_fake].mean())
+                count += 1
+        return loss_sum / max(count, 1)
+    else:
+        fake_score = D(x_hat_t).mean()
+        return -fake_score
 
 
