@@ -20,16 +20,15 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
-    # 步骤2: 提取各项损失数据（共乚5项）
+    # 步骤2: 提取各项损失数据（共4项）
     d_losses = [loss['d_loss'] for loss in train_loss_history]  # 判别器损失
     g_adv_losses = [loss['g_adv_loss'] for loss in train_loss_history]  # 对抗损失
     mmd_losses = [loss['mmd_loss'] for loss in train_loss_history]  # MMD损失
     freq_losses = [loss['freq_loss'] for loss in train_loss_history]  # 频域一致性损失
-    g_losses = [loss['g_loss'] for loss in train_loss_history]  # 生成器总损失
     epochs = range(1, len(train_loss_history) + 1)
     
-    # 步骤3: 创建大型图表，包含5个子图 (分组5个损失)
-    fig, axes = plt.subplots(3, 2, figsize=(16, 14))
+    # 步骤3: 创建大型图表，包含4个子图
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     
     # 子图1: 判别器损失
     axes[0, 0].plot(epochs, d_losses, 'r-', linewidth=2, label='Discriminator Loss')
@@ -63,17 +62,6 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     axes[1, 1].grid(True, alpha=0.3)
     axes[1, 1].legend()
     
-    # 子图5: 生成器总损失
-    axes[2, 0].plot(epochs, g_losses, 'b-', linewidth=2, label='Generator Total Loss')
-    axes[2, 0].set_title('Generator Total Loss (Weighted Sum)', fontsize=14, fontweight='bold')
-    axes[2, 0].set_xlabel('Epoch', fontsize=12)
-    axes[2, 0].set_ylabel('Loss', fontsize=12)
-    axes[2, 0].grid(True, alpha=0.3)
-    axes[2, 0].legend()
-    
-    # 子图6: 所有火输图损失比较 (隐藏)
-    axes[2, 1].axis('off')
-    
     # 步骤4: 调整布局并保存图形
     plt.tight_layout()
     plot_path = os.path.join(output_dir, 'training_metrics.png')
@@ -87,7 +75,6 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     plt.plot(epochs, g_adv_losses, 'orange', linewidth=2.5, label='Adversarial Loss', alpha=0.8)
     plt.plot(epochs, mmd_losses, 'g-', linewidth=2.5, label='MMD Loss', alpha=0.8)
     plt.plot(epochs, freq_losses, 'm-', linewidth=2.5, label='Frequency Loss', alpha=0.8)
-    plt.plot(epochs, g_losses, 'b-', linewidth=2.5, label='Generator Total Loss', alpha=0.8)
     plt.title('All Training Losses Comparison', fontsize=16, fontweight='bold')
     plt.xlabel('Epoch', fontsize=12)
     plt.ylabel('Loss Value', fontsize=12)
@@ -125,12 +112,18 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
         'timestamp': datetime.now().isoformat(),
         'evaluation_metrics': comprehensive_metrics,
         'training_loss_summary': {
-            'min_g_loss': min([l['g_loss'] for l in train_losses]) if train_losses else 0,
-            'max_g_loss': max([l['g_loss'] for l in train_losses]) if train_losses else 0,
-            'final_g_loss': train_losses[-1]['g_loss'] if train_losses else 0,
             'min_d_loss': min([l['d_loss'] for l in train_losses]) if train_losses else 0,
             'max_d_loss': max([l['d_loss'] for l in train_losses]) if train_losses else 0,
             'final_d_loss': train_losses[-1]['d_loss'] if train_losses else 0,
+            'min_g_adv_loss': min([l['g_adv_loss'] for l in train_losses]) if train_losses else 0,
+            'max_g_adv_loss': max([l['g_adv_loss'] for l in train_losses]) if train_losses else 0,
+            'final_g_adv_loss': train_losses[-1]['g_adv_loss'] if train_losses else 0,
+            'min_mmd_loss': min([l['mmd_loss'] for l in train_losses]) if train_losses else 0,
+            'max_mmd_loss': max([l['mmd_loss'] for l in train_losses]) if train_losses else 0,
+            'final_mmd_loss': train_losses[-1]['mmd_loss'] if train_losses else 0,
+            'min_freq_loss': min([l['freq_loss'] for l in train_losses]) if train_losses else 0,
+            'max_freq_loss': max([l['freq_loss'] for l in train_losses]) if train_losses else 0,
+            'final_freq_loss': train_losses[-1]['freq_loss'] if train_losses else 0,
             'total_epochs': len(train_losses)
         },
         'full_training_history': train_losses
