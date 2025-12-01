@@ -9,7 +9,7 @@ from Research1.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
     mmd_loss,
     frequency_consistency_loss,
-    wasserstein_generator_loss, wasserstein_discriminator_loss_simple
+    wasserstein_generator_loss, wasserstein_discriminator_loss
 )
 from Research1.plot_GAN import (
     plot_training_metrics, 
@@ -80,7 +80,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
             E, G, D, D_spec, source_loader, target_features_cache, target_data_cache, target_labels_cache,
             optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec,
             lambda_mmd=0.8, lambda_freq=0.3,
-            n_critic=5, device=device
+            device=device
         )
 
         # 步骤7.2: 记录训练损失变化
@@ -152,22 +152,18 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
 执行单个epoch的GAN训练。
 优化判别器和生成器，计算损失函数并返回损失字典。
 """
-def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, target_labels, optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, lambda_mmd=0.5, lambda_freq=0.2, n_critic=1, device='cuda' if torch.cuda.is_available() else 'cpu'):
-    # 步骤1: 设置所有模型为训练模式
+def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, target_labels, optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, lambda_mmd=0.5, lambda_freq=0.2, device='cuda' if torch.cuda.is_available() else 'cpu'):
     E.train()
     G.train()
     D.train()
     D_spec.train()
 
-    # 步骤2: 初始化损失累计变量
-    total_d_loss = 0.0  # 判别器损失
-    total_g_adv_loss = 0.0  # 生成器对抗损失
-    total_mmd_loss = 0.0  # MMD分布对齐损失
-    total_freq_loss = 0.0  # 频域一致性损失
+    total_d_loss = 0.0
+    total_g_adv_loss = 0.0
+    total_mmd_loss = 0.0
+    total_freq_loss = 0.0
     num_batches = 0
-    critic_iter = 0
     
-    # 步骤3: 遍历源域数据的批次
     for batch_idx, (x_s, source_labels) in enumerate(source_loader):
         if x_s.size(0) < 2:
             continue
@@ -176,93 +172,65 @@ def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, ta
         source_labels = source_labels.to(device)
         batch_size = x_s.size(0)
         
-        # 优化: 批量匹配目标域真实样本 - 使用向量化索引代替逐个拼接
-        # 简化版:随机采样,不严格按标签匹配(大幅提速)
+        # 批量随机采样目标域样本
         target_indices = torch.randint(0, target_data.size(0), (batch_size,), device='cpu').tolist()
         x_t_real = target_data[target_indices].to(device)
 
-        # 步骤4: 更新判别器（进行n_critic次判别器更新）
-        for critic_step in range(n_critic):
-            # 分别更新时域判别器
-            optimizer_D.zero_grad()
-            
-            # 生成虚假样本
-            with torch.no_grad():
-                x_hat_t = G(x_s, target_features)
-            
-            # 计算时域判别器的Wasserstein损失
-            d_loss_main = wasserstein_discriminator_loss_simple(D, x_t_real, x_hat_t, y_real=source_labels, y_fake=source_labels)
-            d_loss_main.backward()
-            optimizer_D.step()
-            
-            # 分别更新频域判别器
-            optimizer_D_spec.zero_grad()
-            
-            # 计算频域判别器的Wasserstein损失
-            d_loss_spec = wasserstein_discriminator_loss_simple(D_spec, x_t_real, x_hat_t, y_real=source_labels, y_fake=source_labels)
-            d_loss_spec.backward()
-            optimizer_D_spec.step()
-            
-            # 累计判别器损失
-            d_loss = (d_loss_main + d_loss_spec) / 2.0
-            total_d_loss += d_loss.item()
-            critic_iter += 1
+        # 生成假样本用于对抗训练
+        x_hat_t = G(x_s, target_features)
+        
+        # 更新判别器 (使用同一批生成的样本进行对抗训练)
+        optimizer_D.zero_grad()
+        optimizer_D_spec.zero_grad()
+        
+        d_loss_main = wasserstein_discriminator_loss(D, x_t_real, x_hat_t, y_real=source_labels, y_fake=source_labels)
+        d_loss_spec = wasserstein_discriminator_loss(D_spec, x_t_real, x_hat_t, y_real=source_labels, y_fake=source_labels)
+        d_loss = (d_loss_main + d_loss_spec) / 2.0
+        d_loss.backward()
+        optimizer_D.step()
+        optimizer_D_spec.step()
+        
+        # 权重裁剪以满足Lipschitz约束 (WGAN要求)
+        for p in D.parameters():
+            p.data.clamp_(-0.01, 0.01)
+        for p in D_spec.parameters():
+            p.data.clamp_(-0.01, 0.01)
+        
+        total_d_loss += d_loss.item()
 
-        # 步骤5: 更新生成器G和特征提取器E
-        # 5.1: 对抗训练 - 通过判别器反馈更新生成器
+        # 更新生成器 (使用同一批生成的样本进行对抗训练)
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
         
-        # 生成虚假样本
+        # 重新计算生成器输出，以便获得正确的梯度流
         x_hat_t = G(x_s, target_features)
         
-        # 计算对抗损失（两个判别器的平均值）
         g_adv_main = wasserstein_generator_loss(D, x_hat_t, y_fake=source_labels)
         g_adv_spec = wasserstein_generator_loss(D_spec, x_hat_t, y_fake=source_labels)
         g_adv_loss = (g_adv_main + g_adv_spec) / 2.0
         
-        # 对抗损失反向传播
-        g_adv_loss.backward(retain_graph=True)
-        
-        # 5.2: 计算MMD损失（衡量分布对齐程度）
-        # 优化: 生成特征不需要反复转移device，直接在device上计算
-        generated_features = E(x_hat_t)  # x_hat_t已在device上
+        generated_features = E(x_hat_t)
         mmd_loss_value = mmd_loss(target_features, generated_features, y_real=target_labels, y_fake=source_labels)
         
-        # MMD损失反向传播
-        mmd_loss_value.backward(retain_graph=True)
+        freq_loss = frequency_consistency_loss(x_t_real, x_hat_t, y_real=source_labels, y_fake=source_labels)
         
-        # 5.3: 计算频域一致性损失
-        # 频域一致性也按标签配对
-        x_t_real_freq = x_t_real
-        freq_loss = frequency_consistency_loss(x_t_real_freq, x_hat_t, y_real=source_labels, y_fake=source_labels)
+        g_total_loss = g_adv_loss + lambda_mmd * mmd_loss_value + lambda_freq * freq_loss
+        g_total_loss.backward()
         
-        # 频域一致性损失反向传播
-        freq_loss.backward()
-        
-        # 5.4: 优化器更新（梯度裁剪）
-        # 优化: 合并梯度裁剪（减少内核调用）
         torch.nn.utils.clip_grad_norm_([p for m in [G, E] for p in m.parameters()], max_norm=1.0)
         optimizer_G.step()
         optimizer_E.step()
         
-        # 步骤5.5: 累计各项生成器损失
-        total_g_adv_loss += g_adv_loss.item()  # 对抗损失
-        total_mmd_loss += mmd_loss_value.item()  # MMD损失
-        total_freq_loss += freq_loss.item()  # 频域一致性损失
+        total_g_adv_loss += g_adv_loss.item()
+        total_mmd_loss += mmd_loss_value.item()
+        total_freq_loss += freq_loss.item()
         num_batches += 1
 
-    # 步骤6: 计算平均损失并返回
-    # 损失项说明:
-    # - d_loss: 判别器损失 = avg(D(real) - D(fake))，数值越大说明判别器越强,能更好地区分真假样本
-    # - g_adv_loss: 生成器对抗损失 = avg(-D(fake))
-    # - mmd_loss: 分布对齐损失 (衡量生成分布与真实分布的差异)
-    # - freq_loss: 频域一致性损失 (频谱保真度)
     loss_dict = {
-        'd_loss': total_d_loss / critic_iter if critic_iter > 0 else 0,  # 判别器损失
-        'g_adv_loss': total_g_adv_loss / num_batches if num_batches > 0 else 0,  # 对抗损失
-        'mmd_loss': total_mmd_loss / num_batches if num_batches > 0 else 0,  # MMD损失
-        'freq_loss': total_freq_loss / num_batches if num_batches > 0 else 0,  # 频域损失
+        'd_loss': total_d_loss / num_batches if num_batches > 0 else 0,
+        'g_adv_loss': total_g_adv_loss / num_batches if num_batches > 0 else 0,
+        'mmd_loss': total_mmd_loss / num_batches if num_batches > 0 else 0,
+        'freq_loss': total_freq_loss / num_batches if num_batches > 0 else 0,
     }
     return loss_dict
 

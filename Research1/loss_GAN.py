@@ -6,8 +6,8 @@ import torch.autograd as autograd
 def wasserstein_discriminator_loss(D, x_t_real, x_hat_t, y_real=None, y_fake=None):
     """
     Wasserstein GAN判别器损失(支持按标签均衡)
-    判别器要最大化 E[D(real)] - E[D(fake)]，这里返回的是需要“最小化”的损失：
-    L_D = -(E[D(real)] - E[D(fake)])
+    判别器要最大化 E[D(real)] - E[D(fake)]，这里返回的是需要"最小化"的损失：
+    L_D = E[D(fake)] - E[D(real)]
     """
     if y_real is not None and y_fake is not None:
         s_fake = D(x_hat_t).view(-1)
@@ -21,14 +21,14 @@ def wasserstein_discriminator_loss(D, x_t_real, x_hat_t, y_real=None, y_fake=Non
             if mask_fake.any() and mask_real.any():
                 d_fake_mean = s_fake[mask_fake].mean()
                 d_real_mean = s_real[mask_real].mean()
-                # 判别器期望 real_score - fake_score 越大越好 => 损失为 -(real - fake)
-                loss_sum += (-(d_real_mean - d_fake_mean))
+                # 判别器期望 real_score - fake_score 越大越好 => 损失为 fake - real
+                loss_sum += (d_fake_mean - d_real_mean)
                 count += 1
         d_loss = loss_sum / max(count, 1)
     else:
         fake_score = D(x_hat_t).mean()
         real_score = D(x_t_real).mean()
-        d_loss = -(real_score - fake_score)
+        d_loss = fake_score - real_score
     return d_loss
 
 
