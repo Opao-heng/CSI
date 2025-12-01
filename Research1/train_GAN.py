@@ -325,15 +325,11 @@ if __name__ == "__main__":
 
     # 步骤1: 从磁盘加载源域和目标域数据
     print("步骤1: 正在加载数据文件...")
-    try:
-        source_data = torch.load('Data/source_env0_env1_data.pt')
-        source_labels = torch.load('Data/source_env0_env1_labels.pt')
-        target_data = torch.load('Data/target_env2_data.pt')
-        target_labels = torch.load('Data/target_env2_labels.pt')
-        print("  数据文件加载成功\n")
-    except FileNotFoundError as e:
-        print(f"  错误: 加载数据文件失败: {e}")
-        exit(1)
+    source_data = torch.load('Data/source_env0_env1_data.pt')
+    source_labels = torch.load('Data/source_env0_env1_labels.pt')
+    target_data = torch.load('Data/target_env2_data.pt')
+    target_labels = torch.load('Data/target_env2_labels.pt')
+    print("  数据文件加载成功\n")
 
     # 步骤2: 为源域数据创建DataLoader
     print("步骤2: 正在创建数据加载器...")
@@ -361,16 +357,12 @@ if __name__ == "__main__":
     print("步骤4: 正在合并并保存合成数据...")
     output_dir = 'Data'
     target_gan_data, target_gan_labels = save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir)
-    print(f"  合并后数据形状: {target_gan_data.shape}")
-    print(f"  合并后标签形状: {target_gan_labels.shape}")
-    
+
     # 步骤8: 打印最终的数据统计结果
     print("\n" + "="*70)
-    print("最终数据统计")
-    print("="*70)
+    print("最终数据统计:")
     print(f"源域数据: {source_data.shape}")
     print(f"源域标签: {source_labels.shape}")
-    print(f"目标域数据(增强): {target_gan_data.shape}")
-    print(f"目标域标签(增强): {target_gan_labels.shape}")
+    print(f"合并后目标域数据(增强): {target_gan_data.shape}")
+    print(f"合并后目标域标签(增强): {target_gan_labels.shape}")
     print("="*70)
-    print("流程完成！所有训练和数据增强步骤已执行完毕。")

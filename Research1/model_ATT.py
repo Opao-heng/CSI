@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 
+
 class FeatureExtractor(nn.Module):
     """专为CSI数据设计的特征提取器 - 输入形状: [batch, 56, 3, 6000]"""
 

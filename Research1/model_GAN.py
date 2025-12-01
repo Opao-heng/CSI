@@ -7,10 +7,6 @@ from torch.nn.utils import spectral_norm
 """
 自适应实例归一化(AdaIN)层
 作用：使用目标域特征作为风格条件，对输入特征进行自适应的实例归一化和仿射变换
-参数：
-    num_features (int): 输入特征通道数
-    feature_dim (int): 风格特征维度
-返回：Tensor 仿射变换后的特征
 """
 class AdaptiveInstanceNorm1d(nn.Module):
     def __init__(self, num_features, feature_dim):
@@ -34,10 +30,6 @@ class AdaptiveInstanceNorm1d(nn.Module):
 """
 特征提取器
 作用：提取目标域CSI的环境特征，将高维CSI数据压缩到低维特征空间
-参数：
-    input_dim (tuple): 输入形状(C,S,T)，默认(3,56,6000)
-    feature_dim (int): 输出维度，默认128
-返回：Tensor (B, feature_dim)
 """
 class FeatureExtractor(nn.Module):
     def __init__(self, input_dim=(3, 56, 6000), feature_dim=128):
@@ -78,12 +70,6 @@ class FeatureExtractor(nn.Module):
 """
 生成器网络
 作用：融合源域身份特征与目标域环境特征，生成符合目标域分布的虚假样本
-参数：
-    in_channels (int): 输入通道数，默认3
-    subcarriers (int): 子载波数，默认56
-    time_steps (int): 时间步数，默认6000
-    feature_dim (int): 目标域特征维度，默认128
-返回：Tensor (B, C, S, T)
 """
 class Generator(nn.Module):
     def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, feature_dim=128):
@@ -172,10 +158,6 @@ class Generator(nn.Module):
 """
 时域判别器
 作用：区分真实目标域样本和虚假生成样本，为生成器提供训练梯度
-参数：
-    in_channels (int): 输入通道数，默认3*56
-    use_spectral_norm (bool): 是否使用谱归一化，默认True
-返回：Tensor (B, 1) WGAN格式
 """
 class Discriminator(nn.Module):
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
@@ -245,10 +227,6 @@ class Discriminator(nn.Module):
 """
 频域判别器
 作用：在频谱域区分真实和生成的目标域样本，捕捉频域特征差异
-参数：
-    in_channels (int): 输入通道数，默认3*56
-    use_spectral_norm (bool): 是否使用谱归一化，默认True
-返回：Tensor (B, 1)
 """
 class SpectralDiscriminator(nn.Module):
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
@@ -306,15 +284,9 @@ class SpectralDiscriminator(nn.Module):
         return self.fc(x.squeeze(-1))
 
 
-
 """
 构建GAN模型
 作用：初始化并返回GAN的所有组件
-返回：tuple (E, G, D, D_spectral)
-    E: 特征提取器
-    G: 生成器
-    D: 时域判别器
-    D_spectral: 频域判别器
 """
 def build_model():
     # 初始化特征提取器：从目标域提取环境特征

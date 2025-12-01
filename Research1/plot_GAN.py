@@ -86,12 +86,6 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     plt.savefig(all_losses_path, dpi=300, bbox_inches='tight')
     print(f"  所有损失对比图已保存到: {all_losses_path}")
     plt.close()
-    
-    # 步骤6: 保存训练损失历史到JSON文件
-    history_path = os.path.join(output_dir, 'training_history.json')
-    with open(history_path, 'w', encoding='utf-8') as f:
-        json.dump(train_loss_history, f, indent=4, ensure_ascii=False)
-    print(f"  训练损失历史已保存到: {history_path}")
 
 """
 将GAN的评估结果保存为JSON文件
