@@ -222,8 +222,130 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
     print(f"扩展图像已保存到: {save_path}")
 
 
+def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+                                           save_path='./preprocess/extended_sample_amplitude_with_noise.png', total_time_steps=50000,
+                                           noise_std_ratio=0.1):
+    """
+    绘制加噪后的扩展CSI数据幅度图，模拟真实环境的数据
+    将6000个原始数据包放在中间位置，前后扩展至50000个数据包，并添加高斯噪声
+    
+    参数:
+    data_path (str): CSI数据文件路径
+    sample_index (int): 要绘制的样本索引
+    save_path (str): 图像保存路径
+    total_time_steps (int): 总时间步数
+    noise_std_ratio (float): 噪声标准差与信号平均值的比例
+    """
+    # 加载数据
+    data = torch.load(data_path)
+
+    sample_data = data[sample_index]
+    amplitude_data = torch.abs(sample_data)
+
+    # 原始时间步数
+    original_time_steps = amplitude_data.shape[2]  # 应该是6000
+
+    # 创建扩展后的数据容器
+    extended_amplitude_data = torch.zeros(
+        (amplitude_data.shape[0], amplitude_data.shape[1], total_time_steps),
+        dtype=amplitude_data.dtype
+    )
+
+    # 计算中心位置
+    center_start = (total_time_steps - original_time_steps) // 2
+    center_end = center_start + original_time_steps
+
+    # 将原始数据放在中心位置
+    extended_amplitude_data[:, :, center_start:center_end] = amplitude_data
+
+    # 对前后扩展部分进行平滑处理
+    # 前段：使用第一个时间点的值进行填充并添加轻微噪声
+    if center_start > 0:
+        # 获取第一个时间点的数据作为基准
+        first_time_data = amplitude_data[:, :, 0:1]
+        # 逐渐过渡到第一个时间点的值
+        for t in range(center_start):
+            # 使用加权平均使过渡更自然
+            weight = t / center_start
+            extended_amplitude_data[:, :, t] = first_time_data.squeeze() * (1 - weight) + \
+                                               torch.mean(amplitude_data[:, :, :10], dim=2) * weight
+
+    # 后段：使用最后一个时间点的值进行填充并添加轻微噪声
+    if center_end < total_time_steps:
+        # 获取最后一个时间点的数据作为基准
+        last_time_data = amplitude_data[:, :, -1:]
+        # 逐渐过渡到最后一个时间点的值
+        remaining_steps = total_time_steps - center_end
+        for t in range(remaining_steps):
+            # 使用加权平均使过渡更自然
+            weight = t / remaining_steps
+            idx = center_end + t
+            extended_amplitude_data[:, :, idx] = torch.mean(amplitude_data[:, :, -10:], dim=2) * (1 - weight) + \
+                                                 last_time_data.squeeze() * weight
+
+    # 添加高斯噪声来模拟真实环境
+    # 计算噪声标准差
+    signal_mean = torch.mean(extended_amplitude_data)
+    noise_std = noise_std_ratio * signal_mean
+    
+    # 添加高斯噪声到整个数据
+    gaussian_noise = torch.randn_like(extended_amplitude_data) * noise_std
+    noisy_amplitude_data = extended_amplitude_data + gaussian_noise
+    
+    # 确保幅度值非负
+    noisy_amplitude_data = torch.clamp(noisy_amplitude_data, min=0)
+
+    # 绘图设置
+    plt.style.use('seaborn-v0_8')
+    fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
+
+    fig, axes = plt.subplots(3, 1, figsize=fig_size)
+
+    num_antennas = noisy_amplitude_data.shape[0]
+    selected_antennas = list(range(num_antennas))
+    colors = plt.cm.tab20(np.linspace(0, 1, len(selected_antennas)))
+
+    for dim in range(3):
+        ax = axes[dim]
+        for i, antenna in enumerate(selected_antennas):
+            ax.plot(noisy_amplitude_data[antenna, dim, :].numpy(),
+                    alpha=0.8,
+                    linewidth=0.8,
+                    color=colors[i])
+
+        # 不显示黄色高亮区域，只绘制数据
+        ax.set_title(f'天线 {dim + 1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
+        ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
+        ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(axis='both', which='major', labelsize=14)
+
+        # 设置x轴刻度以便更好地显示
+        ax.set_xlim(0, total_time_steps)
+        ax.set_xticks(np.linspace(0, total_time_steps, 11))  # 设置11个刻度
+
+        # 为坐标轴刻度标签也设置中文字体
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(create_zh_font(14))
+
+    # 调整子图间距以避免重叠
+    plt.subplots_adjust(left=0.1, right=0.95, top=0.95, bottom=0.08, hspace=0.35)
+
+    # 强制刷新图形以确保中文字体正确应用
+    plt.draw()
+
+    # 保存图像到指定目录
+    plt.savefig(save_path, dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+
+    plt.close()  # 关闭图形以释放内存
+    print(f"加噪扩展图像已保存到: {save_path}")
+
+
 # 示例调用
 if __name__ == "__main__":
     plot_csi_amplitude()
     # 调用新的扩展函数
     plot_extended_csi_amplitude()
+    # 调用加噪版本的函数
+    plot_extended_csi_amplitude_with_noise()
