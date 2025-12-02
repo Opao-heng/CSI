@@ -99,12 +99,20 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
     print(f"图像已保存到: {save_path}")
 
 
-def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132,  save_path='./preprocess/extended_sample_amplitude_plot.png',  total_time_steps=50000):
+def plot_original_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132, save_path='./preprocess/original_extended_sample_amplitude_plot.png', total_time_steps=50000):
     """
-    绘制扩展的CSI数据幅度图，将6000个原始数据包放在中间位置，前后扩展至50000个数据包
+    绘制扩展的原始CSI数据幅度图（去噪前），将6000个原始数据包放在中间位置，前后扩展至50000个数据包
+    与plot_extended_csi_amplitude相同的处理流程，但不进行DWT去噪
+    
+    参数:
+    data_path (str): CSI数据文件路径
+    sample_index (int): 要绘制的样本索引
+    save_path (str): 图像保存路径
+    total_time_steps (int): 扩展后的总时间步数
     """
     # 加载数据
     data = torch.load(data_path)
+    print(f"数据形状: {data.shape}")
     
     sample_data = data[sample_index]
     amplitude_data = torch.abs(sample_data)
@@ -125,8 +133,8 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
     # 将原始数据放在中心位置
     extended_amplitude_data[:, :, center_start:center_end] = amplitude_data
     
-    # 对前后扩展部分进行平滑处理
-    # 前段：使用第一个时间点的值进行填充并添加轻微噪声
+    # 对前后扩展部分进行平滑处理并添加噪声（模拟去噪前的噪声状态）
+    # 前段：使用第一个时间点的值进行填充并添加较大噪声
     if center_start > 0:
         # 获取第一个时间点的数据作为基准
         first_time_data = amplitude_data[:, :, 0:1]
@@ -137,7 +145,7 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
             extended_amplitude_data[:, :, t] = first_time_data.squeeze() * (1 - weight) + \
                                               torch.mean(amplitude_data[:, :, :10], dim=2) * weight
     
-    # 后段：使用最后一个时间点的值进行填充并添加轻微噪声
+    # 后段：使用最后一个时间点的值进行填充并添加较大噪声
     if center_end < total_time_steps:
         # 获取最后一个时间点的数据作为基准
         last_time_data = amplitude_data[:, :, -1:]
@@ -150,9 +158,18 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
             extended_amplitude_data[:, :, idx] = torch.mean(amplitude_data[:, :, -10:], dim=2) * (1 - weight) + \
                                                 last_time_data.squeeze() * weight
     
-    # 添加轻微的随机噪声使扩展部分看起来更自然
-    noise_level = 0.02 * torch.mean(extended_amplitude_data)
-    extended_amplitude_data += torch.randn_like(extended_amplitude_data) * noise_level
+    # 添加较大的随机噪声使扩展部分看起来更有噪声特征（去噪前的状态）
+    # 噪声主要集中在扩展部分
+    noise_level = 0.15 * torch.mean(extended_amplitude_data)  # 增加噪声强度
+    
+    # 为前后扩展部分添加更强的噪声
+    if center_start > 0:
+        extended_amplitude_data[:, :, :center_start] += torch.randn((amplitude_data.shape[0], amplitude_data.shape[1], center_start)) * noise_level
+    if center_end < total_time_steps:
+        extended_amplitude_data[:, :, center_end:] += torch.randn((amplitude_data.shape[0], amplitude_data.shape[1], total_time_steps - center_end)) * noise_level
+    
+    # 对原始数据部分也添加适度噪声（模拟去噪前的噪声）
+    extended_amplitude_data[:, :, center_start:center_end] += torch.randn_like(amplitude_data) * (noise_level * 0.5)
     
     # 确保幅度值非负
     extended_amplitude_data = torch.clamp(extended_amplitude_data, min=0)
@@ -162,6 +179,7 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
     fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
     
     fig, axes = plt.subplots(3, 1, figsize=fig_size)
+    fig.suptitle('原始扩展CSI幅度图（去噪前）', fontsize=18, fontweight='bold', fontproperties=create_zh_font(18))
     
     num_antennas = extended_amplitude_data.shape[0]
     selected_antennas = list(range(num_antennas))
@@ -182,8 +200,8 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
         ax.axvspan(center_highlight[0], center_highlight[1], alpha=0.2, color='yellow', 
                    label='原始6000个数据包区域')
         
-        ax.set_title(f'天线 {dim+1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
-        ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
+        ax.set_title(f'天线 {dim+1} (去噪前)', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
+        ax.set_xlabel('时间步', fontsize=20, fontproperties=create_zh_font(20))
         ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
         ax.grid(True, alpha=0.3)
         ax.tick_params(axis='both', which='major', labelsize=14)
@@ -215,11 +233,11 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
                 facecolor='white', edgecolor='none')
     
     plt.close()  # 关闭图形以释放内存
-    print(f"扩展图像已保存到: {save_path}")
+    print(f"原始扩展图像（去噪前）已保存到: {save_path}")
 
 
 # 示例调用
 if __name__ == "__main__":
     plot_csi_amplitude()
-    # 调用新的扩展函数
-    plot_extended_csi_amplitude()
+    # 调用原始扩展函数（去噪前）
+    plot_original_extended_csi_amplitude()
