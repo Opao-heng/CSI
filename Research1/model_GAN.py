@@ -4,11 +4,11 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 
 
-"""
-自适应实例归一化(AdaIN)层
-作用：使用目标域特征作为风格条件，对输入特征进行自适应的实例归一化和仿射变换
-"""
 class AdaptiveInstanceNorm1d(nn.Module):
+    """
+    自适应实例归一化(AdaIN)层
+    作用：使用目标域特征作为风格条件，对输入特征进行自适应的实例归一化和仿射变换
+    """
     def __init__(self, num_features, feature_dim):
         super(AdaptiveInstanceNorm1d, self).__init__()
         # 实例归一化层，不使用可学习的仿射参数
@@ -27,11 +27,11 @@ class AdaptiveInstanceNorm1d(nn.Module):
         return (gamma.unsqueeze(-1) * x + beta.unsqueeze(-1))
 
 
-"""
-特征提取器
-作用：提取目标域CSI的环境特征，将高维CSI数据压缩到低维特征空间
-"""
 class FeatureExtractor(nn.Module):
+    """
+    特征提取器
+    作用：提取目标域CSI的环境特征，将高维CSI数据压缩到低维特征空间
+    """
     def __init__(self, input_dim=(3, 56, 6000), feature_dim=128):
         super(FeatureExtractor, self).__init__()
         # 多层卷积骨干网络：逐步提取和压缩特征
@@ -67,11 +67,11 @@ class FeatureExtractor(nn.Module):
         return self.fc(x)
 
 
-"""
-生成器网络
-作用：融合源域身份特征与目标域环境特征，生成符合目标域分布的虚假样本
-"""
 class Generator(nn.Module):
+    """
+    生成器网络
+    作用：融合源域身份特征与目标域环境特征，生成符合目标域分布的虚假样本
+    """
     def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, feature_dim=128):
         super(Generator, self).__init__()
         # 保存输入参数
@@ -155,11 +155,11 @@ class Generator(nn.Module):
         return output_flat.view(B, C, S, T)
 
 
-"""
-时域判别器
-作用：区分真实目标域样本和虚假生成样本，为生成器提供训练梯度
-"""
 class Discriminator(nn.Module):
+    """
+    时域判别器
+    作用：区分真实目标域样本和虚假生成样本，为生成器提供训练梯度
+    """
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
         super(Discriminator, self).__init__()
         # 保存是否使用谱归一化的标志
@@ -224,11 +224,11 @@ class Discriminator(nn.Module):
         return self.fc(x.squeeze(-1))
 
 
-"""
-频域判别器
-作用：在频谱域区分真实和生成的目标域样本，捕捉频域特征差异
-"""
 class SpectralDiscriminator(nn.Module):
+    """
+    频域判别器
+    作用：在频谱域区分真实和生成的目标域样本，捕捉频域特征差异
+    """
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
         super(SpectralDiscriminator, self).__init__()
         # 保存是否使用谱归一化的标志
@@ -284,11 +284,12 @@ class SpectralDiscriminator(nn.Module):
         return self.fc(x.squeeze(-1))
 
 
-"""
-构建GAN模型
-作用：初始化并返回GAN的所有组件
-"""
 def build_model():
+    """
+    构建GAN模型
+    作用：初始化并返回GAN的所有组件
+    """
+
     # 初始化特征提取器：从目标域提取环境特征
     E = FeatureExtractor()
     # 初始化生成器：融合源域和目标域特征生成虚假样本

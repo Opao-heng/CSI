@@ -10,14 +10,11 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
 
-"""
-绘制GAN训练过程中的各项指标
-参数:
-  train_loss_history - 训练损失历史列表，每个元素是包含所有损失的字典
-  output_dir - 图形保存目录，默认为'GAN'
-返回: 无返回值，直接保存图形文件
-"""
 def plot_training_metrics(train_loss_history, output_dir='GAN'):
+    """
+    绘制GAN训练过程中的各项指标
+    """
+
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
@@ -87,22 +84,16 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     print(f"  所有损失对比图已保存到: {all_losses_path}")
     plt.close()
 
-"""
-将GAN的评估结果保存为JSON文件
-
-作用:
-    将综合评估指标和训练损失历史保存为JSON格式，便于后续模型性能分析。
-
-返回:
-    无
-"""
-
 
 def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
+    """
+    将GAN的GAN质量指标和训练损失统计保存为JSON文件
+    """
+
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
-    # 步骤2: 整理评估指标和训练损失统计
+    # 步骤2: 整理GAN质量指标和训练损失统计
     results = {
         'timestamp': datetime.now().isoformat(),
         'evaluation_metrics': comprehensive_metrics,
@@ -131,15 +122,11 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
     print(f"  评估结果已保存到: {result_path}")
 
 
-"""
-绘制生成样本的幅度图（按天线维度）
-参数:
-  synthetic_data - 生成的合成样本数据，形状为 (N, C, S, T)
-  sample_idx - 要绘制的样本索引，默认为0
-  output_dir - 图形保存目录
-返回: 无返回值，直接保存图形文件
-"""
 def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GAN'):
+    """
+    绘制生成样本的幅度图（按天线维度）
+    """
+
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
@@ -160,10 +147,8 @@ def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GA
     for c in range(C):
         amplitude = np.abs(sample[:, c, :])  # 形状: (S, T)
         
-        im = axes[c].imshow(amplitude, aspect='auto', cmap='viridis', 
-                           interpolation='nearest', origin='lower')
-        axes[c].set_title(f'Antenna Pair {c+1} - Amplitude Heatmap', 
-                         fontsize=14, fontweight='bold')
+        im = axes[c].imshow(amplitude, aspect='auto', cmap='viridis', interpolation='nearest', origin='lower')
+        axes[c].set_title(f'Antenna Pair {c+1} - Amplitude Heatmap', fontsize=14, fontweight='bold')
         axes[c].set_xlabel('Time Steps', fontsize=12)
         axes[c].set_ylabel('Subcarriers', fontsize=12)
         
@@ -179,16 +164,11 @@ def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GA
     plt.close()
 
 
-"""
-绘制真实样本与生成样本的特征分布二维图（使用t-SNE或PCA降维）
-参数:
-  real_features - 真实目标域样本的特征，形状为 (N_real, feature_dim)
-  fake_features - 生成样本的特征，形状为 (N_fake, feature_dim)
-  method - 降维方法，'tsne' 或 'pca'
-  output_dir - 图形保存目录
-返回: 无返回值，直接保存图形文件
-"""
 def plot_feature_distribution_2d(real_features, fake_features, method='tsne', output_dir='GAN'):
+    """
+    绘制真实样本与生成样本的特征分布二维图（使用t-SNE或PCA降维）
+    """
+
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
@@ -241,14 +221,10 @@ def plot_feature_distribution_2d(real_features, fake_features, method='tsne', ou
 
 def compute_fid(real_features, fake_features):
     """
-    计算Fréchet Inception Distance (FID) - 适配CSI特征
-    衡量真实样本和生成样本在特征空间的分布差异
-    
-    参数:
-      real_features - 真实样本特征, 形状为 (N, d)
-      fake_features - 生成样本特征, 形状为 (M, d)
+    计算Fréchet Inception Distance，衡量真实样本和生成样本在特征空间的分布差异
     返回: FID分数（越低越好）
     """
+
     # 计算均值
     mu_real = torch.mean(real_features, dim=0)
     mu_fake = torch.mean(fake_features, dim=0)
@@ -289,12 +265,9 @@ def compute_fid(real_features, fake_features):
 def compute_spectral_fidelity(real_samples, fake_samples):
     """
     计算频谱保真度 - 通过KL散度度量功率谱密度的差异
-    
-    参数:
-      real_samples - 真实样本, 形状为 (N, C, S, T)
-      fake_samples - 生成样本, 形状为 (M, C, S, T)
     返回: 频谱保真度分数（越低越好）
     """
+
     # 确保样本数量一致，取最小值
     min_samples = min(real_samples.size(0), fake_samples.size(0))
     real_samples = real_samples[:min_samples]
@@ -325,15 +298,8 @@ def compute_spectral_fidelity(real_samples, fake_samples):
 def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'):
     """
     综合评估GAN生成质量
-    
-    参数:
-      E - 特征提取器
-      G - 生成器
-      source_loader - 源域数据加载器
-      target_loader - 目标域数据加载器
-      device - 设备类型
-    返回: dict - 包含所有评估指标的字典
     """
+
     E.eval()
     G.eval()
     

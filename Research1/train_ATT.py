@@ -6,10 +6,12 @@ from torch.utils.data import DataLoader
 from Research1.Process.dataloder_ATT import CustomDataset
 import os
 
-"""
-执行一个完整的训练周期，对模型进行源域和目标域的联合训练。
-"""
+
 def train_epoch(model, dataloader_source, dataloader_target, criterion, optimizer, scheduler=None):
+    """
+    执行一个完整的训练周期，对模型进行源域和目标域的联合训练。
+    """
+
     model.train()
     total_loss = 0.0
     loss_components = {'source': 0.0, 'target': 0.0, 'cross_feature': 0.0, 'consistency': 0.0}
@@ -89,14 +91,11 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
     return avg_loss, loss_components
 
 
-"""
-在目标域数据集上评估模型性能，计算损失和准确率。
-"""
 def validate_on_domain(model, dataloader, device, domain_type='target'):
     """
-    在指定域的数据集上评估模型性能
-    domain_type: 'source' 或 'target'
+    在指定域的数据集上评估模型性能，domain_type: 'source' 或 'target'，计算损失和准确率。
     """
+
     model.eval()
     correct = 0
     total = 0
@@ -123,11 +122,10 @@ def validate_on_domain(model, dataloader, device, domain_type='target'):
     return accuracy
 
 
-"""
-在测试集上评估模型
-"""
 def test_model(model, dataloader_source, dataloader_target, criterion):
-
+    """
+    在测试集上评估模型
+    """
     model.eval()
     total_loss = 0.0
     correct = 0
@@ -156,10 +154,10 @@ def test_model(model, dataloader_source, dataloader_target, criterion):
     return avg_loss, accuracy
 
 
-"""
-保存最佳模型权重和训练信息到指定路径。
-"""
 def save_best_model(model, optimizer, scheduler, path, accuracy, epoch, loss_components):
+    """
+    保存最佳模型权重和训练信息到指定路径。
+    """
     # 创建保存路径目录（若不存在）
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
@@ -203,9 +201,6 @@ def save_training_history(train_losses, val_accuracies, loss_components_history,
     print(f"训练历史已保存到 {save_path}")
 
 
-"""
-主训练函数，完整的模型初始化、训练、验证和评估流程。
-"""
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.enabled = True

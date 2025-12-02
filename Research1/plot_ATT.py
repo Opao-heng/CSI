@@ -11,10 +11,11 @@ plt.rcParams['grid.alpha'] = 0.3
 plt.rcParams['axes.axisbelow'] = True
 
 
-"""
-从JSON文件加载训练历史数据
-"""
 def load_training_history(history_path):
+    """
+    从JSON文件加载训练历史数据
+    """
+
     if not os.path.exists(history_path):
         print(f"训练历史文件不存在: {history_path}")
         return None
@@ -28,10 +29,11 @@ def load_training_history(history_path):
         return None
 
 
-"""
-绘制训练损失曲线图(总损失、源域损失、目标域损失、跨域特征损失、一致性损失)
-"""
 def plot_training_loss_curves(history_file_path, save_path):
+    """
+    绘制训练损失曲线图(总损失、源域损失、目标域损失、跨域特征损失、一致性损失)
+    """
+
     # 加载历史数据
     history = load_training_history(history_file_path)
     if history is None:
@@ -82,10 +84,11 @@ def plot_training_loss_curves(history_file_path, save_path):
     print(f"训练损失曲线已保存到 {save_path}")
 
 
-"""
-绘制准确率曲线图(训练准确率、验证准确率)
-"""
 def plot_accuracy_curves(history_file_path, save_path):
+    """
+    绘制准确率曲线图(训练准确率、验证准确率)
+    """
+
     # 加载历史数据
     history = load_training_history(history_file_path)
     if history is None:
@@ -130,10 +133,10 @@ def plot_accuracy_curves(history_file_path, save_path):
     print(f"训练与验证准确率曲线已保存到 {save_path}")
 
 
-"""
-绘制测试准确率曲线图(源域测试准确率、目标域测试准确率)
-"""
 def plot_test_accuracy_curves(history_file_path, save_path):
+    """
+    绘制测试准确率曲线图(源域测试准确率、目标域测试准确率)
+    """
     # 加载历史数据
     history = load_training_history(history_file_path)
     if history is None:
@@ -188,10 +191,11 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     print(f"源域与目标域测试准确率曲线已保存到 {save_path}")
 
 
-"""
- 一次性绘制所有训练结果图表
-"""
 def plot_all_training_results(history_file_path, save_dir='Attention'):
+    """
+     一次性绘制所有训练结果图表
+    """
+
     # 创建保存目录
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)

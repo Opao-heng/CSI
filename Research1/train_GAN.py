@@ -19,11 +19,13 @@ from Research1.plot_GAN import (
     evaluate_gan_comprehensive  # 从plot_GAN.py导入评估函数
 )
 
-"""
-执行GAN模型的完整训练流程。
-包括模型初始化、训练、合成样本生成和质量评估。
-"""
+
 def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num_samples=900):
+    """
+    执行GAN模型的完整训练流程。
+    包括模型初始化、训练、合成样本生成和质量评估。
+    """
+
     # 步骤1: 初始化设备
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -148,11 +150,12 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=4e-4, num
     return synthetic_data, synthetic_labels
 
 
-"""
-执行单个epoch的GAN训练。
-优化判别器和生成器，计算损失函数并返回损失字典。
-"""
 def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, target_labels, optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec, lambda_mmd=0.5, lambda_freq=0.2, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    """
+    执行单个epoch的GAN训练。
+    优化判别器和生成器，计算损失函数并返回损失字典。
+    """
+
     E.train()
     G.train()
     D.train()
@@ -235,10 +238,11 @@ def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, ta
     return loss_dict
 
 
-"""
-使用训练的生成器生成指定数量的合成样本。
-"""
 def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=900, device='cuda'):
+    """
+    使用训练的生成器生成指定数量的合成样本。
+    """
+
     # 步骤1: 设置模型为评估模式
     E.eval()
     G.eval()
@@ -282,10 +286,11 @@ def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=9
     return synthetic_data, synthetic_labels
 
 
-"""
-合并合成样本与原始目标域数据并保存。
-"""
 def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, output_dir):
+    """
+    合并合成样本与原始目标域数据并保存。
+    """
+
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
@@ -318,8 +323,8 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
 if __name__ == "__main__":
     # 步骤0: 设置随机种子以确保结果可重现
     print("步骤0: 设置随机种子以确保结果可重现...")
-    torch.manual_seed(30)
-    np.random.seed(30)
+    torch.manual_seed(40)
+    np.random.seed(40)
     torch.backends.cudnn.benchmark = True
     print("  随机种子设置成功\n")
 
@@ -366,3 +371,4 @@ if __name__ == "__main__":
     print(f"合并后目标域数据(增强): {target_gan_data.shape}")
     print(f"合并后目标域标签(增强): {target_gan_labels.shape}")
     print("="*70)
+
