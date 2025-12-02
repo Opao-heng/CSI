@@ -5,9 +5,10 @@ import torch.autograd as autograd
 
 def wasserstein_discriminator_loss(D, x_t_real, x_hat_t, y_real=None, y_fake=None):
     """
-    Wasserstein GAN判别器损失(支持按标签均衡)
-    判别器要最大化 E[D(real)] - E[D(fake)]，这里返回的是需要"最小化"的损失：
-    L_D = E[D(fake)] - E[D(real)]
+    改进的Wasserstein GAN判别器损失(WGAN-GP风格)
+    判别器要最大化 E[D(real)] - E[D(fake)]，返回负值用于梯度上升：
+    L_D = -(E[D(real)] - E[D(fake)]) = E[D(fake)] - E[D(real)]
+    但为了确保损失非负，我们使用ReLU激活后的版本
     """
     if y_real is not None and y_fake is not None:
         s_fake = D(x_hat_t).view(-1)
@@ -21,21 +22,23 @@ def wasserstein_discriminator_loss(D, x_t_real, x_hat_t, y_real=None, y_fake=Non
             if mask_fake.any() and mask_real.any():
                 d_fake_mean = s_fake[mask_fake].mean()
                 d_real_mean = s_real[mask_real].mean()
-                # 判别器期望 real_score - fake_score 越大越好 => 损失为 fake - real
-                loss_sum += (d_fake_mean - d_real_mean)
+                # 使用标准WGAN损失：-(real - fake) = fake - real
+                # 但添加边界以确保非负
+                loss_sum += torch.relu(d_fake_mean - d_real_mean + 1.0)
                 count += 1
         d_loss = loss_sum / max(count, 1)
     else:
         fake_score = D(x_hat_t).mean()
         real_score = D(x_t_real).mean()
-        d_loss = fake_score - real_score
+        # 添加边界以确保非负
+        d_loss = torch.relu(fake_score - real_score + 1.0)
     return d_loss
 
 
 def wasserstein_generator_loss(D, x_hat_t, y_fake=None):
     """
-    Wasserstein GAN生成器损失（支持按标签均衡）
-    若提供 y_fake，则对每个标签分别求平均后再均衡平均。
+    改进的Wasserstein GAN生成器损失
+    生成器要最小化 -E[D(fake)]，即最大化判别器对假样本的评分
     """
     if y_fake is not None:
         s_fake = D(x_hat_t).view(-1)
@@ -45,6 +48,7 @@ def wasserstein_generator_loss(D, x_hat_t, y_fake=None):
         for l in unique_labels:
             mask_fake = (y_fake == l)
             if mask_fake.any():
+                # 生成器希望判别器给假样本高分
                 loss_sum += (-s_fake[mask_fake].mean())
                 count += 1
         return loss_sum / max(count, 1)
@@ -120,9 +124,21 @@ def frequency_consistency_loss(real_samples, fake_samples, y_real=None, y_fake=N
     支持按标签均衡:若提供 y_real/y_fake,则对每个标签分别计算后均衡平均。
     """
     def freq_loss_impl(real_s, fake_s):
-        B, C, S, T = real_s.shape
-        real_flat = real_s.view(B, C * S, T)
-        fake_flat = fake_s.view(B, C * S, T)
+        # 确保张量是连续的
+        real_s = real_s.contiguous()
+        fake_s = fake_s.contiguous()
+        
+        # 获取较小的batch size以确保两个张量具有相同的batch size
+        B_real, C, S, T = real_s.shape
+        B_fake, _, _, _ = fake_s.shape
+        B = min(B_real, B_fake)
+        
+        # 截取相同batch size的部分
+        real_s = real_s[:B]
+        fake_s = fake_s[:B]
+        
+        real_flat = real_s.reshape(B, C * S, T)
+        fake_flat = fake_s.reshape(B, C * S, T)
         real_fft = torch.fft.rfft(real_flat, dim=-1)
         fake_fft = torch.fft.rfft(fake_flat, dim=-1)
         eps = 1e-8
@@ -140,8 +156,19 @@ def frequency_consistency_loss(real_samples, fake_samples, y_real=None, y_fake=N
             mask_real = (y_real == l)
             mask_fake = (y_fake == l)
             if mask_real.any() and mask_fake.any():
-                loss_sum += freq_loss_impl(real_samples[mask_real], fake_samples[mask_fake])
-                count += 1
+                # 获取mask后的样本数量
+                real_count = mask_real.sum().item()
+                fake_count = mask_fake.sum().item()
+                
+                # 如果数量不一致，截取相同数量的样本
+                min_count = min(real_count, fake_count)
+                if min_count > 0:
+                    # 获取前min_count个符合条件的样本
+                    real_indices = torch.where(mask_real)[0][:min_count]
+                    fake_indices = torch.where(mask_fake)[0][:min_count]
+                    
+                    loss_sum += freq_loss_impl(real_samples[real_indices], fake_samples[fake_indices])
+                    count += 1
         return loss_sum / max(count, 1)
     else:
         return freq_loss_impl(real_samples, fake_samples)

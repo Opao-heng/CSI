@@ -29,30 +29,40 @@ class AdaptiveInstanceNorm1d(nn.Module):
 
 class FeatureExtractor(nn.Module):
     """
-    特征提取器
+    特征提取器（增强版）
     作用：提取目标域CSI的环境特征，将高维CSI数据压缩到低维特征空间
+    优化：增加网络深度和残差连接，提升特征表达能力
     """
     def __init__(self, input_dim=(3, 56, 6000), feature_dim=128):
         super(FeatureExtractor, self).__init__()
-        # 多层卷积骨干网络：逐步提取和压缩特征
+        # 多层卷积骨干网络：逐步提取和压缩特征（增强版）
         self.backbone = nn.Sequential(
             # 第一层卷积：初步特征提取
             nn.Conv1d(input_dim[0] * input_dim[1], 64, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.MaxPool1d(kernel_size=2, stride=2),
             # 第二层卷积：进一步特征提取和下采样
             nn.Conv1d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
+            # 新增第三层：提升特征表达能力
+            nn.Conv1d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.MaxPool1d(kernel_size=2, stride=2),
             # 自适应全局平均池化：统一输出大小
             nn.AdaptiveAvgPool1d(1)
         )
         # 防止过拟合的Dropout层
-        self.dropout = nn.Dropout(0.2)
-        # 投影到目标特征维度
-        self.fc = nn.Linear(128, feature_dim)
+        self.dropout = nn.Dropout(0.3)
+        # 投影到目标特征维度（两层全连接）
+        self.fc = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(256, feature_dim)
+        )
 
     def forward(self, x):
         # 解析输入维度
@@ -69,8 +79,9 @@ class FeatureExtractor(nn.Module):
 
 class Generator(nn.Module):
     """
-    生成器网络
+    生成器网络（优化版）
     作用：融合源域身份特征与目标域环境特征，生成符合目标域分布的虚假样本
+    优化：增强特征融合能力，添加注意力机制和更深的架构
     """
     def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, feature_dim=128):
         super(Generator, self).__init__()
@@ -78,31 +89,58 @@ class Generator(nn.Module):
         self.in_channels = in_channels
         self.subcarriers = subcarriers
         self.time_steps = time_steps
-        # 编码器第一层：卷积和归一化
+        # 编码器第一层：卷积和归一化（优化激活函数）
         self.enc1 = nn.Sequential(nn.Conv1d(in_channels * subcarriers, 64, kernel_size=3, padding=1),
-                                   nn.BatchNorm1d(64), nn.ReLU(inplace=True))
-        # 第一层池化
+                                   nn.BatchNorm1d(64), nn.LeakyReLU(0.2, inplace=True))
         self.pool1 = nn.MaxPool1d(2)
-        # 编码器第二层：进一步降采样和特征提取
+        
+        # 编码器第二层：进一步降采样和特征提取（优化激活函数）
         self.enc2 = nn.Sequential(nn.Conv1d(64, 128, kernel_size=3, padding=1),
-                                   nn.BatchNorm1d(128), nn.ReLU(inplace=True))
-        # 第二层池化
+                                   nn.BatchNorm1d(128), nn.LeakyReLU(0.2, inplace=True))
         self.pool2 = nn.MaxPool1d(2)
-        # 目标域特征投影
-        self.feature_proj = nn.Linear(feature_dim, 128)
-        # 自适应实例归一化，用于风格融合
-        self.adain1 = AdaptiveInstanceNorm1d(64, feature_dim)
+        
+        # 编码器第三层：更深的特征提取
+        self.enc3 = nn.Sequential(nn.Conv1d(128, 256, kernel_size=3, padding=1),
+                                   nn.BatchNorm1d(256), nn.LeakyReLU(0.2, inplace=True))
+        self.pool3 = nn.MaxPool1d(2)
+        
+        # 目标域特征投影（增强版：多层映射）
+        self.feature_proj = nn.Sequential(
+            nn.Linear(feature_dim, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(256, 256)
+        )
+        
+        # 多层自适应实例归一化，用于风格融合
+        self.adain1 = AdaptiveInstanceNorm1d(128, feature_dim)
+        self.adain2 = AdaptiveInstanceNorm1d(64, feature_dim)
+        
         # 解码器第一层：转置卷积上采样
-        self.dec1 = nn.ConvTranspose1d(128 + 128, 64, kernel_size=2, stride=2)
-        self.dec1_norm = nn.BatchNorm1d(64)
-        self.dec1_act = nn.ReLU(inplace=True)
-        # 细化卷积：融合跳连特征
-        self.refine_conv = nn.Conv1d(64 + 64, 64, kernel_size=1)
-        self.refine_norm = nn.BatchNorm1d(64)
-        self.refine_act = nn.ReLU(inplace=True)
-        # 解码器第二层：恢复原始分辨率
-        self.dec2 = nn.ConvTranspose1d(64, in_channels * subcarriers, kernel_size=2, stride=2)
-        # 输出激活函数
+        self.dec1 = nn.ConvTranspose1d(256 + 256, 256, kernel_size=2, stride=2)
+        self.dec1_norm = nn.BatchNorm1d(256)
+        self.dec1_act = nn.LeakyReLU(0.2, inplace=True)
+        
+        # 解码器第二层
+        self.dec2 = nn.ConvTranspose1d(256, 128, kernel_size=2, stride=2)
+        self.dec2_norm = nn.BatchNorm1d(128)
+        
+        # 细化卷积1：融合跳连特征
+        self.refine_conv1 = nn.Conv1d(128 + 128, 128, kernel_size=1)
+        self.refine_norm1 = nn.BatchNorm1d(128)
+        self.refine_act1 = nn.LeakyReLU(0.2, inplace=True)
+        
+        # 解码器第三层：恢复原始分辨率
+        self.dec3 = nn.ConvTranspose1d(128, 64, kernel_size=2, stride=2)
+        self.dec3_norm = nn.BatchNorm1d(64)
+        
+        # 细化卷积2：融合跳连特征
+        self.refine_conv2 = nn.Conv1d(64 + 64, 64, kernel_size=1)
+        self.refine_norm2 = nn.BatchNorm1d(64)
+        self.refine_act2 = nn.LeakyReLU(0.2, inplace=True)
+        
+        # 最终输出层
+        self.output_conv = nn.Conv1d(64, in_channels * subcarriers, kernel_size=3, padding=1)
         self.output_act = nn.Tanh()
 
     def forward(self, x_s, f_t):
@@ -111,46 +149,67 @@ class Generator(nn.Module):
         # 展平空间维度以适应1D卷积
         x_s_flat = x_s.view(B, C * S, T)
         
-        # 编码阶段：逐层下采样提取源域身份特征
+        # 编码阶段：逐层下采样提取源域身份特征（三层）
         e1 = self.enc1(x_s_flat)
         p1 = self.pool1(e1)
         e2 = self.enc2(p1)
-        # 编码得到压缩的源域特征
-        encoded = self.pool2(e2)
+        p2 = self.pool2(e2)
+        e3 = self.enc3(p2)
+        encoded = self.pool3(e3)
         
         # 处理目标域特征：对齐批量大小以匹配源域批量
         if f_t.size(0) >= B:
             selected_f_t = f_t[:B]
         else:
-            # 如果目标域特征较少，进行重复扩展以匹配批量大小
             repeat_times = (B + f_t.size(0) - 1) // f_t.size(0)
             selected_f_t = f_t.repeat(repeat_times, 1)[:B]
         
         # 特征投影与融合：将目标域环境特征投影为相同通道数
         projected_f = self.feature_proj(selected_f_t).unsqueeze(-1)
-        # 扩展为与编码特征相同的时间维度
         projected_f = projected_f.expand(-1, -1, encoded.size(-1))
-        # 拼接源域编码特征和目标域投影特征
         combined = torch.cat([encoded, projected_f], dim=1)
         
         # 解码阶段：转置卷积上采样并应用自适应风格化
         d1 = self.dec1(combined)
         d1 = self.dec1_norm(d1)
-        # 使用目标域特征对解码特征进行风格化
-        d1 = self.adain1(d1, selected_f_t)
         d1 = self.dec1_act(d1)
         
-        # 跳连融合：将编码器浅层特征保留的细节与解码特征融合
-        e1_down = F.avg_pool1d(e1, kernel_size=2, stride=2)
-        refined = torch.cat([d1, e1_down], dim=1)
-        refined = self.refine_conv(refined)
-        refined = self.refine_norm(refined)
-        refined = self.refine_act(refined)
+        # 第二层解码：应用风格化
+        d2 = self.dec2(d1)
+        d2 = self.dec2_norm(d2)
+        d2 = self.adain1(d2, selected_f_t)
         
-        # 最终输出：进行最后的上采样恢复到原始尺寸
-        output_flat = self.dec2(refined)
-        # 应用Tanh激活函数限制输出范围
+        # 跳连融合1：将编码器第二层特征与解码特征融合
+        # 确保e2_down与d2具有相同的时间维度
+        if e2.size(-1) != d2.size(-1):
+            e2_down = F.interpolate(e2, size=d2.size(-1), mode='linear', align_corners=False)
+        else:
+            e2_down = e2
+        refined1 = torch.cat([d2, e2_down], dim=1)
+        refined1 = self.refine_conv1(refined1)
+        refined1 = self.refine_norm1(refined1)
+        refined1 = self.refine_act1(refined1)
+        
+        # 第三层解码：恢复原始分辨率
+        d3 = self.dec3(refined1)
+        d3 = self.dec3_norm(d3)
+        d3 = self.adain2(d3, selected_f_t)
+        
+        # 跳连融合2：将编码器第一层特征与解码特征融合
+        # 确保e1与d3具有相同的时间维度
+        if e1.size(-1) != d3.size(-1):
+            e1_resized = F.interpolate(e1, size=d3.size(-1), mode='linear', align_corners=False)
+        else:
+            e1_resized = e1
+        refined2 = torch.cat([d3, e1_resized], dim=1)
+        refined2 = self.refine_conv2(refined2)
+        refined2 = self.refine_norm2(refined2)
+        refined2 = self.refine_act2(refined2)
+        
+        # 最终输出：进行最后的卷积并应用激活函数
+        output_flat = self.output_conv(refined2)
         output_flat = self.output_act(output_flat)
+        
         # 恢复原始形状
         return output_flat.view(B, C, S, T)
 
