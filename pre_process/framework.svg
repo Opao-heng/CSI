@@ -1,6 +1,6 @@
-<svg width="1000" height="600" xmlns="http://www.w3.org/2000/svg">
+<svg width="1100" height="600" xmlns="http://www.w3.org/2000/svg">
   <!-- 背景和标题 -->
-  <rect width="1000" height="600" fill="#f9f9f9"/>
+  <rect width="1100" height="600" fill="#f9f9f9"/>
 
   <!-- 箭头标记定义 -->
   <defs>
@@ -9,87 +9,89 @@
     </marker>
   </defs>
 
-  <!-- 1. 数据预处理模块（左侧第一个） -->
-  <rect x="50" y="120" width="200" height="210" rx="8" ry="8" fill="#4a90e2" stroke="#333" stroke-width="1.5"/>
-  <text x="150" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">数据预处理模块</text>
+  <!-- 原始CSI数据输入（与预处理模块对齐） -->
+  <rect x="20" y="200" width="120" height="50" rx="6" ry="6" fill="#7b68ee" stroke="#333" stroke-width="1.5"/>
+  <text x="80" y="230" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">原始CSI数据</text>
+
+  <!-- 1. 数据预处理模块 -->
+  <rect x="160" y="120" width="200" height="210" rx="8" ry="8" fill="#4a90e2" stroke="#333" stroke-width="1.5"/>
+  <text x="260" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">数据预处理模块</text>
 
   <!-- 预处理子模块 -->
-  <rect x="70" y="180" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
-  <text x="150" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">DWT降噪</text>
+  <rect x="180" y="180" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
+  <text x="260" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">DWT降噪</text>
 
-  <rect x="70" y="230" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
-  <text x="150" y="255" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">步态分割</text>
+  <rect x="180" y="230" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
+  <text x="260" y="255" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">步态分割</text>
 
-  <rect x="70" y="280" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
-  <text x="150" y="305" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">数据增强</text>
+  <rect x="180" y="280" width="160" height="40" rx="4" ry="4" fill="#5a9ff2" stroke="#333" stroke-width="1"/>
+  <text x="260" y="305" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">数据增强</text>
 
-  <!-- 2. 数据生成模块（左侧第二个） -->
-  <rect x="300" y="120" width="200" height="210" rx="8" ry="8" fill="#5cb85c" stroke="#333" stroke-width="1.5"/>
-  <text x="400" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">数据生成模块</text>
+  <!-- 2. 数据生成模块（重新设计为更美观的布局） -->
+  <rect x="400" y="120" width="200" height="210" rx="8" ry="8" fill="#5cb85c" stroke="#333" stroke-width="1.5"/>
+  <text x="500" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">数据生成模块</text>
 
-  <!-- 生成器子模块 -->
-  <rect x="320" y="180" width="160" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
-  <text x="400" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">生成器</text>
+  <!-- 生成器子模块（居中放置） -->
+  <rect x="440" y="180" width="120" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
+  <text x="500" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">生成器</text>
 
-  <rect x="320" y="230" width="160" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
-  <text x="400" y="255" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">时域判别器</text>
+  <!-- 判别器区域背景 -->
+  <rect x="420" y="240" width="160" height="70" rx="4" ry="4" fill="#4cae4c" stroke="#333" stroke-width="0.5"/>
 
-  <rect x="320" y="280" width="160" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
-  <text x="400" y="305" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">频域判别器</text>
+  <!-- 时域判别器（左下） -->
+  <rect x="430" y="250" width="70" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
+  <text x="465" y="275" font-family="SimHei, Arial" font-size="12" text-anchor="middle" fill="white">时域判别器</text>
 
-  <!-- 3. 特征对齐模块（右侧第一个） -->
-  <rect x="550" y="120" width="200" height="210" rx="8" ry="8" fill="#f0ad4e" stroke="#333" stroke-width="1.5"/>
-  <text x="650" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">特征对齐模块</text>
+  <!-- 频域判别器（右下） -->
+  <rect x="500" y="250" width="70" height="40" rx="4" ry="4" fill="#6cc86c" stroke="#333" stroke-width="1"/>
+  <text x="535" y="275" font-family="SimHei, Arial" font-size="12" text-anchor="middle" fill="white">频域判别器</text>
+
+  <!-- 3. 特征对齐模块 -->
+  <rect x="640" y="120" width="200" height="210" rx="8" ry="8" fill="#f0ad4e" stroke="#333" stroke-width="1.5"/>
+  <text x="740" y="150" font-family="SimHei, Arial" font-size="18" text-anchor="middle" fill="white" font-weight="bold">特征对齐模块</text>
 
   <!-- 对齐子模块 -->
-  <rect x="570" y="180" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
-  <text x="650" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">双通道特征提取器</text>
+  <rect x="660" y="180" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
+  <text x="740" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">双通道特征提取器</text>
 
-  <rect x="570" y="230" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
-  <text x="650" y="255" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">交叉注意力对齐模块</text>
+  <rect x="660" y="230" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
+  <text x="740" y="255" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">交叉注意力对齐模块</text>
 
-  <rect x="570" y="280" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
-  <text x="650" y="305" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">多损失分类器</text>
+  <rect x="660" y="280" width="160" height="40" rx="4" ry="4" fill="#f2ba5e" stroke="#333" stroke-width="1"/>
+  <text x="740" y="305" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white">多损失分类器</text>
 
-  <!-- 输入输出 -->
-  <rect x="50" y="400" width="120" height="50" rx="6" ry="6" fill="#7b68ee" stroke="#333" stroke-width="1.5"/>
-  <text x="110" y="430" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">原始CSI数据</text>
+  <!-- 身份识别结果（调整位置，与特征对齐模块对齐） -->
+  <rect x="870" y="180" width="120" height="50" rx="6" ry="6" fill="#7b68ee" stroke="#333" stroke-width="1.5"/>
+  <text x="930" y="205" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">源域识别</text>
+  <text x="930" y="225" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">结果</text>
 
-  <rect x="830" y="400" width="120" height="50" rx="6" ry="6" fill="#7b68ee" stroke="#333" stroke-width="1.5"/>
-  <text x="890" y="430" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">身份识别结果</text>
+  <rect x="870" y="250" width="120" height="50" rx="6" ry="6" fill="#7b68ee" stroke="#333" stroke-width="1.5"/>
+  <text x="930" y="275" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">目标域识别</text>
+  <text x="930" y="295" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">结果</text>
 
   <!-- 模块间主数据流箭头（左右方向） -->
   <!-- 预处理内部流程 -->
-  <line x1="150" y1="220" x2="150" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="150" y1="270" x2="150" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="260" y1="220" x2="260" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="260" y1="270" x2="260" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
   <!-- 生成器内部流程 -->
-  <line x1="400" y1="220" x2="400" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="400" y1="270" x2="400" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="500" y1="220" x2="465" y2="250" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="500" y1="220" x2="535" y2="250" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
   <!-- 特征对齐内部流程 -->
-  <line x1="650" y1="220" x2="650" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="650" y1="270" x2="650" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="740" y1="220" x2="740" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="740" y1="270" x2="740" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
   <!-- 模块间流程 -->
-  <line x1="250" y1="210" x2="300" y2="210" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="500" y1="210" x2="550" y2="210" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="750" y1="210" x2="800" y2="210" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-
-  <!-- 输入到预处理 -->
-  <line x1="110" y1="400" x2="110" y2="300" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="110" y1="300" x2="150" y2="300" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-
-  <!-- 分类到输出 -->
-  <line x1="875" y1="320" x2="875" y2="400" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-
-  <!-- 反馈机制 -->
-  <path d="M 875 350 Q 700 450 400 350" stroke="#333" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>
-  <text x="600" y="420" font-family="SimHei, Arial" font-size="12" text-anchor="middle" fill="#333">反馈优化（损失信号）</text>
+  <line x1="140" y1="225" x2="160" y2="225" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="360" y1="225" x2="400" y2="225" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="600" y1="225" x2="640" y2="225" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="840" y1="205" x2="870" y2="205" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="840" y1="275" x2="870" y2="275" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
   <!-- 源域/目标域数据标注 -->
-  <text x="150" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">源域数据 + 目标域数据</text>
-  <text x="400" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">生成跨域样本</text>
-  <text x="650" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">域间特征对齐</text>
-  <text x="875" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">身份预测</text>
+  <text x="260" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">源域数据 + 目标域数据</text>
+  <text x="500" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">生成跨域样本</text>
+  <text x="740" y="350" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">域间特征对齐</text>
+  <text x="930" y="320" font-family="SimHei, Arial" font-size="14" text-anchor="middle" fill="#333">身份预测</text>
 </svg>
