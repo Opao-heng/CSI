@@ -22,7 +22,7 @@ from Research1.plot_GAN import (
 )
 
 
-def train_and_test(model_path='model.pth', epochs=100, lr_g=2e-4, lr_d=4e-4, num_samples=900):
+def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=900):
     """
     执行GAN模型的完整训练流程。
     包括模型初始化、训练、合成样本生成和质量评估。
@@ -46,44 +46,36 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=2e-4, lr_d=4e-4, num
     total_params = total_params_E + total_params_G + total_params_D + total_params_D_spec
     print(f"  模型参数量总量: {total_params:,}")
 
-    # 步骤4: 定义优化器
-    optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.5, 0.999))
-    optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.5, 0.999))
-    optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.5, 0.999))
-    optimizer_D_spec = optim.Adam(D_spec.parameters(), lr=lr_d, betas=(0.5, 0.999))
+    # 步骤4: 定义优化器 - 使用更低的学习率和更稳定的betas
+    optimizer_E = optim.Adam(E.parameters(), lr=lr_g, betas=(0.0, 0.9))
+    optimizer_G = optim.Adam(G.parameters(), lr=lr_g, betas=(0.0, 0.9))
+    optimizer_D = optim.Adam(D.parameters(), lr=lr_d, betas=(0.0, 0.9))
+    optimizer_D_spec = optim.Adam(D_spec.parameters(), lr=lr_d, betas=(0.0, 0.9))
 
     # 步骤5: 初始化训练记录
     train_loss_history = []
     training_start_time = datetime.now()
 
-    # 步骤6: 预先提取目标域特征（只提取一次，避免重复计算）
-    print(f"  正在提取目标域特征...")
-    E.eval()
-    all_target_features = []
+    # 步骤6: 缓存目标域数据
+    print(f"  正在缓存目标域数据...")
     all_target_data = []
     all_target_labels = []
-    with torch.no_grad():
-        for x_t_real, labels in target_loader:
-            x_t_real = x_t_real.to(device)
-            labels = labels.to(device)
-            features = E(x_t_real)
-            all_target_features.append(features)
-            all_target_data.append(x_t_real)
-            all_target_labels.append(labels)
-    target_features_cache = torch.cat(all_target_features, dim=0)
-    target_data_cache = torch.cat(all_target_data, dim=0)
-    target_labels_cache = torch.cat(all_target_labels, dim=0)
-    E.train()
-    print(f"  目标域特征提取完成")
+    for x_t_real, labels in target_loader:
+        all_target_data.append(x_t_real)
+        all_target_labels.append(labels)
+    target_data_cache = torch.cat(all_target_data, dim=0).to(device)
+    target_labels_cache = torch.cat(all_target_labels, dim=0).to(device)
+    print(f"  目标域数据缓存完成: {target_data_cache.shape}")
 
     # 步骤7: 执行训练循环
-    print(f"  正在训练GAN模型...")
+    print(f"  正在训练GAN模型 (WGAN-GP)...")
     for epoch in range(epochs):
         # 步骤7.1: 执行单个epoch的训练
         loss_dict = train_epoch(
-            E, G, D, D_spec, source_loader, target_features_cache, target_data_cache, target_labels_cache,
+            E, G, D, D_spec, source_loader, target_loader, target_data_cache, target_labels_cache,
             optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec,
-            lambda_mmd=1.5, lambda_freq=0.5,  # 提高权重以增强特征对齐
+            lambda_mmd=20.0, lambda_freq=5.0, lambda_content=2.0,
+            n_critic=3,  # 判别器训练次数
             device=device
         )
 
@@ -94,14 +86,20 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=2e-4, lr_d=4e-4, num
         if epoch == 0 or (epoch + 1) % 5 == 0 or epoch == epochs - 1:
             elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
             print(f"  轮数 [{epoch + 1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
-            print(f"    D损失: {loss_dict['d_loss']:.4f} | G损失: {loss_dict['g_total_loss']:.4f}")
-            print(f"    MMD: {loss_dict['mmd_loss']:.4f} | 频域: {loss_dict['freq_loss']:.6f} | 重建: {loss_dict.get('recon_loss', 0):.4f}")
+            print(f"    D损失: {loss_dict['d_loss']:.4f} | G损失: {loss_dict['g_total_loss']:.4f} | GP: {loss_dict.get('gp_loss', 0):.4f}")
+            print(f"    MMD: {loss_dict['mmd_loss']:.6f} | 频域: {loss_dict['freq_loss']:.6f}")
 
-    # 步骤8: 保存训练完成后的特征提取器模型
+    # 步骤8: 保存训练完成后的模型
     print(f"  GAN模型训练完成")
     print("=" * 70 + "\n")
-    print(f"  正在保存特征提取器模型...")
-    torch.save(E.state_dict(), model_path)
+    print(f"  正在保存模型...")
+    torch.save({
+        'E': E.state_dict(),
+        'G': G.state_dict(),
+        'D': D.state_dict(),
+        'D_spec': D_spec.state_dict()
+    }, model_path)
+    print(f"  模型已保存到: {model_path}")
 
     # 步骤9: 生成合成样本用于数据增强
     print("=" * 70 + "\n")
@@ -115,16 +113,16 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=2e-4, lr_d=4e-4, num
     print(f"  正在绘制训练指标...")
     plot_training_metrics(train_loss_history, output_dir='GAN')
 
-    # 步骤11: 执行全面的GAN质量评估（四项完整指标）
+    # 步骤11: 执行全面的GAN质量评估（四项指标）
     print(f"  正在执行GAN质量综合评估（四项指标）...")
     comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
     print("\n" + "="*70)
     print("GAN生成质量评估结果：")
     print("="*70)
-    print(f"  ① FID (Fréchet Inception Distance)      : {comprehensive_metrics.get('fid', -1):.4f} (阈值<100为优质)")
-    print(f"  ② IS (Inception Score)                  : {comprehensive_metrics.get('inception_score', -1):.4f} (阈值>7为良好)")
+    print(f"  ① FID (Fréchet Inception Distance)      : {comprehensive_metrics.get('fid', -1):.4f} (越小越好)")
+    print(f"  ② IS (Inception Score)                  : {comprehensive_metrics.get('inception_score', -1):.4f} (越大越好)")
     print(f"  ③ 时域MSE (Time-domain MSE)             : {comprehensive_metrics.get('time_domain_mse', -1):.6f} (越小越好)")
-    print(f"  ④ 频谱保真度 (Spectral Fidelity CC)     : {comprehensive_metrics.get('spectral_fidelity_cc', -1):.4f} (越接近1越好)")
+    print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
         
     # 步骤12: 绘制生成样本的幅度图
@@ -159,52 +157,81 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=2e-4, lr_d=4e-4, num
     return synthetic_data, synthetic_labels
 
 
-def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, target_labels, 
+def train_epoch(E, G, D, D_spec, source_loader, target_loader, target_data, target_labels,
                 optimizer_E, optimizer_G, optimizer_D, optimizer_D_spec,
-                lambda_mmd=10.0, lambda_freq=5.0, lambda_recon=1.0,
-                device='cuda' if torch.cuda.is_available() else 'cpu'):
+                lambda_mmd=10.0, lambda_freq=5.0, lambda_content=2.0,
+                n_critic=5, device='cuda' if torch.cuda.is_available() else 'cpu'):
     """
-    GAN训练 - 平衡版
+    GAN训练 - WGAN-GP版本（优化版）
     """
     E.train()
     G.train()
     D.train()
     D_spec.train()
 
-    metrics = {'d_loss': 0.0, 'g_loss': 0.0, 'mmd': 0.0, 'freq': 0.0, 'recon': 0.0}
-    num_batches = 0
+    metrics = {'d_loss': 0.0, 'g_loss': 0.0, 'mmd': 0.0, 'freq': 0.0, 'gp': 0.0}
+    num_d_batches = 0
+    num_g_batches = 0
     
-    for batch_idx, (x_s, _) in enumerate(source_loader):
+    source_iter = iter(source_loader)
+    target_iter = iter(target_loader)
+    
+    total_batches = len(source_loader)
+    
+    for batch_idx in range(total_batches):
+        # 获取源域数据
+        try:
+            x_s, source_labels = next(source_iter)
+        except StopIteration:
+            source_iter = iter(source_loader)
+            x_s, source_labels = next(source_iter)
+        
         if x_s.size(0) < 4:
             continue
 
         x_s = x_s.to(device)
         batch_size = x_s.size(0)
         
-        idx = torch.randint(0, target_data.size(0), (batch_size,)).tolist()
-        x_t_real = target_data[idx].to(device)
+        # 获取目标域真实数据
+        try:
+            x_t_real, _ = next(target_iter)
+        except StopIteration:
+            target_iter = iter(target_loader)
+            x_t_real, _ = next(target_iter)
+        
+        x_t_real = x_t_real.to(device)
+        if x_t_real.size(0) < batch_size:
+            idx = torch.randint(0, target_data.size(0), (batch_size,)).tolist()
+            x_t_real = target_data[idx].to(device)
 
-        # ================== 训练判别器 ==================
-        optimizer_D.zero_grad()
-        optimizer_D_spec.zero_grad()
-        
+        # ================== 实时提取目标域特征 ==================
         with torch.no_grad():
-            x_hat_t = G(x_s, target_features)
+            target_features = E(x_t_real)
         
-        d_loss1, w1 = wasserstein_discriminator_loss(D, x_t_real, x_hat_t)
-        d_loss2, w2 = wasserstein_discriminator_loss(D_spec, x_t_real, x_hat_t)
-        
-        d_loss = d_loss1 + d_loss2
-        d_loss.backward()
-        
-        optimizer_D.step()
-        optimizer_D_spec.step()
-        
-        # Weight clipping - 放宽范围
-        for p in D.parameters():
-            p.data.clamp_(-0.05, 0.05)
-        for p in D_spec.parameters():
-            p.data.clamp_(-0.05, 0.05)
+        # ================== 训练判别器 (n_critic次) ==================
+        for _ in range(n_critic):
+            optimizer_D.zero_grad()
+            optimizer_D_spec.zero_grad()
+            
+            with torch.no_grad():
+                x_hat_t = G(x_s, target_features)
+            
+            # WGAN-GP损失
+            d_loss1, w1, gp1 = wasserstein_discriminator_loss(D, x_t_real, x_hat_t, lambda_gp=10.0, device=device)
+            d_loss2, w2, gp2 = wasserstein_discriminator_loss(D_spec, x_t_real, x_hat_t, lambda_gp=10.0, device=device)
+            
+            d_loss = d_loss1 + d_loss2
+            d_loss.backward()
+            
+            # 梯度裁剪
+            torch.nn.utils.clip_grad_norm_(D.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(D_spec.parameters(), max_norm=1.0)
+            
+            optimizer_D.step()
+            optimizer_D_spec.step()
+            
+            metrics['gp'] += (gp1 + gp2) / 2
+            num_d_batches += 1
         
         metrics['d_loss'] += d_loss.item()
 
@@ -212,26 +239,28 @@ def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, ta
         optimizer_G.zero_grad()
         optimizer_E.zero_grad()
         
+        # 重新提取目标域特征（E在更新）
+        target_features = E(x_t_real)
+        
         x_hat_t = G(x_s, target_features)
         
         # 对抗损失
         g_adv = wasserstein_generator_loss(D, x_hat_t) + wasserstein_generator_loss(D_spec, x_hat_t)
         
-        # MMD损失 - 提高权重
+        # MMD损失 - 对齐生成特征和目标域特征
         gen_feat = E(x_hat_t)
-        target_feat_sample = target_features[:min(64, target_features.size(0))]
-        mmd = mmd_loss(target_feat_sample, gen_feat)
+        mmd = mmd_loss(target_features.detach(), gen_feat)
         
-        # 频域损失 - 提高权重
+        # 频域一致性损失
         freq = frequency_consistency_loss(x_t_real, x_hat_t)
         
-        # 重建损失 - 保持源域结构
-        recon = reconstruction_loss(x_s, x_hat_t)
-        
-        g_loss = g_adv + lambda_mmd * mmd + lambda_freq * freq + lambda_recon * recon
+        # 总损失
+        g_loss = g_adv + lambda_mmd * mmd + lambda_freq * freq
         g_loss.backward()
         
-        torch.nn.utils.clip_grad_norm_([p for m in [G, E] for p in m.parameters()], max_norm=1.0)
+        # 梯度裁剪
+        torch.nn.utils.clip_grad_norm_(G.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(E.parameters(), max_norm=1.0)
         
         optimizer_G.step()
         optimizer_E.step()
@@ -239,11 +268,13 @@ def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, ta
         metrics['g_loss'] += g_loss.item()
         metrics['mmd'] += mmd.item()
         metrics['freq'] += freq.item()
-        metrics['recon'] += recon.item()
-        num_batches += 1
+        num_g_batches += 1
 
-    for key in metrics:
-        metrics[key] /= max(num_batches, 1)
+    # 平均化
+    for key in ['d_loss', 'gp']:
+        metrics[key] /= max(num_d_batches, 1)
+    for key in ['g_loss', 'mmd', 'freq']:
+        metrics[key] /= max(num_g_batches, 1)
     
     return {
         'd_loss': metrics['d_loss'],
@@ -251,7 +282,7 @@ def train_epoch(E, G, D, D_spec, source_loader, target_features, target_data, ta
         'g_adv_loss': metrics['g_loss'],
         'mmd_loss': metrics['mmd'],
         'freq_loss': metrics['freq'],
-        'recon_loss': metrics['recon'],
+        'gp_loss': metrics['gp'],
         'wasserstein_dist': 0
     }
 
@@ -374,7 +405,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=900)
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=5, lr_g=1e-4, lr_d=1e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")

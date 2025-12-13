@@ -96,7 +96,12 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
     # 步骤2: 整理GAN质量指标和训练损失统计
     results = {
         'timestamp': datetime.now().isoformat(),
-        'evaluation_metrics': comprehensive_metrics,
+        'evaluation_metrics': {
+            'fid': comprehensive_metrics.get('fid', -1),
+            'inception_score': comprehensive_metrics.get('inception_score', -1),
+            'time_domain_mse': comprehensive_metrics.get('time_domain_mse', -1),
+            'spectral_correlation': comprehensive_metrics.get('spectral_correlation', -1)
+        },
         'training_loss_summary': {
             'min_d_loss': min([l['d_loss'] for l in train_losses]) if train_losses else 0,
             'max_d_loss': max([l['d_loss'] for l in train_losses]) if train_losses else 0,
@@ -297,14 +302,25 @@ def compute_fid(real_features, fake_features):
     计算Fréchet Inception Distance，衡量真实样本和生成样本在特征空间的分布差异
     返回: FID分数（越低越好）
     """
-
+    # 确保特征在CPU上计算
+    if real_features.is_cuda:
+        real_features = real_features.cpu()
+    if fake_features.is_cuda:
+        fake_features = fake_features.cpu()
+    
     # 计算均值
     mu_real = torch.mean(real_features, dim=0)
     mu_fake = torch.mean(fake_features, dim=0)
     
-    # 计算协方差矩阵
-    sigma_real = torch.cov(real_features.T)
-    sigma_fake = torch.cov(fake_features.T)
+    # 计算协方差矩阵 - 添加正则化
+    real_centered = real_features - mu_real
+    fake_centered = fake_features - mu_fake
+    
+    n_real = real_features.size(0)
+    n_fake = fake_features.size(0)
+    
+    sigma_real = (real_centered.T @ real_centered) / (n_real - 1) + torch.eye(real_features.size(1)) * 1e-6
+    sigma_fake = (fake_centered.T @ fake_centered) / (n_fake - 1) + torch.eye(fake_features.size(1)) * 1e-6
     
     # 计算均值差的平方范数
     diff = mu_real - mu_fake
@@ -313,26 +329,20 @@ def compute_fid(real_features, fake_features):
     # 计算协方差矩阵的迹
     trace_term = torch.trace(sigma_real + sigma_fake)
     
-    # 计算 sqrt(sigma_real * sigma_fake)
-    # 使用特征值分解的数值稳定方法
+    # 计算 sqrt(sigma_real * sigma_fake) - 使用数值稳定的方法
     try:
-        # 方法1: 使用Cholesky分解
-        covmean = torch.mm(sigma_real, sigma_fake)
-        # 添加小的正则化项以保证数值稳定性
-        covmean = covmean + torch.eye(covmean.size(0), device=covmean.device) * 1e-6
-        # 使用特征值分解计算平方根
+        # 使用矩阵平方根
+        covmean = sigma_real @ sigma_fake
         eigvals, eigvecs = torch.linalg.eigh(covmean)
-        eigvals = torch.clamp(eigvals, min=0)  # 确保非负
-        covmean_sqrt = eigvecs @ torch.diag(torch.sqrt(eigvals)) @ eigvecs.T
-        trace_sqrt = torch.trace(covmean_sqrt)
+        eigvals = torch.clamp(eigvals.real, min=0)
+        trace_sqrt = torch.sqrt(eigvals).sum()
     except Exception:
-        # 降级方案: 使用简化的FID计算
         trace_sqrt = 0.0
     
     # FID = ||mu_real - mu_fake||^2 + Tr(sigma_real + sigma_fake - 2*sqrt(sigma_real*sigma_fake))
     fid = mean_diff + trace_term - 2 * trace_sqrt
     
-    return fid.item()
+    return max(fid.item(), 0.0)
 
 
 def compute_inception_score(fake_features, fake_labels, num_classes=6, eps=1e-16):
@@ -381,10 +391,10 @@ def compute_time_domain_mse(real_samples, fake_samples):
     return mse.item()
 
 
-def compute_spectral_fidelity_stft(real_samples, fake_samples):
+def compute_spectral_correlation(real_samples, fake_samples):
     """
-    计算频谱保真度 - 通过STFT计算频谱相关系数（CC）
-    返回: 频谱相关系数（越接近1频谱一致性越强）
+    计算频谱相关性系数（越接近1越好）
+    返回: 频谱相关性系数
     """
     # 确保样本数量一致
     min_samples = min(real_samples.size(0), fake_samples.size(0))
@@ -395,41 +405,34 @@ def compute_spectral_fidelity_stft(real_samples, fake_samples):
     real_flat = real_samples.view(real_samples.size(0), -1)
     fake_flat = fake_samples.view(fake_samples.size(0), -1)
     
-    # 计算STFT（短时傅里叶变换）
-    # 使用rfft作为STFT的简化版本
+    # 计算FFT
     real_fft = torch.fft.rfft(real_flat, dim=-1)
     fake_fft = torch.fft.rfft(fake_flat, dim=-1)
     
     # 计算幅度谱
-    real_mag = torch.abs(real_fft)
-    fake_mag = torch.abs(fake_fft)
+    real_mag = torch.abs(real_fft).flatten()
+    fake_mag = torch.abs(fake_fft).flatten()
     
-    # 计算相关系数 CC = cov(X,Y) / (std(X) * std(Y))
-    real_mag_flat = real_mag.flatten()
-    fake_mag_flat = fake_mag.flatten()
+    # 计算相关性系数
+    real_mean = real_mag.mean()
+    fake_mean = fake_mag.mean()
     
-    # 计算均值
-    real_mean = real_mag_flat.mean()
-    fake_mean = fake_mag_flat.mean()
+    cov = ((real_mag - real_mean) * (fake_mag - fake_mean)).mean()
+    real_std = real_mag.std()
+    fake_std = fake_mag.std()
     
-    # 计算协方差和标准差
-    cov = ((real_mag_flat - real_mean) * (fake_mag_flat - fake_mean)).mean()
-    real_std = real_mag_flat.std()
-    fake_std = fake_mag_flat.std()
+    correlation = cov / (real_std * fake_std + 1e-8)
     
-    # 相关系数
-    correlation_coefficient = cov / (real_std * fake_std + 1e-8)
-    
-    return correlation_coefficient.item()
+    return correlation.item()
 
 
 def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'):
     """
-    综合评估GAN生成质量 - 四项完整指标
-    1. FID（Fréchet Inception Distance）- 分布相似度，<100为优质
-    2. IS（Inception Score）- 多样性评估，>7为良好
+    综合评估GAN生成质量 - 四项核心指标
+    1. FID（Fréchet Inception Distance）- 分布相似度，越小越好
+    2. IS（Inception Score）- 多样性评估，越大越好
     3. 时域MSE - 信号保真度，越小越好
-    4. 频谱保真度（STFT相关系数）- 频谱一致性，越接近1越好
+    4. 频谱相关性系数 - 越接近1越好
     """
 
     E.eval()
@@ -440,7 +443,6 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
     fake_samples_list = []
     real_features_list = []
     fake_features_list = []
-    real_labels_list = []
     fake_labels_list = []
     
     # 先提取目标域特征
@@ -449,7 +451,6 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
             x_t = x_t.to(device)
             real_samples_list.append(x_t.cpu())
             real_features_list.append(E(x_t).cpu())
-            real_labels_list.append(labels.cpu())
     
     target_features = torch.cat(real_features_list, dim=0).to(device)
     
@@ -457,7 +458,6 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
     with torch.no_grad():
         for x_s, labels in source_loader:
             x_s = x_s.to(device)
-            labels = labels.to(device)
             x_fake = G(x_s, target_features)
             fake_samples_list.append(x_fake.cpu())
             fake_features_list.append(E(x_fake).cpu())
@@ -467,20 +467,19 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
     fake_samples = torch.cat(fake_samples_list, dim=0)
     real_features = torch.cat(real_features_list, dim=0)
     fake_features = torch.cat(fake_features_list, dim=0)
-    real_labels = torch.cat(real_labels_list, dim=0)
     fake_labels = torch.cat(fake_labels_list, dim=0)
     
     # 计算评估指标
     metrics = {}
     
-    # 1. FID分数（分布相似度，<100为优质）
+    # 1. FID分数（分布相似度，越小越好）
     try:
         metrics['fid'] = compute_fid(real_features, fake_features)
     except Exception as e:
         print(f"  [警告] FID计算失败: {e}")
         metrics['fid'] = -1
     
-    # 2. Inception Score（多样性，>7为良好）
+    # 2. Inception Score（多样性，越大越好）
     try:
         num_classes = len(torch.unique(fake_labels))
         metrics['inception_score'] = compute_inception_score(fake_features, fake_labels, num_classes=num_classes)
@@ -495,21 +494,11 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
         print(f"  [警告] 时域MSE计算失败: {e}")
         metrics['time_domain_mse'] = -1
     
-    # 4. 频谱保真度 - STFT相关系数（越接近1越好）
+    # 4. 频谱相关性系数（越接近1越好）
     try:
-        unique_labels = torch.unique(fake_labels)
-        sf_sum = 0.0
-        count = 0
-        for l in unique_labels:
-            r_mask = (real_labels == l)
-            f_mask = (fake_labels == l)
-            if r_mask.any() and f_mask.any():
-                sf_l = compute_spectral_fidelity_stft(real_samples[r_mask], fake_samples[f_mask])
-                sf_sum += sf_l
-                count += 1
-        metrics['spectral_fidelity_cc'] = (sf_sum / max(count, 1))
+        metrics['spectral_correlation'] = compute_spectral_correlation(real_samples, fake_samples)
     except Exception as e:
-        print(f"  [警告] 频谱保真度计算失败: {e}")
-        metrics['spectral_fidelity_cc'] = -1
+        print(f"  [警告] 频谱相关性系数计算失败: {e}")
+        metrics['spectral_correlation'] = -1
     
     return metrics
