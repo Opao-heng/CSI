@@ -6,8 +6,58 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
+from scipy import signal as scipy_signal
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
+from matplotlib import font_manager
+
+# 设置中文字体支持
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
+
+
+def create_zh_font(size=12):
+    """
+    创建带有指定字体大小的中文字体属性对象
+
+    参数:
+    size (int): 字体大小
+
+    返回:
+    FontProperties: 配置好的字体属性对象
+    """
+    try:
+        # 尝试使用系统中的中文字体
+        available_fonts = [f.name for f in font_manager.fontManager.ttflist]
+        chinese_font_names = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'STHeiTi', 'STSong']
+
+        for font_name in chinese_font_names:
+            if font_name in available_fonts:
+                font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
+                return font_manager.FontProperties(fname=font_path, size=size)
+
+        # 如果找不到中文字体，使用默认字体
+        return font_manager.FontProperties(size=size)
+    except Exception as e:
+        print(f"字体加载异常: {e}")
+        return font_manager.FontProperties(size=size)
+
+
+def plot_training_metrics_from_json(json_file_path):
+    """
+    从JSON文件中读取训练历史并绘制GAN训练过程中的各项指标
+    """
+    import json
+    
+    # 从JSON文件加载数据
+    with open(json_file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    # 提取训练历史
+    train_loss_history = data['full_training_history']
+    
+    # 调用原有的绘图函数
+    plot_training_metrics(train_loss_history, output_dir='GAN')
 
 
 def plot_training_metrics(train_loss_history, output_dir='GAN'):
@@ -67,23 +117,6 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     print(f"  训练指标图已保存到: {plot_path}")
     plt.close()
     
-    # 步骤5: 绘制所有损失在一张图上的对比
-    plt.figure(figsize=(14, 8))
-    plt.plot(epochs, d_losses, 'r-', linewidth=2.5, label='Discriminator Loss', alpha=0.8)
-    plt.plot(epochs, g_adv_losses, 'orange', linewidth=2.5, label='Adversarial Loss', alpha=0.8)
-    plt.plot(epochs, mmd_losses, 'g-', linewidth=2.5, label='MMD Loss', alpha=0.8)
-    plt.plot(epochs, freq_losses, 'm-', linewidth=2.5, label='Frequency Loss', alpha=0.8)
-    plt.title('All Training Losses Comparison', fontsize=16, fontweight='bold')
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('Loss Value', fontsize=12)
-    plt.legend(fontsize=11, loc='best')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    all_losses_path = os.path.join(output_dir, 'all_losses_comparison.png')
-    plt.savefig(all_losses_path, dpi=300, bbox_inches='tight')
-    print(f"  所有损失对比图已保存到: {all_losses_path}")
-    plt.close()
-
 
 def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
     """
@@ -131,7 +164,7 @@ def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GA
     """
     绘制生成样本的时域幅度图和频谱图（按天线维度）
     """
-
+    
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
     
@@ -144,107 +177,125 @@ def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GA
     S, C, T = sample.shape  # S=56(子载波), C=3(天线对), T=6000(时间步)
     
     # ================== 时域幅度图 ==================
-    # 步骤3: 创建时域子图，每个天线对一个子图
-    fig, axes = plt.subplots(C, 1, figsize=(12, 3 * C))
+    # 步骤3: 创建时域子图，每个天线对一个子图，参考CSIProcess1.py的绘图风格
+    plt.style.use('seaborn-v0_8')
+    fig_size = (10, 6)
+    fig, axes = plt.subplots(C, 1, figsize=fig_size)
     if C == 1:
         axes = [axes]
     
-    # 步骤4: 为每个天线对绘制时域幅度热图
+    # 步骤4: 为每个天线对绘制时域幅度图，采用CSIProcess1.py的线条图风格
+    num_antennas = S  # 子载波数作为"天线"数
+    selected_antennas = list(range(num_antennas))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 定义移动平均函数用于平滑曲线
+    def moving_average(data, window_size=50):
+        """计算移动平均以平滑曲线"""
+        if len(data) < window_size:
+            return data
+        cumsum = np.cumsum(np.insert(data, 0, 0)) 
+        return (cumsum[window_size:] - cumsum[:-window_size]) / window_size
+    
     for c in range(C):
-        amplitude = np.abs(sample[:, c, :])  # 形状: (S, T)
+        ax = axes[c]
+        # 绘制所有子载波的时域幅度曲线（按照CSIProcess1.py的风格）
+        # 为了清晰显示线条，我们调整参数并对数据进行平滑处理
+        for i, antenna in enumerate(selected_antennas):
+            amplitude_data = np.abs(sample[antenna, c, :])
+            # 对数据进行平滑处理
+            smoothed_data = moving_average(amplitude_data, window_size=50)
+            # 创建对应的时间轴
+            time_axis = np.linspace(0, len(amplitude_data)-1, len(smoothed_data))
+            ax.plot(time_axis, smoothed_data,
+                    alpha=0.7,  # 透明度
+                    linewidth=1.0,  # 线宽
+                    color=colors[i % len(colors)])  # 循环使用颜色
         
-        im = axes[c].imshow(amplitude, aspect='auto', cmap='viridis', interpolation='nearest', origin='lower')
-        axes[c].set_title(f'Antenna Pair {c+1} - Time-domain Amplitude Heatmap', fontsize=14, fontweight='bold')
-        axes[c].set_xlabel('Time Steps', fontsize=12)
-        axes[c].set_ylabel('Subcarriers', fontsize=12)
-        
-        # 添加颜色条
-        cbar = plt.colorbar(im, ax=axes[c])
-        cbar.set_label('Amplitude', fontsize=11)
+        ax.set_title(f'天线对 {c + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
+        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
+        ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(axis='both', which='major', labelsize=8)
+        # 为坐标轴刻度标签也设置中文字体
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(create_zh_font(8))
     
     # 步骤5: 调整布局并保存时域图
     plt.tight_layout()
+    plt.draw()  # 强制刷新图形以确保中文字体正确应用
     plot_path_time = os.path.join(output_dir, f'synthetic_sample_{sample_idx}_time_domain.png')
-    plt.savefig(plot_path_time, dpi=150, bbox_inches='tight')
+    plt.savefig(plot_path_time, dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
     print(f"  生成样本时域幅度图已保存到: {plot_path_time}")
     plt.close()
     
     # ================== 频谱图 ==================
-    # 步骤6: 创建频谱子图，每个天线对一个子图
+    # 步骤6: 创建频谱子图，每个天线对一个子图，参考CSIProcess2.py的频谱图风格
     fig, axes = plt.subplots(C, 1, figsize=(12, 3 * C))
     if C == 1:
         axes = [axes]
     
-    # 步骤7: 为每个天线对绘制频谱图
+    # 步骤7: 为每个天线对绘制频谱图，采用CSIProcess2.py的时频图风格
     for c in range(C):
-        # 对时间维度进行FFT
-        sample_fft = np.fft.rfft(sample[:, c, :], axis=-1)  # 形状: (S, T//2+1)
-        magnitude_spectrum = np.abs(sample_fft)  # 幅度谱
+        # 使用STFT替代FFT来获得更好的时频分辨率，参考CSIProcess2.py的做法
+        signal_1d = sample[0, c, :]  # 取第一个子载波作为代表
         
-        # 转换为dB刻度（避免log(0)）
-        magnitude_spectrum_db = 20 * np.log10(magnitude_spectrum + 1e-10)
+        # 使用短时傅里叶变换（STFT）生成时频图
+        nperseg = 512  # 窗口大小
+        noverlap = 480  # 重叠大小（75%重叠）
         
-        # 频率轴（归一化频率）
-        freq_bins = np.linspace(0, 0.5, magnitude_spectrum.shape[1])  # 归一化频率 [0, 0.5]
+        freqs, times, Sxx = scipy_signal.spectrogram(
+            signal_1d,
+            fs=1.0,
+            nperseg=nperseg,
+            noverlap=noverlap,
+            scaling='spectrum'
+        )
         
-        im = axes[c].imshow(magnitude_spectrum_db, aspect='auto', cmap='jet', 
-                           interpolation='nearest', origin='lower', extent=[0, 0.5, 0, S])
-        axes[c].set_title(f'Antenna Pair {c+1} - Frequency Spectrum (dB)', fontsize=14, fontweight='bold')
-        axes[c].set_xlabel('Normalized Frequency', fontsize=12)
-        axes[c].set_ylabel('Subcarriers', fontsize=12)
+        # 转换为dB刻度
+        Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
+        
+        # 将时间索引映射到实际值（0 to T-1）
+        time_indices = times * (T - 1)
+        # 仅显示一半的频率分量（对称性）
+        freq_limit = len(freqs) // 2
+        
+        # 使用pcolormesh绘制时频图，参考CSIProcess2.py的风格
+        im = axes[c].pcolormesh(time_indices, freqs[:freq_limit], 
+                               Sxx_db[:freq_limit, :],
+                               shading='auto', 
+                               cmap='jet', 
+                               rasterized=True)
+        
+        axes[c].set_title(f'天线对 {c+1} - 频谱图 (dB)', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
+        axes[c].set_xlabel('时间索引', fontsize=12, fontproperties=create_zh_font(12))
+        axes[c].set_ylabel('频率分量', fontsize=12, fontproperties=create_zh_font(12))
         
         # 添加颜色条
         cbar = plt.colorbar(im, ax=axes[c])
-        cbar.set_label('Magnitude (dB)', fontsize=11)
+        cbar.set_label('幅度 (dB)', fontsize=11, fontproperties=create_zh_font(11))
+        cbar.ax.tick_params(labelsize=10)
+        
+        # 设置刻度标签字体
+        axes[c].tick_params(axis='both', which='major', labelsize=10)
+        for label in axes[c].get_xticklabels() + axes[c].get_yticklabels():
+            label.set_fontproperties(create_zh_font(10))
     
     # 步骤8: 调整布局并保存频谱图
     plt.tight_layout()
+    plt.draw()  # 强制刷新图形以确保中文字体正确应用
     plot_path_freq = os.path.join(output_dir, f'synthetic_sample_{sample_idx}_frequency_spectrum.png')
-    plt.savefig(plot_path_freq, dpi=150, bbox_inches='tight')
+    plt.savefig(plot_path_freq, dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
     print(f"  生成样本频谱图已保存到: {plot_path_freq}")
     plt.close()
-    
-    # ================== 时域+频域联合图 ==================
-    # 步骤9: 创建联合视图（左侧时域，右侧频域）
-    fig, axes = plt.subplots(C, 2, figsize=(18, 3 * C))
-    if C == 1:
-        axes = axes.reshape(1, -1)
-    
-    for c in range(C):
-        # 左侧：时域幅度
-        amplitude = np.abs(sample[:, c, :])
-        im1 = axes[c, 0].imshow(amplitude, aspect='auto', cmap='viridis', 
-                               interpolation='nearest', origin='lower')
-        axes[c, 0].set_title(f'Antenna {c+1} - Time Domain', fontsize=13, fontweight='bold')
-        axes[c, 0].set_xlabel('Time Steps', fontsize=11)
-        axes[c, 0].set_ylabel('Subcarriers', fontsize=11)
-        cbar1 = plt.colorbar(im1, ax=axes[c, 0])
-        cbar1.set_label('Amplitude', fontsize=10)
-        
-        # 右侧：频域幅度谱
-        sample_fft = np.fft.rfft(sample[:, c, :], axis=-1)
-        magnitude_spectrum = np.abs(sample_fft)
-        magnitude_spectrum_db = 20 * np.log10(magnitude_spectrum + 1e-10)
-        
-        im2 = axes[c, 1].imshow(magnitude_spectrum_db, aspect='auto', cmap='jet', 
-                               interpolation='nearest', origin='lower', extent=[0, 0.5, 0, S])
-        axes[c, 1].set_title(f'Antenna {c+1} - Frequency Spectrum', fontsize=13, fontweight='bold')
-        axes[c, 1].set_xlabel('Normalized Frequency', fontsize=11)
-        axes[c, 1].set_ylabel('Subcarriers', fontsize=11)
-        cbar2 = plt.colorbar(im2, ax=axes[c, 1])
-        cbar2.set_label('Magnitude (dB)', fontsize=10)
-    
-    # 步骤10: 调整布局并保存联合图
-    plt.tight_layout()
-    plot_path_combined = os.path.join(output_dir, f'synthetic_sample_{sample_idx}_combined.png')
-    plt.savefig(plot_path_combined, dpi=150, bbox_inches='tight')
-    print(f"  生成样本时频联合图已保存到: {plot_path_combined}")
-    plt.close()
 
 
-def plot_feature_distribution_2d(real_features, fake_features, method='tsne', output_dir='GAN'):
+def plot_feature_distribution_2d(real_features, fake_features, real_labels=None, method='tsne', output_dir='GAN'):
     """
-    绘制真实样本与生成样本的特征分布二维图（使用t-SNE或PCA降维）
+    绘制真实样本与生成样本的特征分布二维图（使用t-SNE降维）
+    如果提供了real_labels，则按用户标签显示10个真实用户的特征分布群
     """
 
     # 步骤1: 创建输出目录
@@ -255,38 +306,60 @@ def plot_feature_distribution_2d(real_features, fake_features, method='tsne', ou
         real_features = real_features.cpu().detach().numpy()
     if isinstance(fake_features, torch.Tensor):
         fake_features = fake_features.cpu().detach().numpy()
+    if real_labels is not None and isinstance(real_labels, torch.Tensor):
+        real_labels = real_labels.cpu().detach().numpy()
     
     # 步骤3: 合并特征并创建标签
     all_features = np.vstack([real_features, fake_features])
-    labels = np.array([0] * len(real_features) + [1] * len(fake_features))
+    type_labels = np.array([0] * len(real_features) + [1] * len(fake_features))
     
-    # 步骤4: 降维到2D
+    # 步骤4: 降维到2D (仅保留t-SNE方法)
     print(f"  正在使用 {method.upper()} 进行特征降维...")
     if method.lower() == 'tsne':
-        reducer = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000)
-        features_2d = reducer.fit_transform(all_features)
-    elif method.lower() == 'pca':
-        reducer = PCA(n_components=2, random_state=42)
+        n_samples = len(all_features)
+        perplexity = min(30, max(5, n_samples // 20))
+        reducer = TSNE(n_components=2, random_state=42, perplexity=perplexity, n_iter=1500, 
+                      learning_rate='auto', init='pca')
         features_2d = reducer.fit_transform(all_features)
     else:
-        raise ValueError("method必须是'tsne'或'pca'")
+        raise ValueError("method必须是'tsne'")
     
     # 步骤5: 分离真实和生成样本的2D特征
-    real_2d = features_2d[labels == 0]
-    fake_2d = features_2d[labels == 1]
+    real_2d = features_2d[type_labels == 0]
+    fake_2d = features_2d[type_labels == 1]
     
-    # 步骤6: 绘制散点图
-    plt.figure(figsize=(12, 10))
-    plt.scatter(real_2d[:, 0], real_2d[:, 1], c='blue', alpha=0.5, s=30, 
-                label='Real Target Samples', edgecolors='k', linewidth=0.3)
-    plt.scatter(fake_2d[:, 0], fake_2d[:, 1], c='red', alpha=0.5, s=30, 
-                label='Generated Samples', edgecolors='k', linewidth=0.3)
+    # 步骤6: 绘制散点图 - 按用户标签显示真实样本
+    plt.figure(figsize=(14, 11))
     
-    plt.title(f'Feature Distribution ({method.upper()}) - Real vs Generated', 
+    if real_labels is not None:
+        # 从真实样本标签中提取唯一用户ID
+        unique_users = np.unique(real_labels)
+        # 使用不同的颜色表示不同的用户
+        colors = plt.cm.tab20(np.linspace(0, 1, len(unique_users)))
+        
+        # 为每个用户绘制一个散点群
+        for idx, user_id in enumerate(sorted(unique_users)):
+            mask = real_labels == user_id
+            if np.any(mask):
+                plt.scatter(real_2d[mask, 0], real_2d[mask, 1], 
+                           c=[colors[idx]], label=f'User {int(user_id)}', 
+                           alpha=0.6, s=40, edgecolors='black', linewidth=0.5, marker='o')
+        
+        # 绘制生成样本
+        plt.scatter(fake_2d[:, 0], fake_2d[:, 1], c='red', alpha=0.4, s=30, 
+                   label='Generated Samples', edgecolors='darkred', linewidth=0.3, marker='^')
+    else:
+        # 如果没有用户标签，使用原来的方法
+        plt.scatter(real_2d[:, 0], real_2d[:, 1], c='blue', alpha=0.5, s=30, 
+                   label='Real Target Samples', edgecolors='k', linewidth=0.3)
+        plt.scatter(fake_2d[:, 0], fake_2d[:, 1], c='red', alpha=0.5, s=30, 
+                   label='Generated Samples', edgecolors='k', linewidth=0.3)
+    
+    plt.title(f'Feature Distribution ({method.upper()}) - Real Target Users vs Generated', 
               fontsize=16, fontweight='bold')
     plt.xlabel(f'{method.upper()} Component 1', fontsize=13)
     plt.ylabel(f'{method.upper()} Component 2', fontsize=13)
-    plt.legend(fontsize=12, loc='best')
+    plt.legend(fontsize=11, loc='best', frameon=True, fancybox=True, shadow=True, ncol=2)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
@@ -502,3 +575,150 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
         metrics['spectral_correlation'] = -1
     
     return metrics
+
+
+def load_model_and_generate_plots(model_path, source_loader, target_loader, device='cuda'):
+    """
+    加载训练好的模型并生成所有相关图表
+    """
+    import torch
+    from Research1.model_GAN import build_model
+    
+    # 构建模型
+    E, G, D, D_spec = build_model()
+    E.to(device)
+    G.to(device)
+    D.to(device)
+    D_spec.to(device)
+    
+    # 加载模型权重
+    checkpoint = torch.load(model_path, map_location=device)
+    E.load_state_dict(checkpoint['E'])
+    G.load_state_dict(checkpoint['G'])
+    D.load_state_dict(checkpoint['D'])
+    D_spec.load_state_dict(checkpoint['D_spec'])
+    
+    print("模型加载成功")
+    
+    # 设置模型为评估模式
+    E.eval()
+    G.eval()
+    D.eval()
+    D_spec.eval()
+    
+    # 生成合成样本
+    print("正在生成合成样本...")
+    synthetic_data, synthetic_labels = generate_synthetic_samples(E, G, source_loader, target_loader, device=device)
+    print(f"已生成 {len(synthetic_data)} 个合成样本")
+    
+    # 绘制训练指标图
+    print("正在绘制训练指标图...")
+    json_file_path = r"C:\Users\USER\Desktop\liuheng\Research1\GAN\gan_evaluation_results.json"
+    plot_training_metrics_from_json(json_file_path)
+    
+    # 绘制特征分布TSNE图
+    print("正在绘制特征分布TSNE图...")
+    with torch.no_grad():
+        # 提取目标域真实样本的特征
+        real_features_list = []
+        real_labels_list = []
+        for x_t_real, target_labels in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            real_features_list.append(features)
+            real_labels_list.append(target_labels)
+        real_features = torch.cat(real_features_list, dim=0)
+        real_labels = torch.cat(real_labels_list, dim=0)
+            
+        # 提取生成样本的特征
+        synthetic_data_device = synthetic_data.to(device)
+        fake_features = E(synthetic_data_device)
+        
+    plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne', output_dir='GAN')
+    
+    # 绘制生成样本频谱图和时域图
+    print("正在绘制生成样本图...")
+    import numpy as np
+    random_idx = np.random.randint(0, len(synthetic_data))
+    plot_synthetic_sample_amplitude(synthetic_data, sample_idx=random_idx, output_dir='GAN')
+    
+    print("所有图表绘制完成!")
+
+
+def generate_synthetic_samples(E, G, source_loader, target_loader, num_samples=100, device='cuda'):
+    """
+    使用训练的生成器生成指定数量的合成样本。
+    """
+    # 设置模型为评估模式
+    E.eval()
+    G.eval()
+
+    synthetic_data = []
+    synthetic_labels = []
+    generated_count = 0
+    
+    # 预先提取目标域特征（缓存以提高效率）
+    all_features = []
+    with torch.no_grad():
+        for x_t_real, _ in target_loader:
+            x_t_real = x_t_real.to(device)
+            features = E(x_t_real)
+            all_features.append(features)
+    target_features = torch.cat(all_features, dim=0).to(device)
+
+    with torch.no_grad():
+        # 遍历源域数据生成合成样本
+        for x_s, source_labels in source_loader:
+            if generated_count >= num_samples:
+                break
+
+            x_s = x_s.to(device)
+            batch_size = x_s.size(0)
+
+            # 生成与目标域特征匹配的合成样本
+            x_hat_t = G(x_s, target_features)
+
+            # 收集生成的样本和对应的标签
+            synthetic_data.append(x_hat_t.cpu())
+            synthetic_labels.append(source_labels[:x_hat_t.size(0)])
+
+            generated_count += x_hat_t.size(0)
+
+    # 合并所有生成样本并截断至指定数量
+    if synthetic_data:
+        synthetic_data = torch.cat(synthetic_data, dim=0)[:num_samples]
+        synthetic_labels = torch.cat(synthetic_labels, dim=0)[:num_samples]
+
+    return synthetic_data, synthetic_labels
+
+
+if __name__ == "__main__":
+    import torch
+    from torch.utils.data import DataLoader
+    from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
+    
+    # 设置设备
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"使用设备: {device}")
+    
+    # 加载数据
+    print("正在加载数据...")
+    source_data = torch.load('Data/source_env0_env1_data.pt')
+    source_labels = torch.load('Data/source_env0_env1_labels.pt')
+    target_data = torch.load('Data/target_env2_data.pt')
+    target_labels = torch.load('Data/target_env2_labels.pt')
+    
+    # 创建数据加载器
+    source_dataset = CustomDataset(source_data, source_labels)
+    source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
+    
+    # 从目标域中均匀采样每个标签的样本
+    selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels, samples_per_label=10)
+    target_dataset = CustomDataset(selected_target_data, selected_target_labels)
+    target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
+    
+    print("数据加载完成")
+    
+    # 加载模型并生成图表
+    model_path = r"C:\Users\USER\Desktop\liuheng\Research1\GAN\best_gan_model.pth"
+    load_model_and_generate_plots(model_path, source_loader, target_loader, device)

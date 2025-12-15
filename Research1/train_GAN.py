@@ -136,21 +136,22 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
     with torch.no_grad():
         # 提取目标域真实样本的特征
         real_features_list = []
-        for x_t_real, _ in target_loader:
+        real_labels_list = []
+        for x_t_real, target_labels in target_loader:
             x_t_real = x_t_real.to(device)
             features = E(x_t_real)
             real_features_list.append(features)
+            real_labels_list.append(target_labels)
         real_features = torch.cat(real_features_list, dim=0)
+        real_labels = torch.cat(real_labels_list, dim=0)
             
         # 提取生成样本的特征
         synthetic_data_device = synthetic_data.to(device)
         fake_features = E(synthetic_data_device)
         
-    # 使用t-SNE和PCA两种方法绘制特征分布
+    # 使用t-SNE方法绘制特征分布
     print(f"  正在绘制特征分布图(t-SNE)...")
-    plot_feature_distribution_2d(real_features, fake_features, method='tsne', output_dir='GAN')
-    print(f"  正在绘制特征分布图(PCA)...")
-    plot_feature_distribution_2d(real_features, fake_features, method='pca', output_dir='GAN')
+    plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne', output_dir='GAN')
 
     # 步骤14: 保存全面评估结果
     save_evaluation_results(comprehensive_metrics, train_loss_history, 'GAN')
@@ -405,7 +406,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=5, lr_g=1e-4, lr_d=1e-4, num_samples=900)
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")
