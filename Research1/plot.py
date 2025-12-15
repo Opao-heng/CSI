@@ -280,14 +280,13 @@ def plot_feature_distribution_tsne_improved(real_features, real_labels, syntheti
                        c='red', label='Generated Samples',
                        alpha=0.4, s=40, edgecolors='darkred', linewidth=0.5, marker='^')
     
-    # 设置标题和标签
-    plt.title('Feature Distribution - Real Users vs Generated Data\n(t-SNE Visualization with 2-sigma Ellipses)',
-              fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('t-SNE Component 1', fontsize=14, fontweight='bold')
-    plt.ylabel('t-SNE Component 2', fontsize=14, fontweight='bold')
+    # 设置标题和标签（使用中文字体）
+
+    plt.xlabel('t-SNE成分1', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
+    plt.ylabel('t-SNE成分2', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))    
     
-    # 设置图例
-    plt.legend(fontsize=10, loc='best', frameon=True, fancybox=True, shadow=True, ncol=3)
+    # 设置图例（使用中文字体）
+    plt.legend(fontsize=10, loc='best', frameon=True, fancybox=True, shadow=True, ncol=3, prop=create_zh_font(10))
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     

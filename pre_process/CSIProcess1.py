@@ -45,7 +45,7 @@ zh_font = create_zh_font(12)
 print(f"已配置中文字体，默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图
@@ -63,10 +63,10 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
     amplitude_data = torch.abs(sample_data)
 
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
     fig_size = (10, 6)
 
-    fig, axes = plt.subplots(3, 1, figsize=fig_size)
+    fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
+    fig.patch.set_facecolor('white')
 
     num_antennas = amplitude_data.shape[0]
     time_steps = amplitude_data.shape[2]
@@ -75,6 +75,7 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
 
     for dim in range(3):
         ax = axes[dim]
+        ax.set_facecolor('white')
         for i, antenna in enumerate(selected_antennas):
             ax.plot(amplitude_data[antenna, dim, :].numpy(),
                     alpha=0.8,
@@ -83,7 +84,6 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
         ax.set_title(f'天线 {dim + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
         ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
         ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
-        ax.grid(True, alpha=0.3)
         ax.tick_params(axis='both', which='major', labelsize=8)
         # 为坐标轴刻度标签也设置中文字体
         for label in ax.get_xticklabels() + ax.get_yticklabels():
@@ -162,10 +162,10 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
     extended_amplitude_data = torch.clamp(extended_amplitude_data, min=0)
 
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
     fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
 
-    fig, axes = plt.subplots(3, 1, figsize=fig_size)
+    fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
+    fig.patch.set_facecolor('white')
 
     num_antennas = extended_amplitude_data.shape[0]
     selected_antennas = list(range(num_antennas))
@@ -176,6 +176,7 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
 
     for dim in range(3):
         ax = axes[dim]
+        ax.set_facecolor('white')
         for i, antenna in enumerate(selected_antennas):
             ax.plot(extended_amplitude_data[antenna, dim, :].numpy(),
                     alpha=0.8,
@@ -189,7 +190,6 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
         ax.set_title(f'天线 {dim + 1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
         ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
         ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
-        ax.grid(True, alpha=0.3)
         ax.tick_params(axis='both', which='major', labelsize=14)
 
         # 设置x轴刻度以便更好地显示
@@ -296,10 +296,10 @@ def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_d
     noisy_amplitude_data = torch.clamp(noisy_amplitude_data, min=0)
 
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
     fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
 
-    fig, axes = plt.subplots(3, 1, figsize=fig_size)
+    fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
+    fig.patch.set_facecolor('white')
 
     num_antennas = noisy_amplitude_data.shape[0]
     selected_antennas = list(range(num_antennas))
@@ -307,6 +307,7 @@ def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_d
 
     for dim in range(3):
         ax = axes[dim]
+        ax.set_facecolor('white')
         for i, antenna in enumerate(selected_antennas):
             ax.plot(noisy_amplitude_data[antenna, dim, :].numpy(),
                     alpha=0.8,
@@ -317,7 +318,6 @@ def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_d
         ax.set_title(f'天线 {dim + 1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
         ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
         ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
-        ax.grid(True, alpha=0.3)
         ax.tick_params(axis='both', which='major', labelsize=14)
 
         # 设置x轴刻度以便更好地显示

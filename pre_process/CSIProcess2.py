@@ -392,11 +392,12 @@ def plot_frequency_selective_fading_comparison(data_path='../data/source_env0_en
     Sxx_aug_db = 10 * np.log10(np.abs(Sxx_aug) + 1e-10)
     
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 10), facecolor='white')
+    fig.patch.set_facecolor('white')
     
     # 上图: 增强前的时频图
     ax_before = axes[0]
+    ax_before.set_facecolor('white')
     # 将时间索引映射到实际值
     time_indices_orig = times_orig * (len(original_signal) - 1)
     # 使用插值方法轻滑热力图
@@ -414,6 +415,7 @@ def plot_frequency_selective_fading_comparison(data_path='../data/source_env0_en
     
     # 下图: 增强后的时频图
     ax_after = axes[1]
+    ax_after.set_facecolor('white')
     # 将时间索引映射到实际值
     time_indices_aug = times_aug * (len(augmented_signal) - 1)
     im2 = ax_after.pcolormesh(time_indices_aug, freqs_aug[:len(freqs_aug)//2], 
@@ -476,8 +478,8 @@ def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt
     print(f"增强参数: {aug_params}")
     
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), facecolor='white')
+    fig.patch.set_facecolor('white')
     
     num_antennas = amplitude_data.shape[0]  # 56个天线
     selected_antennas = list(range(num_antennas))
@@ -485,6 +487,7 @@ def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt
     
     # 上图: 增强前 - 原始数据
     ax_before = axes[0]
+    ax_before.set_facecolor('white')
     for antenna in selected_antennas:
         # amplitude_data: (56, 3, 6000)
         # 绘制每个天线的第一个维度
@@ -493,13 +496,13 @@ def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt
     ax_before.set_title('原始CSI数据', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
     ax_before.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
     ax_before.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.grid(True, alpha=0.3, linestyle='--')
     ax_before.tick_params(axis='both', which='major', labelsize=9)
     for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
         label.set_fontproperties(create_zh_font(9))
     
     # 下图: 增强后 - 多径衰落
     ax_after = axes[1]
+    ax_after.set_facecolor('white')
     for antenna in selected_antennas:
         # augmented_amplitude: (56, 3, 6000)
         # 绘制每个天线的第一个维度
@@ -509,7 +512,6 @@ def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt
                       fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
     ax_after.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
     ax_after.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.grid(True, alpha=0.3, linestyle='--')
     ax_after.tick_params(axis='both', which='major', labelsize=9)
     for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
         label.set_fontproperties(create_zh_font(9))
@@ -557,8 +559,8 @@ def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.
     print(f"使用SNR: {actual_snr:.2f} dB, 噪声缩放: {noise_scale}")
     
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), facecolor='white')
+    fig.patch.set_facecolor('white')
     
     num_antennas = amplitude_data.shape[0]  # 56个天线
     selected_antennas = list(range(num_antennas))
@@ -566,6 +568,7 @@ def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.
     
     # 上图: 增强前 - 原始数据
     ax_before = axes[0]
+    ax_before.set_facecolor('white')
     for antenna in selected_antennas:
         # 绘制第一个维度的幅度
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
@@ -573,13 +576,13 @@ def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.
     ax_before.set_title('原始CSI数据', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
     ax_before.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
     ax_before.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.grid(True, alpha=0.3, linestyle='--')
     ax_before.tick_params(axis='both', which='major', labelsize=9)
     for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
         label.set_fontproperties(create_zh_font(9))
     
     # 下图: 增强后 - 添加轻微噪声
     ax_after = axes[1]
+    ax_after.set_facecolor('white')
     for antenna in selected_antennas:
         # 绘制第一个维度的幅度
         ax_after.plot(augmented_amplitude[antenna, 0, :].numpy(),
@@ -588,7 +591,6 @@ def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.
                       fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
     ax_after.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
     ax_after.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.grid(True, alpha=0.3, linestyle='--')
     ax_after.tick_params(axis='both', which='major', labelsize=9)
     for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
         label.set_fontproperties(create_zh_font(9))
@@ -622,10 +624,10 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
     amplitude_data = torch.abs(sample_data)
 
     # 绘图设置
-    plt.style.use('seaborn-v0_8')
     fig_size = (10, 6)
 
-    fig, axes = plt.subplots(3, 1, figsize=fig_size)
+    fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
+    fig.patch.set_facecolor('white')
 
     num_antennas = amplitude_data.shape[0]
     time_steps = amplitude_data.shape[2]
@@ -634,6 +636,7 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
 
     for dim in range(3):
         ax = axes[dim]
+        ax.set_facecolor('white')
         for i, antenna in enumerate(selected_antennas):
             ax.plot(amplitude_data[antenna, dim, :].numpy(),
                     alpha=0.8,
@@ -642,7 +645,6 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
         ax.set_title(f'天线 {dim + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
         ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
         ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
-        ax.grid(True, alpha=0.3)
         ax.tick_params(axis='both', which='major', labelsize=8)
         # 为坐标轴刻度标签也设置中文字体
         for label in ax.get_xticklabels() + ax.get_yticklabels():
