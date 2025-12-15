@@ -46,7 +46,7 @@ zh_font = create_zh_font(12)
 print(f"已配置中文字体，默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132, #132
+def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=56, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图
@@ -103,10 +103,11 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
     print(f"图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample_index=56,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
+    时频图特点：两边静止时为蓝色（低能量），中间步态行走时出现热力图（高能量）
     
     参数:
     data_path (str): CSI数据文件路径
@@ -121,6 +122,9 @@ def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample
     # 计算复数CSI数据的幅度
     amplitude_data = torch.abs(sample_data)
     
+    print(f"样本数据形状: {sample_data.shape}")
+    print(f"幅度数据形状: {amplitude_data.shape}")
+    
     # 绘图设置
     fig_size = (14, 10)
     
@@ -130,11 +134,14 @@ def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample
     num_antennas = amplitude_data.shape[0]
     time_steps = amplitude_data.shape[2]
     
-    # STFT参数设置
+    # STFT参数设置 - 根据数据长度自适应调整
     # nperseg: 每段的长度，影响频率分辨率
     # noverlap: 重叠长度，影响时间分辨率（75%重叠）
-    nperseg = 512
-    noverlap = 480  # 75%重叠，使能量分布更聚焦
+    nperseg = min(256, time_steps // 10)  # 减小窗口以获得更好的时间分辨率
+    noverlap = int(nperseg * 0.75)  # 75%重叠，使能量分布更聚焦
+    
+    print(f"时间步数: {time_steps}")
+    print(f"STFT参数 - nperseg: {nperseg}, noverlap: {noverlap}")
     
     for dim in range(3):
         ax = axes[dim]
@@ -143,28 +150,49 @@ def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample
         # 对该天线的所有子载波数据求平均，得到一维时间序列
         signal_data = torch.mean(amplitude_data[:, dim, :], dim=0).numpy()
         
-        # 计算短时傅里叶变换（STFT）
+        # 去除直流分量，使静止时能量更低
+        signal_data = signal_data - np.mean(signal_data)
+        
+        print(f"天线 {dim + 1} 信号数据范围: [{signal_data.min():.4f}, {signal_data.max():.4f}]")
+        
+        # 计算短时傅里叶变换（STFT），使用汉宁窗减少边界效应
         frequencies, times, Zxx = signal.stft(signal_data, 
-                                               fs=1.0,  # 采样频率（归一化）
+                                               fs=1000.0,  # 采样频率设置为1000Hz
+                                               window='hann',  # 使用汉宁窗减少频谱泄漏
                                                nperseg=nperseg, 
-                                               noverlap=noverlap)
+                                               noverlap=noverlap,
+                                               boundary=None)  # 不填充边界，减少边界效应
         
         # 计算功率谱密度（取幅度的平方）
-        magnitude = np.abs(Zxx)
+        magnitude = np.abs(Zxx) ** 2  # 使用功率谱而非幅度谱
+        
+        print(f"天线 {dim + 1} STFT结果 - 频率范围: {len(frequencies)}, 时间点: {len(times)}")
+        print(f"天线 {dim + 1} 功率范围: [{magnitude.min():.4f}, {magnitude.max():.4f}]")
+        
+        # 对数尺度显示，增强对比度
+        magnitude_db = 10 * np.log10(magnitude + 1e-10)  # 转换为dB，避免log(0)
+        
+        # 动态范围压缩：限制显示范围以突出步态活动
+        vmin = np.percentile(magnitude_db, 5)  # 下限设为5%分位数
+        vmax = np.percentile(magnitude_db, 95)  # 上限设为95%分位数
+        
+        print(f"天线 {dim + 1} 显示范围: [{vmin:.2f}, {vmax:.2f}] dB")
         
         # 绘制时频图
-        im = ax.pcolormesh(times, frequencies, magnitude, 
+        im = ax.pcolormesh(times, frequencies, magnitude_db, 
                           shading='gouraud', 
-                          cmap='jet')  # 使用jet颜色映射，能量高的区域显示为暖色
+                          cmap='jet',  # 使用jet颜色映射，能量高的区域显示为暖色
+                          vmin=vmin,
+                          vmax=vmax)
         
         # 添加颜色条
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('幅度', fontproperties=create_zh_font(10))
+        cbar.set_label('功率 (dB)', fontproperties=create_zh_font(10))
         
         # 设置标题和标签
         ax.set_title(f'天线 {dim + 1} 时频图', fontsize=12, pad=10, fontproperties=create_zh_font(12))
         ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-        ax.set_ylabel('频率分量', fontsize=10, fontproperties=create_zh_font(10))
+        ax.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
         ax.tick_params(axis='both', which='major', labelsize=8)
         
         # 为坐标轴刻度标签设置中文字体
