@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
 import matplotlib as mpl
+from scipy import signal
 
 # 设置中文字体支持 - 更直接有效的方式
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
@@ -100,6 +101,87 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
 
     plt.close()  # 关闭图形以释放内存
     print(f"图像已保存到: {save_path}")
+
+
+def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+                            save_path='./preprocess/sample_time_frequency_plot.png'):
+    """
+    绘制CSI数据的时频图（使用STFT短时傅里叶变换）
+    
+    参数:
+    data_path (str): CSI数据文件路径
+    sample_index (int): 要绘制的样本索引
+    save_path (str): 图像保存路径
+    """
+    # 加载数据
+    data = torch.load(data_path)
+    print(f"数据形状: {data.shape}")
+    
+    sample_data = data[sample_index]
+    # 计算复数CSI数据的幅度
+    amplitude_data = torch.abs(sample_data)
+    
+    # 绘图设置
+    fig_size = (14, 10)
+    
+    fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
+    fig.patch.set_facecolor('white')
+    
+    num_antennas = amplitude_data.shape[0]
+    time_steps = amplitude_data.shape[2]
+    
+    # STFT参数设置
+    # nperseg: 每段的长度，影响频率分辨率
+    # noverlap: 重叠长度，影响时间分辨率（75%重叠）
+    nperseg = 512
+    noverlap = 480  # 75%重叠，使能量分布更聚焦
+    
+    for dim in range(3):
+        ax = axes[dim]
+        ax.set_facecolor('white')
+        
+        # 对该天线的所有子载波数据求平均，得到一维时间序列
+        signal_data = torch.mean(amplitude_data[:, dim, :], dim=0).numpy()
+        
+        # 计算短时傅里叶变换（STFT）
+        frequencies, times, Zxx = signal.stft(signal_data, 
+                                               fs=1.0,  # 采样频率（归一化）
+                                               nperseg=nperseg, 
+                                               noverlap=noverlap)
+        
+        # 计算功率谱密度（取幅度的平方）
+        magnitude = np.abs(Zxx)
+        
+        # 绘制时频图
+        im = ax.pcolormesh(times, frequencies, magnitude, 
+                          shading='gouraud', 
+                          cmap='jet')  # 使用jet颜色映射，能量高的区域显示为暖色
+        
+        # 添加颜色条
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('幅度', fontproperties=create_zh_font(10))
+        
+        # 设置标题和标签
+        ax.set_title(f'天线 {dim + 1} 时频图', fontsize=12, pad=10, fontproperties=create_zh_font(12))
+        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
+        ax.set_ylabel('频率分量', fontsize=10, fontproperties=create_zh_font(10))
+        ax.tick_params(axis='both', which='major', labelsize=8)
+        
+        # 为坐标轴刻度标签设置中文字体
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(create_zh_font(8))
+    
+    plt.tight_layout()
+    
+    # 强制刷新图形以确保中文字体正确应用
+    plt.draw()
+    
+    # 保存图像到指定目录
+    plt.savefig(save_path, dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    
+    plt.close()  # 关闭图形以释放内存
+    print(f"时频图已保存到: {save_path}")
 
 
 def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132,
@@ -344,7 +426,10 @@ def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_d
 
 # 示例调用
 if __name__ == "__main__":
+    # 调用幅度图函数
     plot_csi_amplitude()
+    # 调用时频图函数
+    plot_csi_time_frequency()
     # 调用新的扩展函数
     plot_extended_csi_amplitude()
     # 调用加噪版本的函数
