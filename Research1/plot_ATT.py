@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 import os
 import json
+import numpy as np
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
 
 # 设置中文字体和美化参数
 plt.rcParams['font.sans-serif'] = ['SimHei', 'FangSong', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -189,6 +192,48 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"源域与目标域测试准确率曲线已保存到 {save_path}")
+
+
+def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆矩阵'):
+    """
+    绘制混淆矩阵
+    
+    参数:
+        y_true: 真实标签列表
+        y_pred: 预测标签列表
+        num_classes: 类别总数
+        save_path: 图表保存路径
+        title: 图表标题
+    """
+    
+    # 计算混淆矩阵
+    cm = confusion_matrix(y_true, y_pred, labels=range(num_classes))
+    
+    # 绘制混淆矩阵热力图
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=range(num_classes),
+                yticklabels=range(num_classes),
+                cbar_kws={'shrink': 0.8},
+                linewidths=0.5,
+                linecolor='gray')
+    
+    plt.title(title, fontsize=18, fontweight='bold', pad=20)
+    plt.xlabel('预测标签 (Predicted Label)', fontsize=14, fontweight='bold')
+    plt.ylabel('真实标签 (True Label)', fontsize=14, fontweight='bold')
+    
+    # 美化坐标轴
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(0.8)
+    ax.spines['bottom'].set_linewidth(0.8)
+    ax.tick_params(axis='both', which='major', labelsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"混淆矩阵已保存到 {save_path}")
 
 
 def plot_all_training_results(history_file_path, save_dir='Attention'):
