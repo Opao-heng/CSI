@@ -34,7 +34,7 @@ def load_training_history(history_path):
 
 def plot_training_loss_curves(history_file_path, save_path):
     """
-    绘制训练损失曲线图(总损失、源域损失、目标域损失、跨域特征损失、一致性损失)
+    绘制训练损失曲线图(总损失、源域损失、目标域损失、MMD损失)
     """
 
     # 加载历史数据
@@ -57,16 +57,26 @@ def plot_training_loss_curves(history_file_path, save_path):
     # 绘制总损失曲线
     plt.plot(epochs, train_losses, 'b-', label='总损失 (Total Loss)', linewidth=2.5, marker='o', markersize=4)
     
-    # 绘制各项损失曲线
+    # 绘制各项损失曲线（支持新旧两种格式）
     source_losses = [comp['source'] for comp in loss_components_history]
     target_losses = [comp['target'] for comp in loss_components_history]
-    cross_feature_losses = [comp['cross_feature'] for comp in loss_components_history]
-    consistency_losses = [comp['consistency'] for comp in loss_components_history]
     
-    plt.plot(epochs, source_losses, label='源域损失 (Source Loss)', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, target_losses, label='目标域损失 (Target Loss)', linewidth=2.5, marker='^', markersize=4)
-    plt.plot(epochs, cross_feature_losses, label='跨域特征损失 (Cross-Feature Loss)', linewidth=2.5, marker='d', markersize=4)
-    plt.plot(epochs, consistency_losses, label='一致性损失 (Consistency Loss)', linewidth=2.5, marker='*', markersize=6)
+    # 兼容旧格式（cross_feature, consistency）和新格式（mmd）
+    if 'mmd' in loss_components_history[0]:
+        mmd_losses = [comp['mmd'] for comp in loss_components_history]
+        plt.plot(epochs, source_losses, label='源域损失 (Source Loss)', linewidth=2.5, marker='s', markersize=4)
+        plt.plot(epochs, target_losses, label='目标域损失 (Target Loss)', linewidth=2.5, marker='^', markersize=4)
+        plt.plot(epochs, mmd_losses, label='MMD损失 (MMD Loss)', linewidth=2.5, marker='d', markersize=4)
+    else:
+        # 旧格式兼容
+        cross_feature_losses = [comp.get('cross_feature', 0) for comp in loss_components_history]
+        consistency_losses = [comp.get('consistency', 0) for comp in loss_components_history]
+        plt.plot(epochs, source_losses, label='源域损失 (Source Loss)', linewidth=2.5, marker='s', markersize=4)
+        plt.plot(epochs, target_losses, label='目标域损失 (Target Loss)', linewidth=2.5, marker='^', markersize=4)
+        if any(cross_feature_losses):
+            plt.plot(epochs, cross_feature_losses, label='跨域特征损失 (Cross-Feature Loss)', linewidth=2.5, marker='d', markersize=4)
+        if any(consistency_losses):
+            plt.plot(epochs, consistency_losses, label='一致性损失 (Consistency Loss)', linewidth=2.5, marker='*', markersize=6)
     
     plt.title('交叉注意力模型训练损失变化曲线', fontsize=18, fontweight='bold', pad=20)
     plt.xlabel('训练轮数 (Epoch)', fontsize=14, fontweight='bold')

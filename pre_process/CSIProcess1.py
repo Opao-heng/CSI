@@ -157,7 +157,7 @@ def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample
         
         # 计算短时傅里叶变换（STFT），使用汉宁窗减少边界效应
         frequencies, times, Zxx = signal.stft(signal_data, 
-                                               fs=1000.0,  # 采样频率设置为1000Hz
+                                               fs=10.0,  # 采样频率设置为10Hz，使频率范围为0-5Hz
                                                window='hann',  # 使用汉宁窗减少频谱泄漏
                                                nperseg=nperseg, 
                                                noverlap=noverlap,

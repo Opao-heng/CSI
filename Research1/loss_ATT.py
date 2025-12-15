@@ -1,78 +1,80 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 class LossFunction:
-    def __init__(self, num_classes=10, alpha=1.0, beta=1.0, gamma=0.5, delta=0.3):
-        self.ce_loss = nn.CrossEntropyLoss()
-        self.mse_loss = nn.MSELoss()
+    def __init__(self, num_classes=10, alpha=1.0, beta=1.0, gamma=0.5, label_smoothing=0.1, focal_gamma=2.0):
+        # 使用标签平滑减少过拟合
+        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        self.num_classes = num_classes
         # 损失权重参数
         self.alpha = alpha    # 源域分类损失权重
         self.beta = beta      # 目标域分类损失权重  
-        self.gamma = gamma    # 跨域特征一致性损失权重
-        self.delta = delta    # 特征一致性损失权重
+        self.gamma = gamma    # 跨域特征对齐损失权重（MMD）
+        self.focal_gamma = focal_gamma  # Focal Loss的gamma参数
         
+    def focal_loss(self, pred, labels, gamma=2.0):
+        """Focal Loss - 处理类别不平衡和难样本"""
+        ce_loss = F.cross_entropy(pred, labels, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1 - pt) ** gamma) * ce_loss
+        return focal_loss.mean()
+    
     def source_loss(self, pred_s, labels_s):
-        """源域分类损失 L_S"""
-        return self.ce_loss(pred_s, labels_s)
+        """源域分类损失 L_S - 使用Focal Loss"""
+        return self.focal_loss(pred_s, labels_s, self.focal_gamma)
 
     def target_loss(self, pred_t, labels_t):
-        """目标域分类损失 L_T"""
-        return self.ce_loss(pred_t, labels_t)
+        """目标域分类损失 L_T - 使用Focal Loss + 标签平滑"""
+        focal = self.focal_loss(pred_t, labels_t, self.focal_gamma)
+        ce = self.ce_loss(pred_t, labels_t)
+        return 0.7 * focal + 0.3 * ce  # 混合使用
 
-    def cross_feature_loss(self, F_s, F_t):
-        """改进的跨域特征一致性损失 L_SF"""
-        # 使用余弦相似性而不是MSE，避免过度对齐
-        F_s_norm = F.normalize(F_s, p=2, dim=1)
-        F_t_norm = F.normalize(F_t, p=2, dim=1)
-        cosine_sim = F.cosine_similarity(F_s_norm, F_t_norm, dim=1)
-        # 将相似性转换为损失（1 - 相似性）
-        return torch.mean(1 - cosine_sim)
-
-    def consistency_loss(self, F_s, F_c):
-        """特征一致性损失 L_C"""
-        # 使用更温和的L1损失替代MSE
-        return F.l1_loss(F_s, F_c)
-        
-    def adversarial_loss(self, F_s, F_t):
-        """对抗性损失，促进域不变特征学习"""
-        # 简单的域判别损失
+    def mmd_loss(self, F_s, F_t, kernel_mul=2.0, kernel_num=5):
+        """多核MMD损失 - 更好的域适应特征对齐"""
         batch_size = F_s.size(0)
         
-        # 创建域标签：源域=0，目标域=1
-        domain_labels_s = torch.zeros(batch_size, dtype=torch.long, device=F_s.device)
-        domain_labels_t = torch.ones(batch_size, dtype=torch.long, device=F_t.device)
+        # 计算核带宽
+        total = torch.cat([F_s, F_t], dim=0)
+        total0 = total.unsqueeze(0).expand(total.size(0), total.size(0), total.size(1))
+        total1 = total.unsqueeze(1).expand(total.size(0), total.size(0), total.size(1))
+        L2_distance = ((total0 - total1) ** 2).sum(2)
         
-        # 域分类器（简单的线性层）
-        domain_classifier = nn.Linear(F_s.size(1), 2).to(F_s.device)
+        bandwidth = torch.sum(L2_distance.detach()) / (total.size(0) ** 2 - total.size(0))
+        bandwidth = bandwidth / kernel_mul ** (kernel_num // 2)
+        bandwidth_list = [bandwidth * (kernel_mul ** i) for i in range(kernel_num)]
         
-        # 域预测
-        domain_pred_s = domain_classifier(F_s)
-        domain_pred_t = domain_classifier(F_t)
+        # 计算多核MMD
+        kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
+        kernels = sum(kernel_val)
         
-        # 对抗性损失：特征提取器希望混淆域分类器
-        domain_loss_s = self.ce_loss(domain_pred_s, domain_labels_t)  # 反向标签
-        domain_loss_t = self.ce_loss(domain_pred_t, domain_labels_s)  # 反向标签
+        XX = kernels[:batch_size, :batch_size]
+        YY = kernels[batch_size:, batch_size:]
+        XY = kernels[:batch_size, batch_size:]
+        YX = kernels[batch_size:, :batch_size]
         
-        return (domain_loss_s + domain_loss_t) / 2
-
-    def total_loss(self, pred_s, pred_t, F_s, F_t, F_c, labels_s, labels_t):
-        """改进的总损失函数"""
+        mmd = torch.mean(XX + YY - XY - YX)
+        return mmd
+    
+    def cross_feature_loss(self, F_s, F_t):
+        """跨域特征对齐损失 - 使用MMD"""
+        return self.mmd_loss(F_s, F_t)
+    
+    def total_loss(self, pred_s, pred_t, F_s, F_t, labels_s, labels_t):
+        """优化后的总损失函数（删除一致性损失）"""
         ls = self.source_loss(pred_s, labels_s)
         lt = self.target_loss(pred_t, labels_t)
-        lsf = self.cross_feature_loss(F_s, F_t)
-        lc = self.consistency_loss(F_s, F_c)
+        lmmd = self.cross_feature_loss(F_s, F_t)
         
-        # 计算加权总损失
+        # 计算加权总损失（不再使用一致性损失）
         total = (self.alpha * ls + 
                 self.beta * lt + 
-                self.gamma * lsf + 
-                self.delta * lc)
+                self.gamma * lmmd)
         
         return total, {
             'source_loss': ls.item(),
             'target_loss': lt.item(), 
-            'cross_feature_loss': lsf.item(),
-            'consistency_loss': lc.item(),
+            'mmd_loss': lmmd.item(),
             'total_loss': total.item()
         }

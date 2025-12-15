@@ -1,5 +1,6 @@
 import torch
 import torch.optim as optim
+import math
 from model_ATT import CrossAttentionModel
 from loss_ATT import LossFunction
 from torch.utils.data import DataLoader
@@ -14,7 +15,7 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
 
     model.train()
     total_loss = 0.0
-    loss_components = {'source': 0.0, 'target': 0.0, 'cross_feature': 0.0, 'consistency': 0.0}
+    loss_components = {'source': 0.0, 'target': 0.0, 'mmd': 0.0}
     
     # 初始化数据加载器迭代器
     max_batches = max(len(dataloader_source), len(dataloader_target))
@@ -48,20 +49,18 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
         # 梯度清零
         optimizer.zero_grad()
 
-        # 前向传播
-        pred_s, pred_t, F_s, F_t, F_c = model(src_data, tgt_data)
+        # 前向传播（不再使用F_c）
+        pred_s, pred_t, F_s, F_t, _ = model(src_data, tgt_data)
 
-        # 计算各项损失
+        # 计算各项损失（删除一致性损失）
         ls = criterion.source_loss(pred_s, src_labels)
         lt = criterion.target_loss(pred_t, tgt_labels)
-        lsf = criterion.cross_feature_loss(F_s, F_t)
-        lc = criterion.consistency_loss(F_s, F_c)
+        lmmd = criterion.cross_feature_loss(F_s, F_t)
 
         # 加权组合损失
         loss = (criterion.alpha * ls + 
                criterion.beta * lt + 
-               criterion.gamma * lsf + 
-               criterion.delta * lc)
+               criterion.gamma * lmmd)
                
         # 反向传播
         loss.backward()
@@ -80,8 +79,7 @@ def train_epoch(model, dataloader_source, dataloader_target, criterion, optimize
         total_loss += loss.item()
         loss_components['source'] += ls.item()
         loss_components['target'] += lt.item()
-        loss_components['cross_feature'] += lsf.item()
-        loss_components['consistency'] += lc.item()
+        loss_components['mmd'] += lmmd.item()
 
     # 计算平均损失
     avg_loss = total_loss / max_batches
@@ -227,7 +225,7 @@ def save_training_history(train_losses, val_accuracies, loss_components_history,
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
-    # 构建历史数据字典
+    # 构建历史数据字典（更新键名）
     history = {
         'train_losses': train_losses,
         'val_accuracies': val_accuracies,
@@ -271,23 +269,39 @@ if __name__ == "__main__":
     # 模型初始化
     model = CrossAttentionModel(num_classes=10).to(device)
 
+    # 训练超参数设置
+    num_epochs = 150  # 增加训练轮数
+    best_accuracy = 0.0
+    best_model_path = "Attention/best_attention_model.pth"
+    patience = 20  # 增加早停耐心值
+    early_stop_counter = 0
+
     # 损失函数、优化器、学习率调度器配置
     criterion = LossFunction(
         num_classes=10,
-        alpha=1.0,      # 源域分类损失权重
-        beta=1.0,       # 目标域分类损失权重
-        gamma=0.3,      # 跨域特征对齐损失权重
-        delta=0.2       # 一致性损失权重
+        alpha=1.0,           # 源域分类损失权重
+        beta=1.5,            # 提高目标域分类损失权重
+        gamma=0.5,           # 增强跨域特征对齐（MMD）
+        label_smoothing=0.1, # 标签平滑减少过拟合
+        focal_gamma=2.0      # Focal Loss参数
     )
-    optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
-
-    # 训练超参数设置
-    num_epochs = 100
-    best_accuracy = 0.0
-    best_model_path = "Attention/best_attention_model.pth"
-    patience = 15  # 早停耐心值
-    early_stop_counter = 0
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    
+    # 使用Warmup + 余弦退火学习率策略
+    warmup_epochs = 10
+    total_steps = num_epochs * max(len(source_loader), len(target_loader))
+    warmup_steps = warmup_epochs * max(len(source_loader), len(target_loader))
+    
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            # Warmup阶段：线性增长
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # 余弦退火阶段
+            progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+    
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     train_losses = []  # 训练损失记录
     val_accuracies = []  # 验证准确率记录
@@ -314,8 +328,7 @@ if __name__ == "__main__":
         print(f'  训练损失: {train_loss:.4f} '
               f'(源域: {loss_components["source"]:.4f}, '
               f'目标: {loss_components["target"]:.4f}, '
-              f'跨域: {loss_components["cross_feature"]:.4f}, '
-              f'一致: {loss_components["consistency"]:.4f})')
+              f'MMD: {loss_components["mmd"]:.4f})')
         print(f'  验证准确率: {val_accuracy:.2f}%')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         
@@ -345,11 +358,12 @@ if __name__ == "__main__":
             print(f'  验证准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
             
-        # 动态调整损失权重：随训练进展逐步减少领域适应的重要性
-        if epoch > 20:
-            criterion.gamma = float(max(0.1, criterion.gamma * 0.98))
-            criterion.delta = float(max(0.05, criterion.delta * 0.98))
-            print(f'  调整损失权重: gamma={criterion.gamma:.4f}, delta={criterion.delta:.4f}')
+        # 动态调整损失权重：随训练进展调整域适应和分类的平衡
+        if epoch > 30 and epoch % 10 == 0:
+            # 逐步增强目标域分类，减弱域对齐
+            criterion.beta = min(2.0, criterion.beta * 1.05)
+            criterion.gamma = max(0.2, criterion.gamma * 0.95)
+            print(f'  调整损失权重: beta={criterion.beta:.4f}, gamma={criterion.gamma:.4f}')
 
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
@@ -376,11 +390,3 @@ if __name__ == "__main__":
     tgt_confusion_matrix_path = 'Attention/target_confusion_matrix.png'
     plot_confusion_matrix(tgt_labels_list, tgt_predictions, 10, tgt_confusion_matrix_path,
                          title='目标域混淆矩阵 (Target Domain Confusion Matrix)')
-    
-    # 保存最终模型
-    final_model_path = 'Attention/final_attention_model.pth'
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'best_accuracy': best_accuracy,
-    }, final_model_path)
-    print(f"最终模型已保存到 {final_model_path}")
