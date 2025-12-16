@@ -1,0 +1,392 @@
+import torch
+import torch.optim as optim
+import math
+from model_ATT import CrossAttentionModel
+from loss_ATT import LossFunction
+from torch.utils.data import DataLoader
+from Research1.Process.dataloder_ATT import CustomDataset
+import os
+
+
+def train_epoch(model, dataloader_source, dataloader_target, criterion, optimizer, scheduler=None):
+    """
+    执行一个完整的训练周期，对模型进行源域和目标域的联合训练。
+    """
+
+    model.train()
+    total_loss = 0.0
+    loss_components = {'source': 0.0, 'target': 0.0, 'mmd': 0.0}
+    
+    # 初始化数据加载器迭代器
+    max_batches = max(len(dataloader_source), len(dataloader_target))
+    source_iter = iter(dataloader_source)
+    target_iter = iter(dataloader_target)
+    
+    for batch_idx in range(max_batches):
+        # 获取源域数据（支持循环迭代）
+        try:
+            src_data, src_labels = next(source_iter)
+        except StopIteration:
+            source_iter = iter(dataloader_source)
+            src_data, src_labels = next(source_iter)
+            
+        # 获取目标域数据（支持循环迭代）
+        try:
+            tgt_data, tgt_labels = next(target_iter)
+        except StopIteration:
+            target_iter = iter(dataloader_target)
+            tgt_data, tgt_labels = next(target_iter)
+            
+        # 处理批次大小不一致，取较小的大小
+        min_batch_size = min(src_data.size(0), tgt_data.size(0))
+        src_data, src_labels = src_data[:min_batch_size], src_labels[:min_batch_size]
+        tgt_data, tgt_labels = tgt_data[:min_batch_size], tgt_labels[:min_batch_size]
+        
+        # 将数据移到指定设备
+        src_data, src_labels = src_data.to(device), src_labels.to(device)
+        tgt_data, tgt_labels = tgt_data.to(device), tgt_labels.to(device)
+
+        # 梯度清零
+        optimizer.zero_grad()
+
+        # 前向传播（不再使用F_c）
+        pred_s, pred_t, F_s, F_t, _ = model(src_data, tgt_data)
+
+        # 计算各项损失（删除一致性损失）
+        ls = criterion.source_loss(pred_s, src_labels)
+        lt = criterion.target_loss(pred_t, tgt_labels)
+        lmmd = criterion.cross_feature_loss(F_s, F_t)
+
+        # 加权组合损失
+        loss = (criterion.alpha * ls + 
+               criterion.beta * lt + 
+               criterion.gamma * lmmd)
+               
+        # 反向传播
+        loss.backward()
+        
+        # 梯度裁剪防止梯度爆炸
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
+        # 参数更新
+        optimizer.step()
+        
+        # 学习率调度更新
+        if scheduler:
+            scheduler.step()
+
+        # 损失累积
+        total_loss += loss.item()
+        loss_components['source'] += ls.item()
+        loss_components['target'] += lt.item()
+        loss_components['mmd'] += lmmd.item()
+
+    # 计算平均损失
+    avg_loss = total_loss / max_batches
+    for key in loss_components:
+        loss_components[key] = loss_components[key] / max_batches
+        
+    return avg_loss, loss_components
+
+
+def validate_on_domain(model, dataloader, device, domain_type='target'):
+    """
+    在指定域的数据集上评估模型性能，domain_type: 'source' 或 'target'，计算损失和准确率。
+    """
+
+    model.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data, labels = batch
+            data, labels = data.to(device), labels.to(device)
+            
+            # 根据域类型选择不同的前向传播方式
+            if domain_type == 'target':
+                # 目标域：源域输入为零张量
+                _, pred, _, _, _ = model(torch.zeros_like(data).to(device), data)
+            else:
+                # 源域：目标域输入为零张量
+                pred, _, _, _, _ = model(data, torch.zeros_like(data).to(device))
+            
+            # 计算准确率
+            _, predicted = torch.max(pred, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * correct / total if total > 0 else 0.0
+    return accuracy
+
+
+def get_predictions_and_labels(model, dataloader, device, domain_type='target'):
+    """
+    获取模型在指定域上的所有预测标签和真实标签，用于生成混淆矩阵。
+    
+    参数:
+        model: 待评估的模型
+        dataloader: 数据加载器
+        device: 计算设备
+        domain_type: 域类型('source' 或 'target')
+    
+    返回:
+        all_predictions: 所有预测标签列表
+        all_labels: 所有真实标签列表
+    """
+    
+    model.eval()
+    all_predictions = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data, labels = batch
+            data, labels = data.to(device), labels.to(device)
+            
+            # 根据域类型选择不同的前向传播方式
+            if domain_type == 'target':
+                # 目标域：源域输入为零张量
+                _, pred, _, _, _ = model(torch.zeros_like(data).to(device), data)
+            else:
+                # 源域：目标域输入为零张量
+                pred, _, _, _, _ = model(data, torch.zeros_like(data).to(device))
+            
+            # 获取预测标签
+            _, predicted = torch.max(pred, 1)
+            all_predictions.extend(predicted.cpu().numpy().tolist())
+            all_labels.extend(labels.cpu().numpy().tolist())
+    
+    return all_predictions, all_labels
+
+
+
+
+
+def test_model(model, dataloader_source, dataloader_target, criterion):
+    """
+    在测试集上评估模型
+    """
+    model.eval()
+    total_loss = 0.0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for tgt_batch in dataloader_target:
+            tgt_data, tgt_labels = tgt_batch
+            tgt_data, tgt_labels = tgt_data.to(device), tgt_labels.to(device)
+
+            # 模型前向传播（源域输入为零张量）
+            _, pred_t, _, _, _ = model(torch.zeros_like(tgt_data).to(device), tgt_data)
+
+            # 计算目标域损失
+            loss = criterion.target_loss(pred_t, tgt_labels)
+            total_loss += loss.item()
+
+            # 计算准确率
+            _, predicted = torch.max(pred_t, 1)
+            total += tgt_labels.size(0)
+            correct += (predicted == tgt_labels).sum().item()
+
+    accuracy = correct / total if total > 0 else 0.0
+    avg_loss = total_loss / len(dataloader_target)
+
+    return avg_loss, accuracy
+
+
+def save_best_model(model, optimizer, scheduler, path, accuracy, epoch, loss_components):
+    """
+    保存最佳模型权重和训练信息到指定路径。
+    """
+    # 创建保存路径目录（若不存在）
+    if not os.path.exists(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+    
+    # 保存模型状态字典和元信息
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'accuracy': accuracy,
+        'loss_components': loss_components
+    }, path)
+    print(f"  保存最佳模型 (准确率: {accuracy:.2f}%)")
+
+
+def save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention'):
+    """
+    保存训练历史数据到JSON文件
+    """
+    import json
+    
+    # 创建保存目录
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    # 构建历史数据字典（更新键名）
+    history = {
+        'train_losses': train_losses,
+        'val_accuracies': val_accuracies,
+        'loss_components_history': loss_components_history,
+        'test_results_history': test_results_history,
+        'train_accuracies': [100 - loss * 10 for loss in train_losses]  # 简单估算
+    }
+    
+    # 保存为JSON格式
+    save_path = os.path.join(save_dir, 'training_history.json')
+    with open(save_path, 'w') as f:
+        json.dump(history, f, indent=4)
+    
+    print(f"训练历史已保存到 {save_path}")
+
+
+if __name__ == "__main__":
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = True
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 加载数据文件
+    print("加载 Attention 数据文件...")
+    source_data = torch.load('Data/source_env0_env1_data.pt')
+    source_labels = torch.load('Data/source_env0_env1_labels.pt')
+    target_data = torch.load('Data/target_env2_gan_data.pt')
+    target_labels = torch.load('Data/target_env2_gan_labels.pt')
+
+    # 查看数据形状
+    print(f"Source data shape: {source_data.shape}")
+    print(f"Source labels shape: {source_labels.shape}")
+    print(f"Target data shape: {target_data.shape}")
+    print(f"Target labels shape: {target_labels.shape}")
+
+    # 创建数据集数据加载器
+    source_dataset = CustomDataset(source_data, source_labels)
+    target_dataset = CustomDataset(target_data, target_labels)
+    source_loader = DataLoader(source_dataset, batch_size=32, shuffle=True)
+    target_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
+
+    # 模型初始化
+    model = CrossAttentionModel(num_classes=10).to(device)
+
+    # 训练超参数设置
+    num_epochs = 150  # 增加训练轮数
+    best_accuracy = 0.0
+    best_model_path = "Attention/best_attention_model.pth"
+    patience = 20  # 增加早停耐心值
+    early_stop_counter = 0
+
+    # 损失函数、优化器、学习率调度器配置
+    criterion = LossFunction(
+        num_classes=10,
+        alpha=1.0,           # 源域分类损失权重
+        beta=1.5,            # 提高目标域分类损失权重
+        gamma=0.5,           # 增强跨域特征对齐（MMD）
+        label_smoothing=0.1, # 标签平滑减少过拟合
+        focal_gamma=2.0      # Focal Loss参数
+    )
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    
+    # 使用Warmup + 余弦退火学习率策略
+    warmup_epochs = 10
+    total_steps = num_epochs * max(len(source_loader), len(target_loader))
+    warmup_steps = warmup_epochs * max(len(source_loader), len(target_loader))
+    
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            # Warmup阶段：线性增长
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # 余弦退火阶段
+            progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+    
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    train_losses = []  # 训练损失记录
+    val_accuracies = []  # 验证准确率记录
+    loss_components_history = []  # 损失组件历史
+    test_results_history = []  # 测试结果历史
+
+    # 主训练循环
+    print("开始训练循环...")
+    for epoch in range(num_epochs):
+        print(f'\nEpoch [{epoch+1}/{num_epochs}]')
+        
+        # 执行一个训练周期
+        train_loss, loss_components = train_epoch(model, source_loader, target_loader, criterion, optimizer, scheduler)
+        
+        # 验证模型（使用目标域数据）
+        val_accuracy = validate_on_domain(model, target_loader, device, domain_type='target')
+        
+        # 记录历史数据
+        train_losses.append(train_loss)
+        val_accuracies.append(val_accuracy)
+        loss_components_history.append(loss_components)
+        
+        # 打印训练进度
+        print(f'  训练损失: {train_loss:.4f} '
+              f'(源域: {loss_components["source"]:.4f}, '
+              f'目标: {loss_components["target"]:.4f}, '
+              f'MMD: {loss_components["mmd"]:.4f})')
+        print(f'  验证准确率: {val_accuracy:.2f}%')
+        print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
+        
+        # 在每个epoch后测试模型
+        print(f'  测试效果:')
+        src_test_accuracy = validate_on_domain(model, source_loader, device, domain_type='source')
+        tgt_test_accuracy = validate_on_domain(model, target_loader, device, domain_type='target')
+        test_results = {
+            'src_test_accuracy': src_test_accuracy,
+            'tgt_test_accuracy': tgt_test_accuracy
+        }
+        test_results_history.append(test_results)
+        print(f'    源域测试准确率: {src_test_accuracy:.2f}%')
+        print(f'    目标域测试准确率: {tgt_test_accuracy:.2f}%')
+        
+        # 保存最佳模型
+        if val_accuracy > best_accuracy:
+            best_accuracy = val_accuracy
+            early_stop_counter = 0
+            save_best_model(model, optimizer, scheduler, best_model_path, val_accuracy, epoch, loss_components)
+        else:
+            early_stop_counter += 1
+            print(f'  早停计数器: {early_stop_counter}/{patience}')
+            
+        # 早停检查：若无改进，提前终止训练
+        if early_stop_counter >= patience:
+            print(f'  验证准确率在 {patience} 个epoch内未提升，提前停止训练')
+            break
+            
+        # 动态调整损失权重：随训练进展调整域适应和分类的平衡
+        if epoch > 30 and epoch % 10 == 0:
+            # 逐步增强目标域分类，减弱域对齐
+            criterion.beta = min(2.0, criterion.beta * 1.05)
+            criterion.gamma = max(0.2, criterion.gamma * 0.95)
+            print(f'  调整损失权重: beta={criterion.beta:.4f}, gamma={criterion.gamma:.4f}')
+
+    print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
+    
+    # 保存训练历史
+    save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention')
+    
+    # 训练结果可视化
+    from plot_ATT import plot_all_training_results, plot_confusion_matrix
+    plot_all_training_results('Attention/training_history.json', save_dir='Attention')
+    
+    # 生成混淆矩阵
+    print("\n=== 生成混淆矩阵 ===")
+    
+    # 获取源域预测标签和真实标签
+    print("生成源域混淆矩阵...")
+    src_predictions, src_labels_list = get_predictions_and_labels(model, source_loader, device, domain_type='source')
+    src_confusion_matrix_path = 'Attention/source_confusion_matrix.png'
+    plot_confusion_matrix(src_labels_list, src_predictions, 10, src_confusion_matrix_path, 
+                         title='源域混淆矩阵 (Source Domain Confusion Matrix)')
+    
+    # 获取目标域预测标签和真实标签
+    print("生成目标域混淆矩阵...")
+    tgt_predictions, tgt_labels_list = get_predictions_and_labels(model, target_loader, device, domain_type='target')
+    tgt_confusion_matrix_path = 'Attention/target_confusion_matrix.png'
+    plot_confusion_matrix(tgt_labels_list, tgt_predictions, 10, tgt_confusion_matrix_path,
+                         title='目标域混淆矩阵 (Target Domain Confusion Matrix)')

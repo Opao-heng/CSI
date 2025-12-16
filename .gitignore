@@ -1,0 +1,9 @@
+ 
+# 忽略 data 目录
+data/
+
+result/
+
+Research2/data/
+
+Research1/Baseline/CVAE/CVAE/
