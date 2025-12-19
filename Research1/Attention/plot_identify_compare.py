@@ -68,28 +68,33 @@ def plot_cross_domain_identity_comparison(
 
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    # 定义顶会论文风格配色方案
-    colors = ['#E74C3C', '#3498DB', '#95A5A6', '#95A5A6', '#95A5A6', '#95A5A6', '#95A5A6']
+    # 定义顶会论文风格配色方案（统一使用红色）
+    colors = ['#E07B7B'] * len(method_names)
     
     x = range(len(method_names))
-    bars = ax.bar(x, metric_values, color=colors, edgecolor='#2C3E50', linewidth=1.8, alpha=0.9, width=0.65)
+    bars = ax.bar(x, metric_values, color=colors, edgecolor='black', linewidth=1.2, alpha=0.85, width=0.6)
+    
+    # 添加误差线（模拟标准差，可根据实际数据调整）
+    errors = [2.5, 3.0, 2.0, 1.8, 2.2, 2.5, 2.8]  # 示例误差值
+    ax.errorbar(x, metric_values, yerr=errors, fmt='none', ecolor='black', 
+                capsize=5, capthick=1.5, elinewidth=1.5, alpha=0.7)
 
     # 设置坐标轴与标题（学术风格）
     ax.set_xticks(x)
-    ax.set_xticklabels(method_names, rotation=15, fontsize=13, ha='right', fontproperties=create_zh_font(13))
+    ax.set_xticklabels(method_names, rotation=0, fontsize=13, ha='center', fontproperties=create_zh_font(13), fontweight='bold')
     ax.set_ylabel(metric_name, fontsize=16, fontweight='bold', fontproperties=create_zh_font(16), labelpad=10)
     ax.set_xlabel("对比算法", fontsize=16, fontweight='bold', fontproperties=create_zh_font(16), labelpad=10)
     ax.set_title(title, fontsize=20, fontweight='bold', pad=25, fontproperties=create_zh_font(20))
 
-    # 网格与坐标轴美化（顶会论文风格）
-    ax.grid(axis='y', alpha=0.25, linestyle='--', linewidth=0.5, color='gray')
+    # 网格与坐标轴美化（简洁学术风格，只保留左侧和底部边框）
+    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.8, color='#CCCCCC', zorder=0)
     ax.set_axisbelow(True)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.2)
-    ax.spines['left'].set_color('#2C3E50')
-    ax.spines['bottom'].set_linewidth(1.2)
-    ax.spines['bottom'].set_color('#2C3E50')
+    ax.spines['left'].set_linewidth(1.5)
+    ax.spines['left'].set_color('black')
+    ax.spines['bottom'].set_linewidth(1.5)
+    ax.spines['bottom'].set_color('black')
     
     # 设置y轴刻度样式
     ax.tick_params(axis='both', which='major', labelsize=12, length=6, width=1.0, colors='#2C3E50')
@@ -100,17 +105,22 @@ def plot_cross_domain_identity_comparison(
         ax.set_ylim(0, y_max * 1.15)
 
     # 在柱子上方标注数值（更精致的样式）
-    for bar, value in zip(bars, metric_values):
+    for idx, (bar, value) in enumerate(zip(bars, metric_values)):
         height = bar.get_height()
+        # 数字位置向上调整，使其离柱子顶面更远
+        y_offset = max(metric_values) * 0.05 if metric_values else height * 0.05
+        # 第一个数值 (82.50) 特殊处理，加粗
+        fontweight = 'bold' if idx == 0 else 'bold'  # 所有数值深粗
+        fontsize = 15
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            height + max(metric_values) * 0.02 if metric_values else height * 0.02,
+            height + y_offset,
             f"{value:.2f}",
             ha='center',
             va='bottom',
-            fontsize=12,
-            fontweight='bold',
-            fontproperties=create_zh_font(12),
+            fontsize=fontsize,
+            fontweight=fontweight,
+            fontproperties=create_zh_font(fontsize),
             color='#2C3E50'
         )
 
@@ -194,26 +204,26 @@ def plot_cross_domain_identity_comparison_default(
 ) -> None:
     """使用占位数据绘制跨域身份识别性能对比图。
     """
-    # 方法名称（TFGAN-CAL放在最左边，GiWiD第二列）
+    # 方法名称（按照指定顺序从左到右排列）
     method_names = [
         "TFGAN-CAL",
         "GiWiD",
-        "Gait-Enhance",
-        "CAUTION",
-        "GaitID",
         "Deep-WiID",
         "CSIID",
+        "CAUTION",
+        "GaitID",
+        "Gait-Enhance",
     ]
 
     # TODO: 将下列占位数值替换为真实实验结果 (单位: %)
     metric_values = [
         82.50,  # TFGAN-CAL
         73.56,  # GiWiD
-        67.46,  # Gait-Enhance
-        56.68,  # CAUTION
-        45.34,  # GaitID
         26.78,  # Deep-WiID
         20.45,  # CSIID
+        56.68,  # CAUTION
+        45.34,  # GaitID
+        67.46,  # Gait-Enhance
     ]
 
     plot_cross_domain_identity_comparison(
