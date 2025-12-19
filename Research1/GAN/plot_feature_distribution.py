@@ -297,9 +297,6 @@ def plot_feature_distribution_tsne_improved(real_features, real_labels, syntheti
 
 
 if __name__ == "__main__":
-    """
-    演示代码：使用模拟数据生成feature_distribution_tsne图111
-    """
     print("\n=== 生成模拟数据 ===")
     
     # 步骤1: 生成真实用户特征分布（10个用户）
@@ -328,8 +325,8 @@ if __name__ == "__main__":
         real_labels,
         synthetic_features,
         synthetic_labels,
-        output_path='GAN/feature_distribution_tsne_improved.png'
+        output_path='feature_distribution_tsne_improved.png'
     )
     
     print("\n=== 所有图表生成完成！ ===")
-    print("特征分布图已保存到: GAN/feature_distribution_tsne_improved.png")
+    print("特征分布图已保存到: feature_distribution_tsne_improved.png")
