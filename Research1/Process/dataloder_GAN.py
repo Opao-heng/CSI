@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 """
 自定义数据集类，用于载入数据和标签
 参数:
-  data - 整个数据集的张量
+  RawData - 整个数据集的张量
   labels - 整个数据集的标签张量
 """
 class CustomDataset(Dataset):
@@ -26,7 +26,7 @@ class CustomDataset(Dataset):
 """
 为目标域数据每个标签选择固定数量的样本，用于生成GAN数据
 参数:
-  data - 整个数据的张量，形状为(N, 56, 3, 6000)
+  RawData - 整个数据的张量，形状为(N, 56, 3, 6000)
   labels - 整个数据的标签，形状为(N,) 或 (N, 1)
   samples_per_label - 每个标签需要选择的样本数，默认10
 返回: tuple - (selected_data, selected_labels)

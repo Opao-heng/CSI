@@ -255,9 +255,9 @@ if __name__ == "__main__":
     target_labels = torch.load('Data/target_env2_gan_labels.pt')
 
     # 查看数据形状
-    print(f"Source data shape: {source_data.shape}")
+    print(f"Source Raw data shape: {source_data.shape}")
     print(f"Source labels shape: {source_labels.shape}")
-    print(f"Target data shape: {target_data.shape}")
+    print(f"Target Raw data shape: {target_data.shape}")
     print(f"Target labels shape: {target_labels.shape}")
 
     # 创建数据集数据加载器

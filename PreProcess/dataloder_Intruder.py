@@ -16,15 +16,15 @@ class CustomDataset(Dataset):
 
 if __name__ == "__main__":
     # 加载数据文件示例
-    source_data = torch.load('../data/SourceData/source_data.pt')
-    source_labels = torch.load('../data/SourceData/source_labels.pt')
-    target_data = torch.load('../data/TargetData/target_data.pt')
-    target_labels = torch.load('../data/TargetData/target_labels.pt')
+    source_data = torch.load('../RawData/SourceData/source_data.pt')
+    source_labels = torch.load('../RawData/SourceData/source_labels.pt')
+    target_data = torch.load('../RawData/TargetData/target_data.pt')
+    target_labels = torch.load('../RawData/TargetData/target_labels.pt')
 
     # 查看数据形状
-    print(f"Source data shape: {source_data.shape}")
+    print(f"Source RawData shape: {source_data.shape}")
     print(f"Source labels shape: {source_labels.shape}")
-    print(f"Target data shape: {target_data.shape}")
+    print(f"Target RawData shape: {target_data.shape}")
     print(f"Target labels shape: {target_labels.shape}")
 
     # 创建数据集

@@ -1,9 +1,11 @@
  
-# 忽略 data 目录
-data/
+# 忽略 RawData 目录
+RawData/
 
 result/
 
-Research2/data/
+Research2/Data/
+
+Research1/Data/
 
 Research1/Baseline/CVAE/CVAE/

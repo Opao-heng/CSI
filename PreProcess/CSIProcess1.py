@@ -46,7 +46,7 @@ zh_font = create_zh_font(12)
 print(f"已配置中文字体，默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=56, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图
@@ -103,7 +103,7 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
     print(f"图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample_index=56,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -212,7 +212,7 @@ def plot_csi_time_frequency(data_path='../data/source_env0_env1_data.pt', sample
     print(f"时频图已保存到: {save_path}")
 
 
-def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                                 save_path='./preprocess/extended_sample_amplitude_plot.png', total_time_steps=50000):
     """
     绘制扩展的CSI数据幅度图，将6000个原始数据包放在中间位置，前后扩展至50000个数据包
@@ -332,7 +332,7 @@ def plot_extended_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sa
     print(f"扩展图像已保存到: {save_path}")
 
 
-def plot_extended_csi_amplitude_with_noise(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                                            save_path='./preprocess/extended_sample_amplitude_with_noise.png', total_time_steps=50000,
                                            noise_std_ratio=0.1):
     """

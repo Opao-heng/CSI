@@ -223,8 +223,8 @@ def extract_features_identity_by_dataset(device):
     根据数据集原始数据分别提取源域和目标域特征
     
     直接从数据加载器加载的原始数据中提取特征：
-    - 源域数据: torch.load('../data/SourceData/source_data.pt') - 2007个样本
-    - 目标域数据: torch.load('../data/TargetData/target_data.pt') - 1032个样本
+    - 源域数据: torch.load('../RawData/SourceData/source_data.pt') - 2007个样本
+    - 目标域数据: torch.load('../RawData/TargetData/target_data.pt') - 1032个样本
     """
     # 直接加载原始数据
     import os

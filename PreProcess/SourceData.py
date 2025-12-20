@@ -96,8 +96,8 @@ def load_combined_env_data(env0_dir, env1_dir):
 """
 if __name__ == "__main__":
     # 步骤1: 指定两个环境的数据目录
-    env0_directory = "../data/env0_ldentify"
-    env1_directory = "../data/env1_ldentify"
+    env0_directory = "../RawData/env0_ldentify"
+    env1_directory = "../RawData/env1_ldentify"
     
     # 步骤2: 加载并合并两个环境的数据
     source_data, source_labels = load_combined_env_data(env0_directory, env1_directory)
@@ -108,5 +108,5 @@ if __name__ == "__main__":
         print(f"源域标签形状: {source_labels.shape}")
         
         # 步骤4: 可选保存合并后的数据为PyTorch格式
-        torch.save(source_data, '../data/source_env0_env1_data.pt')
-        torch.save(source_labels, '../data/source_env0_env1_labels.pt')
+        torch.save(source_data, '../RawData/source_env0_env1_data.pt')
+        torch.save(source_labels, '../RawData/source_env0_env1_labels.pt')

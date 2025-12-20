@@ -55,16 +55,16 @@ def load_intruder_data():
     print("\n----------------------------------------------------\n")
     print("研究内容二---入侵检测---加载数据...")
     print("加载源域数据...")
-    source_data = torch.load('../data/SourceData/source_data.pt')
-    source_labels = torch.load('../data/SourceData/source_labels.pt')
+    source_data = torch.load('../Data/source_env0_env1_data.pt')
+    source_labels = torch.load('../Data/source_env0_env1_labels.pt')
 
     print(f"源域数据形状: {source_data.shape}")
     print(f"源域标签形状: {source_labels.shape}")
 
     # 加载目标域已知用户数据（env2 中 10 名已知用户）
     print("加载目标域已知用户数据...")
-    target_legal_data = torch.load('../data/TargetData/target_data.pt')
-    target_legal_labels = torch.load('../data/TargetData/target_labels.pt')
+    target_legal_data = torch.load('../Data/target_env2_data.pt')
+    target_legal_labels = torch.load('../Data/target_env2_labels.pt')
 
     print(f"目标域已知用户数据形状: {target_legal_data.shape}")
     print(f"目标域已知用户标签形状: {target_legal_labels.shape}")

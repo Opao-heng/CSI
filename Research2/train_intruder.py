@@ -1,10 +1,9 @@
 import torch
 import numpy as np
-import os
 import json
 from model_identify import IdentifyDetectionSystem
 from model_intruder import LearnableComprehensiveIntruderDetector
-from dataloader_intruder import load_intruder_data, create_intruder_data_loaders
+from Research2.Process.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
 from sklearn.metrics import f1_score, precision_score, recall_score
 
 def extract_features(model, data_loader, device):

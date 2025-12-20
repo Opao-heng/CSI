@@ -53,7 +53,7 @@ def add_gaussian_white_noise(data, snr_db=None, snr_range=(20, 40), noise_scale=
     其中 η ~ N(0, 1) 是标准高斯白噪声，noise_scale 控制噪声强度（默认0.02 = 2%）
     
     参数:
-    data (torch.Tensor): 输入CSI数据，形状为 (N, 3, T) 或 (3, T)
+    RawData (torch.Tensor): 输入CSI数据，形状为 (N, 3, T) 或 (3, T)
     snr_db (float): 指定的SNR值（dB），取值范围20-40（高SNR表示低噪声）。若为None，则随机采样
     snr_range (tuple): SNR随机范围，默认(20, 40)表示较低噪声水平
     noise_scale (float): 噪声缩放因子，相对于信号标准差的比例。默认0.02 = 2%
@@ -117,7 +117,7 @@ def add_multipath_fading_augmentation(data, num_paths=None, rayleigh_ratio=0.7,
     - 通过傅里叶变换将时域冲激响应转换为频域CSI：H(f,t) = Σ α_{i(t)} e^{-j2πfτ_i}
     
     参数:
-    data (torch.Tensor): 输入CSI数据，形状为 (N, C, T) 或 (C, T)，其中N为天线/样本数，C为子载波/维度数，T为时间步长
+    RawData (torch.Tensor): 输入CSI数据，形状为 (N, C, T) 或 (C, T)，其中N为天线/样本数，C为子载波/维度数，T为时间步长
     num_paths (int): 多径数量，范围[3, 10]。默认随机采样
     rayleigh_ratio (float): Rayleigh分量占比，范围[0, 1]。1.0表示纯Rayleigh，0.0表示纯Rician
     path_delay_range (tuple): 路径延迟范围（采样点），默认(0, 100)
@@ -234,7 +234,7 @@ def add_frequency_selective_fading_augmentation(data, a=None, b=None, fading_typ
     - 通过逆快速傅里叶变换（IFFT）转换回时域，得到增强后的CSI数据
     
     参数:
-    data (torch.Tensor): 输入CSI数据，形状为 (N, C, T) 或 (C, T)，其中N为天线/样本数，C为子载波/维度数，T为时间步长
+    RawData (torch.Tensor): 输入CSI数据，形状为 (N, C, T) 或 (C, T)，其中N为天线/样本数，C为子载波/维度数，T为时间步长
     a (float): 基础衰减系数，范围[0.5, 1.0]。默认随机采样
     b (float): 线性衰减斜率，范围[0.5×10^-5]。默认随机采样
     fading_type (str): 衰落类型，'linear_random'为线性随机衰落
@@ -325,7 +325,7 @@ def add_frequency_selective_fading_augmentation(data, a=None, b=None, fading_typ
     return data_augmented, augmentation_params
 
 
-def plot_frequency_selective_fading_comparison(data_path='../data/source_env0_env1_data.pt', 
+def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0_env1_data.pt',
                                                sample_index=132, a=None, b=None,
                                                save_path='./preprocess/frequency_selective_fading_comparison.png'):
     """
@@ -442,7 +442,7 @@ def plot_frequency_selective_fading_comparison(data_path='../data/source_env0_en
     print(f"对比图已保存到: {save_path}")
 
 
-def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt', 
+def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data.pt',
                                      sample_index=132, num_paths=5, rician_k_db=5.0,
                                      save_path='./preprocess/multipath_fading_comparison.png'):
     """
@@ -527,7 +527,7 @@ def plot_multipath_fading_comparison(data_path='../data/source_env0_env1_data.pt
     print(f"对比图已保存到: {save_path}")
 
 
-def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.pt', 
+def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_data.pt',
                                        sample_index=132, snr_db=25, noise_scale=0.02,
                                        save_path='./preprocess/noise_augmentation_comparison.png'):
     """
@@ -606,7 +606,7 @@ def plot_noise_augmentation_comparison(data_path='../data/source_env0_env1_data.
     print(f"对比图已保存到: {save_path}")
 
 
-def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_index=132,
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图
@@ -666,7 +666,7 @@ def plot_csi_amplitude(data_path='../data/source_env0_env1_data.pt', sample_inde
 if __name__ == '__main__':
     import os
     
-    data_path = '../data/source_env0_env1_data.pt'
+    data_path = '../RawData/source_env0_env1_data.pt'
     output_dir = './preprocess'
     os.makedirs(output_dir, exist_ok=True)
     
@@ -729,4 +729,4 @@ if __name__ == '__main__':
             traceback.print_exc()
     else:
         print(f"\n✗ 数据文件不存在: {data_path}")
-        print("提示: 请确保CSI数据文件在 ../data/source_env0_env1_data.pt")
+        print("提示: 请确保CSI数据文件在 ../RawData/source_env0_env1_data.pt")

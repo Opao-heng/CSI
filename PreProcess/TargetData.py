@@ -79,7 +79,7 @@ def load_env_data(data_dir):
 # 使用示例
 if __name__ == "__main__":
     # 指定数据目录
-    data_directory = "../data/env2_ldentify"
+    data_directory = "../RawData/env2_ldentify"
 
     # 加载数据
     target_data, target_labels = load_env_data(data_directory)
@@ -91,5 +91,5 @@ if __name__ == "__main__":
         print(f"目标域标签形状: {target_labels.shape}")
 
     # 可选：保存合并后的数据
-    torch.save(target_data, '../data/target_env2_data.pt')
-    torch.save(target_labels, '../data/target_env2_labels.pt')
+    torch.save(target_data, '../RawData/target_env2_data.pt')
+    torch.save(target_labels, '../RawData/target_env2_labels.pt')

@@ -11,7 +11,7 @@ def load_mat_data(file_path):
     # 以只读模式打开HDF5文件
     with h5py.File(file_path, 'r') as f:
         # 步骤1: 访问data组
-        data_group = f['data']
+        data_group = f['RawData']
         # 步骤2: 从data组中提取幅度、ID和环境数据
         amp_data = data_group['amp'][()]
         id_data = data_group['id'][()]
@@ -84,7 +84,7 @@ def save_grouped_data(grouped_data, output_dir='grouped_data'):
 主程序入口：演示数据加载、分组和保存流程
 """
 if __name__ == '__main__':
-    file_path = 'data/v1/test_legal.mat'
+    file_path = 'RawData/v1/test_legal.mat'
     amp_data, id_data, env_data = load_mat_data(file_path)
     print(f"原始数据形状: amp={amp_data.shape}, id={id_data.shape}, env={env_data.shape}")
 
