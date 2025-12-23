@@ -16,7 +16,6 @@ from Research1.loss_GAN import (
 from Research1.plot_GAN import (
     plot_training_metrics, 
     save_evaluation_results,
-    plot_synthetic_sample_amplitude,
     plot_feature_distribution_2d,
     evaluate_gan_comprehensive
 )
@@ -125,12 +124,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
     print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
         
-    # 步骤12: 绘制生成样本的幅度图
-    print(f"  正在绘制生成样本幅度图...")
-    random_idx = np.random.randint(0, len(synthetic_data))
-    plot_synthetic_sample_amplitude(synthetic_data, sample_idx=random_idx, output_dir='GAN')
-        
-    # 步骤13: 绘制特征分布二维图
+    # 步骤12: 绘制特征分布二维图
     print(f"  正在提取特征用于分布可视化...")
     E.eval()
     with torch.no_grad():
@@ -406,7 +400,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=900)
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=200, lr_g=1e-4, lr_d=1e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")

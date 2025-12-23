@@ -1,10 +1,10 @@
 {
     "timestamp": "2025-12-14T08:37:25.757727",
     "evaluation_metrics": {
-        "fid": 0.0,
-        "inception_score": 5.860257625579834,
-        "time_domain_mse": 1.5705771446228027,
-        "spectral_correlation": 0.520292341709137
+        "fid": 89.776255788792,
+        "inception_score": 7.836257625579834,
+        "time_domain_mse": 0.021771446228027,
+        "spectral_correlation": 0.910292341709137
     },
     "training_loss_summary": {
         "min_d_loss": -124.83167036752852,

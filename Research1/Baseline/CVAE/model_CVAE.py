@@ -3,182 +3,211 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-"""
-条件变分自编码器(CVAE)编码器
-作用：将CSI数据和条件标签编码为潜在空间的均值和方差参数
-"""
-class CVAE_Encoder(nn.Module):
-    def __init__(self, in_channels=3, subcarriers=56, latent_dim=128, num_classes=30):
-        super(CVAE_Encoder, self).__init__()
+class FeatureExtractor(nn.Module):
+    """
+    特征提取器 - 与原模型保持一致
+    """
+    def __init__(self, input_dim=(3, 56, 6000), feature_dim=128):
+        super(FeatureExtractor, self).__init__()
+        self.backbone = nn.Sequential(
+            nn.Conv1d(input_dim[0] * input_dim[1], 64, kernel_size=7, stride=4, padding=3),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(64, 128, kernel_size=5, stride=4, padding=2),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(128, 256, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.AdaptiveAvgPool1d(1)
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, feature_dim)
+        )
+
+    def forward(self, x):
+        B, C, S, T = x.shape
+        x = x.view(B, C * S, T)
+        x = self.backbone(x).squeeze(-1)
+        return self.fc(x)
+
+
+class Encoder(nn.Module):
+    """
+    CVAE编码器 - 编码CSI数据到潜在空间
+    """
+    def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, latent_dim=256, condition_dim=128):
+        super(Encoder, self).__init__()
         self.in_channels = in_channels
         self.subcarriers = subcarriers
-        self.num_classes = num_classes
+        self.flat_channels = in_channels * subcarriers
         
-        # 标签嵌入层
-        self.label_embedding = nn.Embedding(num_classes, 32)
+        # 条件融合层
+        self.condition_fc = nn.Sequential(
+            nn.Linear(condition_dim, 128),
+            nn.LeakyReLU(0.2)
+        )
         
-        # 编码器骨干网络 (输入包含标签嵌入的通道)
-        self.encoder = nn.Sequential(
-            nn.Conv1d(in_channels * subcarriers + 32, 64, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
-            nn.MaxPool1d(kernel_size=2, stride=2),
-            
-            nn.Conv1d(64, 128, kernel_size=3, stride=2, padding=1),
+        # 编码器网络
+        self.enc1 = nn.Sequential(
+            nn.Conv1d(self.flat_channels, 128, kernel_size=7, stride=4, padding=3),
             nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
-            nn.MaxPool1d(kernel_size=2, stride=2),
-            
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc2 = nn.Sequential(
+            nn.Conv1d(128, 256, kernel_size=5, stride=4, padding=2),
             nn.BatchNorm1d(256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc3 = nn.Sequential(
+            nn.Conv1d(256, 512, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm1d(512),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.AdaptiveAvgPool1d(1)
         )
         
-        # 均值和方差的全连接层
-        self.fc_mu = nn.Linear(256, latent_dim)
-        self.fc_logvar = nn.Linear(256, latent_dim)
+        # 均值和方差层
+        self.fc_mu = nn.Linear(512 + 128, latent_dim)
+        self.fc_logvar = nn.Linear(512 + 128, latent_dim)
         
-    def forward(self, x, labels):
-        B, S, C, T = x.shape  # 输入数据格式为 (N, 56, 3, 6000)
-        # 调整输入数据格式以适应模型 (N, 3, 56, 6000)
-        x_adjusted = x.permute(0, 2, 1, 3)  # 从 (N, 56, 3, 6000) 转换为 (N, 3, 56, 6000)
-        x_adjusted = x_adjusted.contiguous().view(B, C * S, T)
+    def forward(self, x, condition):
+        B, C, S, T = x.shape
+        x = x.view(B, C * S, T)
         
-        # 标签嵌入并扩展到时间维度
-        label_embed = self.label_embedding(labels)  # (B, 32)
-        label_embed = label_embed.unsqueeze(-1).expand(-1, -1, T)  # (B, 32, T)
+        # 编码
+        e1 = self.enc1(x)
+        e2 = self.enc2(e1)
+        e3 = self.enc3(e2).squeeze(-1)
         
-        # 拼接数据和标签嵌入
-        x_combined = torch.cat([x_adjusted, label_embed], dim=1)  # (B, C*S+32, T)
+        # 条件融合
+        cond_feat = self.condition_fc(condition)
+        h = torch.cat([e3, cond_feat], dim=1)
         
-        # 通过编码器
-        encoded = self.encoder(x_combined).squeeze(-1)
-        
-        # 生成均值和对数方差
-        mu = self.fc_mu(encoded)
-        logvar = self.fc_logvar(encoded)
+        # 计算均值和对数方差
+        mu = self.fc_mu(h)
+        logvar = self.fc_logvar(h)
         
         return mu, logvar
 
 
-"""
-条件变分自编码器(CVAE)解码器
-作用：从潜在空间和条件标签重构CSI数据
-"""
-class CVAE_Decoder(nn.Module):
-    def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, latent_dim=128, num_classes=30):
-        super(CVAE_Decoder, self).__init__()
+class Decoder(nn.Module):
+    """
+    CVAE解码器 - 从潜在空间重建CSI数据
+    """
+    def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, latent_dim=256, condition_dim=128):
+        super(Decoder, self).__init__()
         self.in_channels = in_channels
         self.subcarriers = subcarriers
-        self.time_steps = time_steps
-        self.num_classes = num_classes
+        self.flat_channels = in_channels * subcarriers
         
-        # 标签嵌入层
-        self.label_embedding = nn.Embedding(num_classes, 32)
+        # 条件融合层
+        self.condition_fc = nn.Sequential(
+            nn.Linear(condition_dim, 128),
+            nn.LeakyReLU(0.2)
+        )
         
-        # 从潜在向量和标签投影到解码器初始维度
-        self.fc = nn.Linear(latent_dim + 32, 256 * (time_steps // 16))
+        # 初始全连接层
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim + 128, 512),
+            nn.LeakyReLU(0.2)
+        )
         
-        # 解码器骨干网络
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose1d(256, 128, kernel_size=4, stride=2, padding=1),
+        # 解码器网络
+        self.dec1 = nn.Sequential(
+            nn.ConvTranspose1d(512, 256, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.dec2 = nn.Sequential(
+            nn.ConvTranspose1d(256, 128, kernel_size=6, stride=4, padding=1),
             nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
-            
-            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.dec3 = nn.Sequential(
+            nn.ConvTranspose1d(128, 64, kernel_size=8, stride=4, padding=2),
             nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
-            
-            nn.ConvTranspose1d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm1d(32),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # 添加dropout层防止过拟合
-            
-            nn.ConvTranspose1d(32, in_channels * subcarriers, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        
+        self.output_conv = nn.Sequential(
+            nn.Conv1d(64, self.flat_channels, kernel_size=7, padding=3),
             nn.Tanh()
         )
         
-    def forward(self, z, labels):
+    def forward(self, z, condition):
+        # 条件融合
+        cond_feat = self.condition_fc(condition)
+        h = torch.cat([z, cond_feat], dim=1)
+        
+        # 全连接层
+        h = self.fc(h).unsqueeze(-1)
+        
+        # 解码
+        d1 = self.dec1(h)
+        d2 = self.dec2(d1)
+        d3 = self.dec3(d2)
+        
+        # 输出
+        output = self.output_conv(d3)
+        
+        # 调整到目标时间长度
+        if output.size(-1) != 6000:
+            output = F.interpolate(output, size=6000, mode='linear', align_corners=False)
+        
+        # 重塑为正确的形状: [B, C*S, T] -> [B, C, S, T]
         B = z.size(0)
-        
-        # 标签嵌入
-        label_embed = self.label_embedding(labels)  # (B, 32)
-        
-        # 拼接潜在向量和标签嵌入
-        z_combined = torch.cat([z, label_embed], dim=1)  # (B, latent_dim+32)
-        
-        # 投影潜在向量
-        x = self.fc(z_combined).view(B, 256, self.time_steps // 16)
-        
-        # 通过解码器
-        x = self.decoder(x)
-        
-        # 调整输出维度到目标时间步长
-        if x.size(-1) != self.time_steps:
-            x = F.interpolate(x, size=self.time_steps, mode='linear', align_corners=False)
-        
-        # 恢复原始形状 (N, 3, 56, 6000)
-        x = x.view(B, self.in_channels, self.subcarriers, self.time_steps)
-        
-        # 调整输出维度以匹配输入数据格式 (N, 56, 3, 6000)
-        x = x.permute(0, 2, 1, 3)  # 从 (N, 3, 56, 6000) 转换为 (N, 56, 3, 6000)
-        
-        return x
+        # output shape: [B, 168, 6000] -> [B, 3, 56, 6000]
+        output = output.reshape(B, self.in_channels, self.subcarriers, output.size(-1))
+        return output
 
 
-"""
-完整的CVAE模型
-作用：整合编码器和解码器，实现条件生成
-"""
 class CVAE(nn.Module):
-    def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, latent_dim=128, num_classes=30):
+    """
+    条件变分自编码器 (Conditional Variational Autoencoder)
+    """
+    def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, latent_dim=256, condition_dim=128):
         super(CVAE, self).__init__()
-        self.encoder = CVAE_Encoder(in_channels, subcarriers, latent_dim, num_classes)
-        self.decoder = CVAE_Decoder(in_channels, subcarriers, time_steps, latent_dim, num_classes)
-        self.latent_dim = latent_dim
+        self.encoder = Encoder(in_channels, subcarriers, time_steps, latent_dim, condition_dim)
+        self.decoder = Decoder(in_channels, subcarriers, time_steps, latent_dim, condition_dim)
         
     def reparameterize(self, mu, logvar):
         """
-        重参数化技巧：z = mu + sigma * epsilon
+        重参数化技巧
         """
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
     
-    def forward(self, x, labels):
+    def forward(self, x, condition):
         # 编码
-        mu, logvar = self.encoder(x, labels)
+        mu, logvar = self.encoder(x, condition)
         
         # 重参数化
         z = self.reparameterize(mu, logvar)
         
         # 解码
-        recon = self.decoder(z, labels)
+        recon_x = self.decoder(z, condition)
         
-        return recon, mu, logvar
+        return recon_x, mu, logvar
     
-    def generate(self, num_samples, labels, device='cuda'):
+    def generate(self, condition, num_samples=1):
         """
-        从先验分布生成指定标签的新样本
-        参数:
-            num_samples: 生成样本数量
-            labels: 样本标签 (B,)
-            device: 设备
+        生成新样本
         """
-        z = torch.randn(num_samples, self.latent_dim).to(device)
-        samples = self.decoder(z, labels)
-        return samples
+        # 从标准正态分布采样
+        z = torch.randn(num_samples, 256).to(condition.device)
+        
+        # 解码
+        generated = self.decoder(z, condition)
+        return generated
 
 
-"""
-构建CVAE模型
-"""
-def build_cvae_model(num_classes=30):
-    model = CVAE(num_classes=num_classes)
-    return model
+def build_model():
+    """
+    构建CVAE模型
+    """
+    E = FeatureExtractor()
+    cvae = CVAE()
+    return E, cvae

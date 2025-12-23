@@ -2,33 +2,37 @@ import torch
 import torch.nn.functional as F
 
 
-def cvae_loss(recon_x, x, mu, logvar, beta=1.0):
+def dcgan_discriminator_loss(D, real_samples, fake_samples):
     """
-    CVAE损失函数 = 重建损失 + KL散度
-    
-    参数:
-        recon_x: 重建的数据
-        x: 原始数据
-        mu: 编码器输出的均值
-        logvar: 编码器输出的对数方差
-        beta: KL散度的权重系数
+    DCGAN判别器损失 - 二元交叉熵
     """
-    # 重建损失 (MSE)
-    recon_loss = F.mse_loss(recon_x, x, reduction='sum') / x.size(0)
+    # 真实样本损失
+    pred_real = D(real_samples)
+    loss_real = F.binary_cross_entropy(pred_real, torch.ones_like(pred_real))
     
-    # KL散度损失
-    # KL(N(mu, sigma) || N(0, 1))
-    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / mu.size(0)
+    # 生成样本损失
+    pred_fake = D(fake_samples)
+    loss_fake = F.binary_cross_entropy(pred_fake, torch.zeros_like(pred_fake))
     
     # 总损失
-    total_loss = recon_loss + beta * kl_loss
+    d_loss = (loss_real + loss_fake) * 0.5
     
-    return total_loss, recon_loss, kl_loss
+    return d_loss, pred_real.mean().item(), pred_fake.mean().item()
+
+
+def dcgan_generator_loss(D, fake_samples):
+    """
+    DCGAN生成器损失 - 二元交叉熵
+    """
+    pred_fake = D(fake_samples)
+    g_loss = F.binary_cross_entropy(pred_fake, torch.ones_like(pred_fake))
+    
+    return g_loss
 
 
 def frequency_consistency_loss(real_samples, fake_samples):
     """
-    频域一致性损失 - 归一化版本
+    频域一致性损失
     """
     B = min(real_samples.size(0), fake_samples.size(0))
     real_samples = real_samples[:B]
@@ -42,11 +46,11 @@ def frequency_consistency_loss(real_samples, fake_samples):
     real_fft = torch.fft.rfft(real_flat, dim=-1)
     fake_fft = torch.fft.rfft(fake_flat, dim=-1)
     
-    # 幅度谱 - 归一化
+    # 幅度谱
     real_mag = real_fft.abs()
     fake_mag = fake_fft.abs()
     
-    # 归一化到[0,1]范围
+    # 归一化
     real_mag_norm = real_mag / (real_mag.max() + 1e-8)
     fake_mag_norm = fake_mag / (fake_mag.max() + 1e-8)
     
@@ -61,14 +65,14 @@ def mmd_loss(real_features, fake_features, sigmas=[0.1, 0.5, 1.0, 2.0, 5.0]):
     real_features = real_features[:n]
     fake_features = fake_features[:n]
     
-    # 归一化特征以提高稳定性
+    # 归一化特征
     real_features = F.normalize(real_features, p=2, dim=1)
     fake_features = F.normalize(fake_features, p=2, dim=1)
     
     def gaussian_kernel_multi(x, y, sigmas):
-        x = x.unsqueeze(1)  # (n, 1, d)
-        y = y.unsqueeze(0)  # (1, m, d)
-        dist = torch.sum((x - y) ** 2, dim=2)  # (n, m)
+        x = x.unsqueeze(1)
+        y = y.unsqueeze(0)
+        dist = torch.sum((x - y) ** 2, dim=2)
         
         kernel_sum = None
         for sigma in sigmas:

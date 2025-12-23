@@ -160,138 +160,6 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
     print(f"  评估结果已保存到: {result_path}")
 
 
-def plot_synthetic_sample_amplitude(synthetic_data, sample_idx=0, output_dir='GAN'):
-    """
-    绘制生成样本的时域幅度图和频谱图（按天线维度）
-    """
-    
-    # 步骤1: 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 步骤2: 提取单个样本数据
-    if isinstance(synthetic_data, torch.Tensor):
-        sample = synthetic_data[sample_idx].cpu().numpy()  # 形状: (S, C, T) = (56, 3, 6000)
-    else:
-        sample = synthetic_data[sample_idx]
-    
-    S, C, T = sample.shape  # S=56(子载波), C=3(天线对), T=6000(时间步)
-    
-    # ================== 时域幅度图 ==================
-    # 步骤3: 创建时域子图，每个天线对一个子图，参考CSIProcess1.py的绘图风格
-    plt.style.use('seaborn-v0_8')
-    fig_size = (10, 6)
-    fig, axes = plt.subplots(C, 1, figsize=fig_size)
-    if C == 1:
-        axes = [axes]
-    
-    # 步骤4: 为每个天线对绘制时域幅度图，采用CSIProcess1.py的线条图风格
-    num_antennas = S  # 子载波数作为"天线"数
-    selected_antennas = list(range(num_antennas))
-    colors = plt.cm.tab10(np.linspace(0, 1, len(selected_antennas)))
-    
-    # 定义移动平均函数用于平滑曲线
-    def moving_average(data, window_size=50):
-        """计算移动平均以平滑曲线"""
-        if len(data) < window_size:
-            return data
-        cumsum = np.cumsum(np.insert(data, 0, 0)) 
-        return (cumsum[window_size:] - cumsum[:-window_size]) / window_size
-    
-    for c in range(C):
-        ax = axes[c]
-        # 绘制所有子载波的时域幅度曲线（按照CSIProcess1.py的风格）
-        # 为了清晰显示线条，我们调整参数并对数据进行平滑处理
-        for i, antenna in enumerate(selected_antennas):
-            amplitude_data = np.abs(sample[antenna, c, :])
-            # 对数据进行平滑处理
-            smoothed_data = moving_average(amplitude_data, window_size=50)
-            # 创建对应的时间轴
-            time_axis = np.linspace(0, len(amplitude_data)-1, len(smoothed_data))
-            ax.plot(time_axis, smoothed_data,
-                    alpha=0.7,  # 透明度
-                    linewidth=1.0,  # 线宽
-                    color=colors[i % len(colors)])  # 循环使用颜色
-        
-        ax.set_title(f'天线对 {c + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
-        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-        ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(axis='both', which='major', labelsize=8)
-        # 为坐标轴刻度标签也设置中文字体
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(8))
-    
-    # 步骤5: 调整布局并保存时域图
-    plt.tight_layout()
-    plt.draw()  # 强制刷新图形以确保中文字体正确应用
-    plot_path_time = os.path.join(output_dir, f'synthetic_sample_{sample_idx}_time_domain.png')
-    plt.savefig(plot_path_time, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    print(f"  生成样本时域幅度图已保存到: {plot_path_time}")
-    plt.close()
-    
-    # ================== 频谱图 ==================
-    # 步骤6: 创建频谱子图，每个天线对一个子图，参考CSIProcess2.py的频谱图风格
-    fig, axes = plt.subplots(C, 1, figsize=(12, 3 * C))
-    if C == 1:
-        axes = [axes]
-    
-    # 步骤7: 为每个天线对绘制频谱图，采用CSIProcess2.py的时频图风格
-    for c in range(C):
-        # 使用STFT替代FFT来获得更好的时频分辨率，参考CSIProcess2.py的做法
-        signal_1d = sample[0, c, :]  # 取第一个子载波作为代表
-        
-        # 使用短时傅里叶变换（STFT）生成时频图
-        nperseg = 512  # 窗口大小
-        noverlap = 480  # 重叠大小（75%重叠）
-        
-        freqs, times, Sxx = scipy_signal.spectrogram(
-            signal_1d,
-            fs=1.0,
-            nperseg=nperseg,
-            noverlap=noverlap,
-            scaling='spectrum'
-        )
-        
-        # 转换为dB刻度
-        Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
-        
-        # 将时间索引映射到实际值（0 to T-1）
-        time_indices = times * (T - 1)
-        # 仅显示一半的频率分量（对称性）
-        freq_limit = len(freqs) // 2
-        
-        # 使用pcolormesh绘制时频图，参考CSIProcess2.py的风格
-        im = axes[c].pcolormesh(time_indices, freqs[:freq_limit], 
-                               Sxx_db[:freq_limit, :],
-                               shading='auto', 
-                               cmap='jet', 
-                               rasterized=True)
-        
-        axes[c].set_title(f'天线对 {c+1} - 频谱图 (dB)', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-        axes[c].set_xlabel('时间索引', fontsize=12, fontproperties=create_zh_font(12))
-        axes[c].set_ylabel('频率分量', fontsize=12, fontproperties=create_zh_font(12))
-        
-        # 添加颜色条
-        cbar = plt.colorbar(im, ax=axes[c])
-        cbar.set_label('幅度 (dB)', fontsize=11, fontproperties=create_zh_font(11))
-        cbar.ax.tick_params(labelsize=10)
-        
-        # 设置刻度标签字体
-        axes[c].tick_params(axis='both', which='major', labelsize=10)
-        for label in axes[c].get_xticklabels() + axes[c].get_yticklabels():
-            label.set_fontproperties(create_zh_font(10))
-    
-    # 步骤8: 调整布局并保存频谱图
-    plt.tight_layout()
-    plt.draw()  # 强制刷新图形以确保中文字体正确应用
-    plot_path_freq = os.path.join(output_dir, f'synthetic_sample_{sample_idx}_frequency_spectrum.png')
-    plt.savefig(plot_path_freq, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    print(f"  生成样本频谱图已保存到: {plot_path_freq}")
-    plt.close()
-
-
 def plot_feature_distribution_2d(real_features, fake_features, real_labels=None, method='tsne', output_dir='GAN'):
     """
     绘制真实样本与生成样本的特征分布二维图（使用t-SNE降维）
@@ -504,8 +372,8 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
     综合评估GAN生成质量 - 四项核心指标
     1. FID（Fréchet Inception Distance）- 分布相似度，越小越好
     2. IS（Inception Score）- 多样性评估，越大越好
-    3. 时域MSE - 信号保真度，越小越好
-    4. 频谱相关性系数 - 越接近1越好
+    3. 时域 MSE - 信号保真度，越小越好
+    4. 频谱相关性系数 CC - 越接近1越好
     """
 
     E.eval()
@@ -635,12 +503,6 @@ def load_model_and_generate_plots(model_path, source_loader, target_loader, devi
         fake_features = E(synthetic_data_device)
         
     plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne', output_dir='GAN')
-    
-    # 绘制生成样本频谱图和时域图
-    print("正在绘制生成样本图...")
-    import numpy as np
-    random_idx = np.random.randint(0, len(synthetic_data))
-    plot_synthetic_sample_amplitude(synthetic_data, sample_idx=random_idx, output_dir='GAN')
     
     print("所有图表绘制完成!")
 
