@@ -57,18 +57,18 @@ def train_and_test(model_path='CycleGAN/best_cyclegan_model.pth', epochs=200, lr
     train_loss_history = []
     training_start_time = datetime.now()
 
-    # 步骤6: 缓存目标域数据
+    # 步骤6: 缓存目标域数据（保留在CPU）
     print(f"  正在缓存目标域数据...")
     all_target_data = []
     all_target_labels = []
     for x_t_real, labels in target_loader:
         all_target_data.append(x_t_real)
         all_target_labels.append(labels)
-    target_data_cache = torch.cat(all_target_data, dim=0).to(device)
-    target_labels_cache = torch.cat(all_target_labels, dim=0).to(device)
+    target_data_cache = torch.cat(all_target_data, dim=0)  # 保留在CPU，避免占用GPU内存
+    target_labels_cache = torch.cat(all_target_labels, dim=0)
     print(f"  目标域数据缓存完成: {target_data_cache.shape}")
 
-    # 步骤7: 执行训练循环
+    # 步骤7: 执行训组循环
     print(f"  正在训练CycleGAN模型...")
     for epoch in range(epochs):
         # 步骤7.1: 执行单个epoch的训练
@@ -79,11 +79,15 @@ def train_and_test(model_path='CycleGAN/best_cyclegan_model.pth', epochs=200, lr
             lambda_cycle=10.0, lambda_identity=5.0, lambda_freq=5.0, lambda_mmd=10.0,
             device=device
         )
-
+    
         # 步骤7.2: 记录训练损失变化
         train_loss_history.append(loss_dict)
-
-        # 步骤7.3: 打印训练进度
+    
+        # 步骤7.3: 清理GPU缓存（每5轮一次）
+        if (epoch + 1) % 5 == 0:
+            torch.cuda.empty_cache()
+    
+        # 步骤7.4: 打印训练进度
         if epoch == 0 or (epoch + 1) % 5 == 0 or epoch == epochs - 1:
             elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
             print(f"  轮数 [{epoch + 1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
@@ -117,9 +121,8 @@ def train_and_test(model_path='CycleGAN/best_cyclegan_model.pth', epochs=200, lr
     print("="*70 + "\n")
 
     # 步骤10: 保存全面评估结果（仅保存评估指标）
-    os.makedirs('Baseline/CycleGAN/results', exist_ok=True)
     import json
-    with open('Baseline/CycleGAN/results/cyclegan_evaluation_results.json', 'w', encoding='utf-8') as f:
+    with open('CycleGAN/cyclegan_evaluation_results.json', 'w', encoding='utf-8') as f:
         json.dump(comprehensive_metrics, f, indent=4, ensure_ascii=False)
 
     return comprehensive_metrics
@@ -129,7 +132,7 @@ def train_epoch(E, G_S2T, G_T2S, D_S, D_T,
                 source_loader, target_loader, target_data,
                 optimizer_E, optimizer_G, optimizer_D_S, optimizer_D_T,
                 lambda_cycle=10.0, lambda_identity=5.0, lambda_freq=5.0, lambda_mmd=10.0,
-                device='cuda'):
+                device='cuda', accumulation_steps=4):  # 添加梯度累积参数
     """
     CycleGAN训练单个epoch
     """
@@ -151,14 +154,14 @@ def train_epoch(E, G_S2T, G_T2S, D_S, D_T,
     total_batches = len(source_loader)
 
     for batch_idx in range(total_batches):
-        # 获取源域数据
+        # 获源域数据
         try:
             x_s, source_labels = next(source_iter)
         except StopIteration:
             source_iter = iter(source_loader)
             x_s, source_labels = next(source_iter)
 
-        if x_s.size(0) < 4:
+        if x_s.size(0) < 2:  # 从4降低到2，允许更小的批次
             continue
 
         x_s = x_s.to(device)
@@ -174,11 +177,13 @@ def train_epoch(E, G_S2T, G_T2S, D_S, D_T,
         x_t_real = x_t_real.to(device)
         if x_t_real.size(0) < batch_size:
             idx = torch.randint(0, target_data.size(0), (batch_size,)).tolist()
-            x_t_real = target_data[idx].to(device)
+            x_t_real = target_data[idx].to(device)  # 需要时才移动到GPU
 
         # ================== 训练判别器 ==================
-        optimizer_D_S.zero_grad()
-        optimizer_D_T.zero_grad()
+        # 每 accumulation_steps 批次更新一次
+        if batch_idx % accumulation_steps == 0:
+            optimizer_D_S.zero_grad()
+            optimizer_D_T.zero_grad()
 
         # 判别器D_T: 判别目标域真假
         with torch.no_grad():
@@ -200,18 +205,22 @@ def train_epoch(E, G_S2T, G_T2S, D_S, D_T,
         loss_D_S_fake = adversarial_loss_lsgan(pred_fake_s, False)
         loss_D_S = (loss_D_S_real + loss_D_S_fake) * 0.5
 
-        # 总判别器损失
-        d_loss = loss_D_T + loss_D_S
+        # 总判别器损失（应用梯度累积比例）
+        d_loss = (loss_D_T + loss_D_S) / accumulation_steps
         d_loss.backward()
 
-        optimizer_D_T.step()
-        optimizer_D_S.step()
+        # 每 accumulation_steps 批次更新一次
+        if (batch_idx + 1) % accumulation_steps == 0:
+            optimizer_D_T.step()
+            optimizer_D_S.step()
 
-        metrics['d_loss'] += d_loss.item()
+        metrics['d_loss'] += d_loss.item() * accumulation_steps
 
         # ================== 训练生成器 ==================
-        optimizer_G.zero_grad()
-        optimizer_E.zero_grad()
+        # 每 accumulation_steps 批次更新一次
+        if batch_idx % accumulation_steps == 0:
+            optimizer_G.zero_grad()
+            optimizer_E.zero_grad()
 
         # 源域 -> 目标域 -> 源域 (循环)
         fake_t = G_S2T(x_s)
@@ -246,24 +255,29 @@ def train_epoch(E, G_S2T, G_T2S, D_S, D_T,
         fake_features = E(fake_t)
         mmd = mmd_loss(target_features.detach(), fake_features) * lambda_mmd
 
-        # 总生成器损失
-        g_loss = loss_adv + loss_cycle + loss_idt + freq_loss + mmd
+        # 总生成器损失（应用梯度累积比例）
+        g_loss = (loss_adv + loss_cycle + loss_idt + freq_loss + mmd) / accumulation_steps
         g_loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(G_S2T.parameters(), max_norm=1.0)
-        torch.nn.utils.clip_grad_norm_(G_T2S.parameters(), max_norm=1.0)
-        torch.nn.utils.clip_grad_norm_(E.parameters(), max_norm=1.0)
+        # 每 accumulation_steps 批次更新一次
+        if (batch_idx + 1) % accumulation_steps == 0:
+            torch.nn.utils.clip_grad_norm_(G_S2T.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(G_T2S.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(E.parameters(), max_norm=1.0)
+            optimizer_G.step()
+            optimizer_E.step()
 
-        optimizer_G.step()
-        optimizer_E.step()
-
-        metrics['g_loss'] += g_loss.item()
+        metrics['g_loss'] += g_loss.item() * accumulation_steps
         metrics['g_adv_loss'] += loss_adv.item()
         metrics['cycle_loss'] += loss_cycle.item()
         metrics['identity_loss'] += loss_idt.item()
         metrics['freq_loss'] += freq_loss.item()
         metrics['mmd_loss'] += mmd.item()
         num_batches += 1
+
+        # 定期清理GPU缓存（每50批次一次）
+        if (batch_idx + 1) % 50 == 0:
+            torch.cuda.empty_cache()
 
     # 平均化
     for key in metrics:
@@ -422,10 +436,10 @@ if __name__ == "__main__":
 
     # 步骤1: 从磁盘加载源域和目标域数据
     print("步骤1: 正在加载数据文件...")
-    source_data = torch.load('Data/source_env0_env1_data.pt')
-    source_labels = torch.load('Data/source_env0_env1_labels.pt')
-    target_data = torch.load('Data/target_env2_data.pt')
-    target_labels = torch.load('Data/target_env2_labels.pt')
+    source_data = torch.load('../../Data/source_env0_env1_data.pt')
+    source_labels = torch.load('../../Data/source_env0_env1_labels.pt')
+    target_data = torch.load('../../Data/target_env2_data.pt')
+    target_labels = torch.load('../../Data/target_env2_labels.pt')
     print("  数据文件加载成功\n")
 
     # 步骤2: 转换数据维度 (N, 56, 3, 6000) -> (N, 3, 56, 6000)
@@ -437,10 +451,10 @@ if __name__ == "__main__":
     print(f"  转换后源域数据: {source_data.shape}")
     print(f"  转换后目标域数据: {target_data.shape}")
 
-    # 步骤3: 为源域数据创建DataLoader
+    # 步骤3: 为源域数据创建DataLoader（减小批次大小以节省GPU内存）
     print("步骤3: 正在创建数据加载器...")
     source_dataset = CustomDataset(source_data, source_labels)
-    source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
+    source_loader = DataLoader(source_dataset, batch_size=16, shuffle=True)  # 从100降低到16
 
     # 步骤3: 从目标域中均匀采样每个标签的样本
     selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels,
@@ -452,16 +466,16 @@ if __name__ == "__main__":
     print(f"  目标域数据(已选): {selected_target_data.shape}")
     print(f"  目标域标签(已选): {selected_target_labels.shape}\n")
 
-    # 步骤5: 为选中的目标域数据创建DataLoader
+    # 步骤5: 为选中的目标域数据创建DataLoader（减小批次大小以节省GPU内存）
     target_dataset = CustomDataset(selected_target_data, selected_target_labels)
-    target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
+    target_loader = DataLoader(target_dataset, batch_size=16, shuffle=True)  # 从100降低到16
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始CycleGAN训练...")
-    os.makedirs('Baseline/CycleGAN', exist_ok=True)
+    os.makedirs('CycleGAN', exist_ok=True)
     synthetic_data, synthetic_labels = train_and_test(
-        model_path='Baseline/CycleGAN/best_cyclegan_model.pth',
-        epochs=200,
+        model_path='CycleGAN/best_cyclegan_model.pth',
+        epochs=100,
         lr_g=2e-4,
         lr_d=1e-4,
         num_samples=900

@@ -57,7 +57,7 @@ class Generator_S2T(nn.Module):
     """
     CycleGAN生成器: 源域 -> 目标域
     """
-    def __init__(self, in_channels=3, subcarriers=56, num_residual_blocks=6):
+    def __init__(self, in_channels=3, subcarriers=56, num_residual_blocks=3):  # 从6降低到3
         super(Generator_S2T, self).__init__()
         self.in_channels = in_channels
         self.subcarriers = subcarriers
@@ -134,7 +134,7 @@ class Generator_T2S(nn.Module):
     """
     CycleGAN生成器: 目标域 -> 源域
     """
-    def __init__(self, in_channels=3, subcarriers=56, num_residual_blocks=6):
+    def __init__(self, in_channels=3, subcarriers=56, num_residual_blocks=3):  # 从6降低到3
         super(Generator_T2S, self).__init__()
         self.in_channels = in_channels
         self.subcarriers = subcarriers
