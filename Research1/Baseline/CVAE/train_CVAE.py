@@ -332,6 +332,11 @@ def calculate_inception_score(E, fake_samples, device, splits=10):
     with torch.no_grad():
         features = E(fake_samples.to(device)).cpu().numpy()
     
+    # 归一化特征到[0,1]范围，避免负值和log计算错误
+    features = features - features.min()
+    features = features / (features.max() + 1e-10)
+    features = features + 1e-10  # 避免log(0)
+    
     scores = []
     n = len(features)
     split_size = n // splits
@@ -339,7 +344,8 @@ def calculate_inception_score(E, fake_samples, device, splits=10):
     for i in range(splits):
         part = features[i * split_size:(i + 1) * split_size]
         py = np.mean(part, axis=0)
-        pyx = part
+        py = py / (py.sum() + 1e-10)  # 归一化为概率分布
+        pyx = part / (part.sum(axis=1, keepdims=True) + 1e-10)
         kl_d = pyx * (np.log(pyx + 1e-10) - np.log(py + 1e-10))
         scores.append(np.exp(np.mean(np.sum(kl_d, axis=1))))
     

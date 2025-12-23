@@ -388,6 +388,11 @@ def calculate_inception_score(E, fake_samples, device, splits=10):
     with torch.no_grad():
         features = E(fake_samples.to(device)).cpu().numpy()
 
+    # 归一化特征到[0,1]范围，避免负值和log计算错误
+    features = features - features.min()
+    features = features / (features.max() + 1e-10)
+    features = features + 1e-10  # 避免log(0)
+
     scores = []
     n = len(features)
     split_size = n // splits
@@ -395,7 +400,8 @@ def calculate_inception_score(E, fake_samples, device, splits=10):
     for i in range(splits):
         part = features[i * split_size:(i + 1) * split_size]
         py = np.mean(part, axis=0)
-        pyx = part
+        py = py / (py.sum() + 1e-10)  # 归一化为概率分布
+        pyx = part / (part.sum(axis=1, keepdims=True) + 1e-10)
         kl_d = pyx * (np.log(pyx + 1e-10) - np.log(py + 1e-10))
         scores.append(np.exp(np.mean(np.sum(kl_d, axis=1))))
 
@@ -473,7 +479,7 @@ if __name__ == "__main__":
     # 步骤6: 执行主训练流程
     print("步骤3: 开始CycleGAN训练...")
     os.makedirs('CycleGAN', exist_ok=True)
-    synthetic_data, synthetic_labels = train_and_test(
+    comprehensive_metrics = train_and_test(
         model_path='CycleGAN/best_cyclegan_model.pth',
         epochs=100,
         lr_g=2e-4,
@@ -481,6 +487,5 @@ if __name__ == "__main__":
         num_samples=900
     )
 
-    print(f"\n生成的合成样本形状: {synthetic_data.shape}")
-    print(f"生成的合成标签形状: {synthetic_labels.shape}")
+    print(f"\n评估指标已保存到 CycleGAN/cyclegan_evaluation_results.json")
     print("=" * 70)
