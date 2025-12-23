@@ -99,9 +99,9 @@ def train_and_test(model_path='VAE/best_vae_model.pth', epochs=200, lr=1e-4, num
     print("="*70 + "\n")
 
     # 步骤10: 保存全面评估结果（仅保存评估指标）
-    os.makedirs('Baseline/VAE/results', exist_ok=True)
+    os.makedirs('VAE', exist_ok=True)
     import json
-    with open('Baseline/VAE/results/vae_evaluation_results.json', 'w', encoding='utf-8') as f:
+    with open('VAE/vae_evaluation_results.json', 'w', encoding='utf-8') as f:
         json.dump(comprehensive_metrics, f, indent=4, ensure_ascii=False)
 
     return comprehensive_metrics
@@ -336,10 +336,10 @@ if __name__ == "__main__":
 
     # 步骤1: 从磁盘加载源域和目标域数据
     print("步骤1: 正在加载数据文件...")
-    source_data = torch.load('Data/source_env0_env1_data.pt')
-    source_labels = torch.load('Data/source_env0_env1_labels.pt')
-    target_data = torch.load('Data/target_env2_data.pt')
-    target_labels = torch.load('Data/target_env2_labels.pt')
+    source_data = torch.load('../../Data/source_env0_env1_data.pt')
+    source_labels = torch.load('../../Data/source_env0_env1_labels.pt')
+    target_data = torch.load('../../Data/target_env2_data.pt')
+    target_labels = torch.load('../../Data/target_env2_labels.pt')
     print("  数据文件加载成功\n")
 
     # 步骤2: 转换数据维度 (N, 56, 3, 6000) -> (N, 3, 56, 6000)
@@ -372,10 +372,10 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始VAE训练...")
-    os.makedirs('Baseline/VAE', exist_ok=True)
+    os.makedirs('VAE', exist_ok=True)
     synthetic_data, synthetic_labels = train_and_test(
-        model_path='Baseline/VAE/best_vae_model.pth',
-        epochs=200,
+        model_path='VAE/best_vae_model.pth',
+        epochs=2,
         lr=1e-4,
         num_samples=900
     )
