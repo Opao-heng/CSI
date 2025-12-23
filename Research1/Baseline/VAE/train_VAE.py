@@ -375,7 +375,7 @@ if __name__ == "__main__":
     os.makedirs('VAE', exist_ok=True)
     synthetic_data, synthetic_labels = train_and_test(
         model_path='VAE/best_vae_model.pth',
-        epochs=2,
+        epochs=100,
         lr=1e-4,
         num_samples=900
     )

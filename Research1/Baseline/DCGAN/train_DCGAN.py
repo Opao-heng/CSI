@@ -51,15 +51,15 @@ def train_and_test(model_path='DCGAN/best_dcgan_model.pth', epochs=200, lr_g=2e-
     train_loss_history = []
     training_start_time = datetime.now()
 
-    # 步骤6: 缓存目标域数据
+    # 步骤6: 缓存目标域数据（保留在CPU）
     print(f"  正在缓存目标域数据...")
     all_target_data = []
     all_target_labels = []
     for x_t_real, labels in target_loader:
         all_target_data.append(x_t_real)
         all_target_labels.append(labels)
-    target_data_cache = torch.cat(all_target_data, dim=0).to(device)
-    target_labels_cache = torch.cat(all_target_labels, dim=0).to(device)
+    target_data_cache = torch.cat(all_target_data, dim=0)  # 保留在CPU，避免GPU内存不足
+    target_labels_cache = torch.cat(all_target_labels, dim=0)
     print(f"  目标域数据缓存完成: {target_data_cache.shape}")
 
     # 步骤7: 执行训练循环
@@ -76,7 +76,11 @@ def train_and_test(model_path='DCGAN/best_dcgan_model.pth', epochs=200, lr_g=2e-
         # 步骤7.2: 记录训练损失变化
         train_loss_history.append(loss_dict)
 
-        # 步骤7.3: 打印训练进度
+        # 步骤7.3: 清理GPU缓存（每5轮一次）
+        if (epoch + 1) % 5 == 0:
+            torch.cuda.empty_cache()
+
+        # 步骤7.4: 打印训练进度
         if epoch == 0 or (epoch + 1) % 5 == 0 or epoch == epochs - 1:
             elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
             print(f"  轮数 [{epoch + 1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
@@ -147,7 +151,7 @@ def train_epoch(E, G, D, source_loader, target_loader, target_data,
             source_iter = iter(source_loader)
             x_s, source_labels = next(source_iter)
 
-        if x_s.size(0) < 4:
+        if x_s.size(0) < 2:  # 从4降低到2，允许更小的批次
             continue
 
         x_s = x_s.to(device)
@@ -161,11 +165,17 @@ def train_epoch(E, G, D, source_loader, target_loader, target_data,
             x_t_real, _ = next(target_iter)
 
         x_t_real = x_t_real.to(device)
-        if x_t_real.size(0) < batch_size:
-            idx = torch.randint(0, target_data.size(0), (batch_size,)).tolist()
-            x_t_real = target_data[idx].to(device)
+        # 不需要再次检查，因为后面会统一处理
 
-        # ================== 提取目标域特征 ==================
+        # ================== 提取目标域特征（与批次大小保持一致） ==================
+        # 确保 x_t_real 和 x_s 的批次大小一致
+        if x_t_real.size(0) != batch_size:
+            if x_t_real.size(0) < batch_size:
+                idx = torch.randint(0, target_data.size(0), (batch_size,)).tolist()
+                x_t_real = target_data[idx].to(device)
+            else:
+                x_t_real = x_t_real[:batch_size]
+        
         target_features = E(x_t_real)
 
         # ================== 训练判别器 ==================
@@ -220,6 +230,10 @@ def train_epoch(E, G, D, source_loader, target_loader, target_data,
         metrics['freq_loss'] += freq_loss.item()
         metrics['mmd_loss'] += mmd.item()
         num_batches += 1
+
+        # 定期清理GPU缓存（每50批次一次）
+        if (batch_idx + 1) % 50 == 0:
+            torch.cuda.empty_cache()
 
     # 平均化
     for key in metrics:
@@ -416,10 +430,10 @@ if __name__ == "__main__":
     print(f"  转换后源域数据: {source_data.shape}")
     print(f"  转换后目标域数据: {target_data.shape}")
 
-    # 步骤3: 为源域数据创建DataLoader
+    # 步骤3: 为源域数据创建DataLoader（减小批次大小以节省GPU内存）
     print("步骤3: 正在创建数据加载器...")
     source_dataset = CustomDataset(source_data, source_labels)
-    source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
+    source_loader = DataLoader(source_dataset, batch_size=16, shuffle=True)  # 从100降低到16
 
     # 步骤3: 从目标域中均匀采样每个标签的样本
     selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels,
@@ -431,16 +445,16 @@ if __name__ == "__main__":
     print(f"  目标域数据(已选): {selected_target_data.shape}")
     print(f"  目标域标签(已选): {selected_target_labels.shape}\n")
 
-    # 步骤5: 为选中的目标域数据创建DataLoader
+    # 步骤5: 为选中的目标域数据创建DataLoader（减小批次大小以节省GPU内存）
     target_dataset = CustomDataset(selected_target_data, selected_target_labels)
-    target_loader = DataLoader(target_dataset, batch_size=100, shuffle=True)
+    target_loader = DataLoader(target_dataset, batch_size=16, shuffle=True)  # 从100降低到16
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始DCGAN训练...")
     os.makedirs('DCGAN', exist_ok=True)
     synthetic_data, synthetic_labels = train_and_test(
         model_path='DCGAN/best_dcgan_model.pth',
-        epochs=2,
+        epochs=100,
         lr_g=2e-4,
         lr_d=2e-4,
         num_samples=900
