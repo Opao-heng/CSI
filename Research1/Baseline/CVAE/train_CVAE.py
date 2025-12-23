@@ -12,14 +12,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from Research1.Baseline.CVAE.model_CVAE import build_model
 from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.Baseline.CVAE.loss_CVAE import cvae_loss, frequency_consistency_loss, mmd_loss
-from Research1.plot_GAN import (
-    plot_training_metrics,
-    save_evaluation_results,
-    evaluate_gan_comprehensive
-)
 
 
-def train_and_test(model_path='best_cvae_model.pth', epochs=200, lr=1e-4, num_samples=900):
+def train_and_test(model_path='CVAE/best_cvae_model.pth', epochs=200, lr=1e-4, num_samples=900):
     """
     执行CVAE模型的完整训练流程
     """
@@ -87,12 +82,8 @@ def train_and_test(model_path='best_cvae_model.pth', epochs=200, lr=1e-4, num_sa
     }, model_path)
     print(f"  模型已保存到: {model_path}")
     
-    # 步骤9: 绘制训练指标
+    # 步骤9: 执行全面的生成质量评估（四项指标）
     print("=" * 70 + "\n")
-    print(f"  正在绘制训练指标...")
-    plot_training_metrics(train_loss_history, output_dir='results')
-    
-    # 步骤10: 执行全面的生成质量评估（四项指标）
     print(f"  正在执行生成质量综合评估（四项指标）...")
     comprehensive_metrics = evaluate_cvae_comprehensive(E, cvae, source_loader, target_loader, device=device)
     print("\n" + "="*70)
@@ -104,8 +95,10 @@ def train_and_test(model_path='best_cvae_model.pth', epochs=200, lr=1e-4, num_sa
     print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
 
-    # 步骤11: 保存全面评估结果
-    save_evaluation_results(comprehensive_metrics, train_loss_history, 'results')
+    # 步骤10: 保存全面评估结果（仅保存评估指标）
+    import json
+    with open('CVAE/cvae_evaluation_results.json', 'w', encoding='utf-8') as f:
+        json.dump(comprehensive_metrics, f, indent=4, ensure_ascii=False)
         
     return comprehensive_metrics
 
@@ -273,8 +266,8 @@ def evaluate_cvae_comprehensive(E, cvae, source_loader, target_loader, device='c
         for x_t_real, _ in target_loader:
             x_t_real = x_t_real.to(device)
             real_samples_list.append(x_t_real)
-        real_samples = torch.cat(real_samples_list, dim=0)[:500]
-
+        real_samples = torch.cat(real_samples_list, dim=0)  # 不截断，使用所有可用样本
+        
         # 提取目标域特征
         target_features_list = []
         for x_t_real, _ in target_loader:
@@ -283,10 +276,11 @@ def evaluate_cvae_comprehensive(E, cvae, source_loader, target_loader, device='c
             target_features_list.append(features)
         target_features = torch.cat(target_features_list, dim=0).to(device)
 
-        # 生成合成样本
+        # 生成合成样本（与真实样本数量保持一致）
+        num_real_samples = real_samples.size(0)
         fake_samples_list = []
         for x_s, _ in source_loader:
-            if len(torch.cat(fake_samples_list + [torch.zeros(0, 3, 56, 6000)], dim=0)) >= 500:
+            if fake_samples_list and len(torch.cat(fake_samples_list, dim=0)) >= num_real_samples:
                 break
             x_s = x_s.to(device)
             batch_size = x_s.size(0)
@@ -300,7 +294,7 @@ def evaluate_cvae_comprehensive(E, cvae, source_loader, target_loader, device='c
             
             recon_x, _, _ = cvae(x_s, cond_features)
             fake_samples_list.append(recon_x)
-        fake_samples = torch.cat(fake_samples_list, dim=0)[:500]
+        fake_samples = torch.cat(fake_samples_list, dim=0)[:num_real_samples]  # 截断到与真实样本相同数量
 
     # 使用原有的评估函数计算四项指标（复用GAN的评估逻辑）
     return {
@@ -423,8 +417,8 @@ if __name__ == "__main__":
     print("步骤7: 开始CVAE训练...")
     os.makedirs('CVAE', exist_ok=True)
     comprehensive_metrics = train_and_test(
-        model_path='best_cvae_model.pth',
-        epochs=2,
+        model_path='CVAE/best_cvae_model.pth',
+        epochs=100,
         lr=1e-4,
         num_samples=900
     )

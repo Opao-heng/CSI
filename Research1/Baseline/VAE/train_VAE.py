@@ -13,8 +13,6 @@ from Research1.Baseline.VAE.model_VAE import build_model
 from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.Baseline.VAE.loss_VAE import vae_loss, frequency_consistency_loss, mmd_loss
 from Research1.plot_GAN import (
-    plot_training_metrics,
-    save_evaluation_results,
     evaluate_gan_comprehensive
 )
 
@@ -87,12 +85,8 @@ def train_and_test(model_path='VAE/best_vae_model.pth', epochs=200, lr=1e-4, num
     }, model_path)
     print(f"  模型已保存到: {model_path}")
 
-    # 步骤9: 绘制训练指标
+    # 步骤9: 执行全面的生成质量评估（四项指标）
     print("=" * 70 + "\n")
-    print(f"  正在绘制训练指标...")
-    plot_training_metrics(train_loss_history, output_dir='Baseline/VAE/results')
-
-    # 步骤10: 执行全面的生成质量评估（四项指标）
     print(f"  正在执行生成质量综合评估（四项指标）...")
     comprehensive_metrics = evaluate_vae_comprehensive(E, vae, source_loader, target_loader, device=device)
     print("\n" + "="*70)
@@ -104,8 +98,11 @@ def train_and_test(model_path='VAE/best_vae_model.pth', epochs=200, lr=1e-4, num
     print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
 
-    # 步骤11: 保存全面评估结果
-    save_evaluation_results(comprehensive_metrics, train_loss_history, 'Baseline/VAE/results')
+    # 步骤10: 保存全面评估结果（仅保存评估指标）
+    os.makedirs('Baseline/VAE/results', exist_ok=True)
+    import json
+    with open('Baseline/VAE/results/vae_evaluation_results.json', 'w', encoding='utf-8') as f:
+        json.dump(comprehensive_metrics, f, indent=4, ensure_ascii=False)
 
     return comprehensive_metrics
 
@@ -243,17 +240,18 @@ def evaluate_vae_comprehensive(E, vae, source_loader, target_loader, device='cud
         for x_t_real, _ in target_loader:
             x_t_real = x_t_real.to(device)
             real_samples_list.append(x_t_real)
-        real_samples = torch.cat(real_samples_list, dim=0)[:500]
+        real_samples = torch.cat(real_samples_list, dim=0)  # 不截断，使用所有可用样本
 
-        # 生成合成样本
+        # 生成合成样本（与真实样本数量保持一致）
+        num_real_samples = real_samples.size(0)
         fake_samples_list = []
         for x_s, _ in source_loader:
-            if len(torch.cat(fake_samples_list + [torch.zeros(0, 3, 56, 6000)], dim=0)) >= 500:
+            if fake_samples_list and len(torch.cat(fake_samples_list, dim=0)) >= num_real_samples:
                 break
             x_s = x_s.to(device)
             recon_x, _, _ = vae(x_s)
             fake_samples_list.append(recon_x)
-        fake_samples = torch.cat(fake_samples_list, dim=0)[:500]
+        fake_samples = torch.cat(fake_samples_list, dim=0)[:num_real_samples]  # 截断到与真实样本相同数量
 
     return {
         'fid': calculate_fid(E, real_samples, fake_samples, device),
