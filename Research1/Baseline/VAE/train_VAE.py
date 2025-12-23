@@ -15,7 +15,6 @@ from Research1.Baseline.VAE.loss_VAE import vae_loss, frequency_consistency_loss
 from Research1.plot_GAN import (
     plot_training_metrics,
     save_evaluation_results,
-    plot_feature_distribution_2d,
     evaluate_gan_comprehensive
 )
 
@@ -88,19 +87,12 @@ def train_and_test(model_path='VAE/best_vae_model.pth', epochs=200, lr=1e-4, num
     }, model_path)
     print(f"  模型已保存到: {model_path}")
 
-    # 步骤9: 生成合成样本用于数据增强
+    # 步骤9: 绘制训练指标
     print("=" * 70 + "\n")
-    print(f"  正在生成合成样本用于数据增强...")
-    synthetic_data, synthetic_labels = generate_synthetic_samples(
-        E, vae, source_loader, target_loader, num_samples=num_samples, device=device
-    )
-    print(f"  已生成 {len(synthetic_data)} 个合成样本")
-
-    # 步骤10: 绘制训练指标
     print(f"  正在绘制训练指标...")
     plot_training_metrics(train_loss_history, output_dir='Baseline/VAE/results')
 
-    # 步骤11: 执行全面的生成质量评估（四项指标）
+    # 步骤10: 执行全面的生成质量评估（四项指标）
     print(f"  正在执行生成质量综合评估（四项指标）...")
     comprehensive_metrics = evaluate_vae_comprehensive(E, vae, source_loader, target_loader, device=device)
     print("\n" + "="*70)
@@ -112,34 +104,10 @@ def train_and_test(model_path='VAE/best_vae_model.pth', epochs=200, lr=1e-4, num
     print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
 
-    # 步骤12: 绘制特征分布二维图
-    print(f"  正在提取特征用于分布可视化...")
-    E.eval()
-    with torch.no_grad():
-        # 提取目标域真实样本的特征
-        real_features_list = []
-        real_labels_list = []
-        for x_t_real, target_labels in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)
-            real_features_list.append(features)
-            real_labels_list.append(target_labels)
-        real_features = torch.cat(real_features_list, dim=0)
-        real_labels = torch.cat(real_labels_list, dim=0)
-
-        # 提取生成样本的特征
-        synthetic_data_device = synthetic_data.to(device)
-        fake_features = E(synthetic_data_device)
-
-    # 使用t-SNE方法绘制特征分布
-    print(f"  正在绘制特征分布图(t-SNE)...")
-    plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne',
-                                  output_dir='Baseline/VAE/results')
-
-    # 步骤13: 保存全面评估结果
+    # 步骤11: 保存全面评估结果
     save_evaluation_results(comprehensive_metrics, train_loss_history, 'Baseline/VAE/results')
 
-    return synthetic_data, synthetic_labels
+    return comprehensive_metrics
 
 
 def train_epoch(E, vae, source_loader, target_loader, target_data,
