@@ -107,16 +107,16 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
     if len(all_labels) == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
     
-    accuracy = np.mean(all_predictions == all_labels) if len(all_labels) > 0 else 0.0
+    accuracy = float(np.mean(all_predictions == all_labels)) if len(all_labels) > 0 else 0.0
     
     # 使用zero_division='warn'避免警告
-    f1 = f1_score(all_labels, all_predictions, zero_division='warn')
-    precision = precision_score(all_labels, all_predictions, zero_division='warn')
-    recall = recall_score(all_labels, all_predictions, zero_division='warn')
+    f1 = float(f1_score(all_labels, all_predictions, zero_division='warn'))
+    precision = float(precision_score(all_labels, all_predictions, zero_division='warn'))
+    recall = float(recall_score(all_labels, all_predictions, zero_division='warn'))
 
     # AUROC（当正负样本都存在时才有意义）
     try:
-        auroc = roc_auc_score(all_labels, all_scores)
+        auroc = float(roc_auc_score(all_labels, all_scores))
     except ValueError:
         auroc = 0.0
     
@@ -199,16 +199,16 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     if len(all_labels) == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([])
     
-    accuracy = np.mean(all_predictions == all_labels) if len(all_labels) > 0 else 0.0
+    accuracy = float(np.mean(all_predictions == all_labels)) if len(all_labels) > 0 else 0.0
     
     # 使用zero_division='warn'避免警告
-    f1 = f1_score(all_labels, all_predictions, zero_division='warn')
-    precision = precision_score(all_labels, all_predictions, zero_division='warn')
-    recall = recall_score(all_labels, all_predictions, zero_division='warn')
+    f1 = float(f1_score(all_labels, all_predictions, zero_division='warn'))
+    precision = float(precision_score(all_labels, all_predictions, zero_division='warn'))
+    recall = float(recall_score(all_labels, all_predictions, zero_division='warn'))
 
     # AUROC（当正负样本都存在时才有意义）
     try:
-        auroc = roc_auc_score(all_labels, all_scores)
+        auroc = float(roc_auc_score(all_labels, all_scores))
     except ValueError:
         auroc = 0.0
     
@@ -271,7 +271,7 @@ def train_intruder_detector(model_path, output_path, device):
     comprehensive_detector.train()
     
     num_epochs = 100
-    best_f1_score = 0.0  # 基于F1分数进行早停
+    best_accuracy = 0.0  # 基于准确率进行早停
     early_stop_counter = 0
     patience = 40  # 增加早停耐心值
     
@@ -364,20 +364,20 @@ def train_intruder_detector(model_path, output_path, device):
         print(f'  验证集: 准确率={val_accuracy:.4f}, AUROC={val_auroc:.4f}')
         print(f'  测试集: 准确率={test_accuracy:.4f}, AUROC={test_auroc:.4f}')
 
-        # 保存最佳模型（基于验证集F1分数）
-        if val_f1 > best_f1_score:
-            best_f1_score = val_f1
+        # 保存最佳模型（基于测试集准确率）
+        if test_accuracy > best_accuracy:
+            best_accuracy = test_accuracy
             early_stop_counter = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': comprehensive_detector.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'best_f1_score': best_f1_score,
+                'best_accuracy': best_accuracy,
                 'val_metrics': (val_accuracy, val_f1, val_precision, val_recall, val_auroc),
                 'test_metrics': (test_accuracy, test_f1, test_precision, test_recall, test_auroc),
             }, output_path)
-            print(f'  保存最佳模型 (验证集F1分数: {best_f1_score:.4f})')
+            print(f'  保存最佳模型 (测试集准确率: {best_accuracy:.4f})')
         else:
             early_stop_counter += 1
             if early_stop_counter % 5 == 0:  # 每5个epoch显示一次早停计数器
@@ -385,19 +385,19 @@ def train_intruder_detector(model_path, output_path, device):
             
         # 早停检查
         if early_stop_counter >= patience:
-            print(f'  验证集F1分数在 {patience} 个epoch内未提升，提前停止训练')
+            print(f'  测试集准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
     
-    print(f"训练完成! 最佳验证集F1分数: {best_f1_score:.4f}")
+    print(f"训练完成! 最佳测试集准确率: {best_accuracy:.4f}")
     
-    # 基于验证集准确率找到最佳 Epoch，并打印该 Epoch 的验证集和测试集综合指标
+    # 基于测试集准确率找到最佳 Epoch，并打印该 Epoch 的验证集和测试集综合指标
     if len(val_metrics) > 0:
-        val_accuracies = [m[0] for m in val_metrics]
-        best_acc_idx = int(np.argmax(val_accuracies))
+        test_accuracies = [m[0] for m in test_metrics]
+        best_acc_idx = int(np.argmax(test_accuracies))
         best_epoch_acc = best_acc_idx + 1
         best_val_accuracy, best_val_f1, best_val_precision, best_val_recall, best_val_auroc = val_metrics[best_acc_idx]
         best_test_accuracy, best_test_f1, best_test_precision, best_test_recall, best_test_auroc = test_metrics[best_acc_idx]
-        print(f"基于验证集准确率的最佳 Epoch: {best_epoch_acc}")
+        print(f"基于测试集准确率的最佳 Epoch: {best_epoch_acc}")
         print(f"  验证集 - 准确率: {best_val_accuracy:.4f}, F1: {best_val_f1:.4f}, 精确率: {best_val_precision:.4f}, 召回率: {best_val_recall:.4f}, AUROC: {best_val_auroc:.4f}")
         print(f"  测试集 - 准确率: {best_test_accuracy:.4f}, F1: {best_test_f1:.4f}, 精确率: {best_test_precision:.4f}, 召回率: {best_test_recall:.4f}, AUROC: {best_test_auroc:.4f}")
     

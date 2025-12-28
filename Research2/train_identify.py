@@ -224,17 +224,6 @@ def main():
     save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, 
                          history_file_path)
 
-    # 最终测试
-    print("进行最终测试...")
-    final_test_results = test_model(model, data_loaders, device)
-    
-    # 保存最终模型
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'accuracy': final_test_results.get('identity_test', 0.0),
-    }, 'identify/final_identify_model.pth')
-    print("最终模型已保存到 identify/final_identify_model.pth")
-
 
 if __name__ == "__main__":
     main()
