@@ -55,16 +55,16 @@ def load_intruder_data():
     print("\n----------------------------------------------------\n")
     print("研究内容二---入侵检测---加载数据...")
     print("加载源域数据...")
-    source_data = torch.load('../Data/source_env0_env1_data.pt')
-    source_labels = torch.load('../Data/source_env0_env1_labels.pt')
+    source_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\source_env0_env1_data.pt')
+    source_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\/source_env0_env1_labels.pt')
 
     print(f"源域数据形状: {source_data.shape}")
     print(f"源域标签形状: {source_labels.shape}")
 
     # 加载目标域已知用户数据（env2 中 10 名已知用户）
     print("加载目标域已知用户数据...")
-    target_legal_data = torch.load('../Data/target_env2_data.pt')
-    target_legal_labels = torch.load('../Data/target_env2_labels.pt')
+    target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_data.pt')
+    target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_labels.pt')
 
     print(f"目标域已知用户数据形状: {target_legal_data.shape}")
     print(f"目标域已知用户标签形状: {target_legal_labels.shape}")
@@ -76,7 +76,7 @@ def load_intruder_data():
     # 加载真实入侵者数据
     for i in range(3):
         intruder_id = 10 + i  # 入侵者ID从10开始
-        intruder_file = f'../data/env2_intruder/id_{intruder_id}_env_2.npy'
+        intruder_file = f'C:\\Users\\USER\\Desktop\\liuheng\\RawData\\env2_Intruder\\id_{intruder_id}_env_2.npy'
 
         intruder_data = np.load(intruder_file)
         # 转换为张量并重塑

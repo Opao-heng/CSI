@@ -4,7 +4,7 @@ import json
 from model_identify import IdentifyDetectionSystem
 from model_intruder import LearnableComprehensiveIntruderDetector
 from Research2.Process.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 def extract_features(model, data_loader, device):
     """
@@ -51,6 +51,7 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
     
     all_predictions = []
     all_labels = []
+    all_scores = []
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(data_loader):
@@ -89,20 +90,22 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
             if probabilities.dim() == 0:
                 probabilities = probabilities.unsqueeze(0)
 
-            # 收集预测结果和真实标签
+            # 收集预测结果、预测分数和真实标签
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_scores.extend(probabilities.cpu().numpy())
 
     # 计算评估指标
     if len(all_predictions) == 0 or len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
     
     all_predictions = np.array(all_predictions)
     all_labels = np.array(all_labels)
+    all_scores = np.array(all_scores)
     
     # 处理空数组情况
     if len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
     
     accuracy = np.mean(all_predictions == all_labels) if len(all_labels) > 0 else 0.0
     
@@ -110,8 +113,14 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
     f1 = f1_score(all_labels, all_predictions, zero_division='warn')
     precision = precision_score(all_labels, all_predictions, zero_division='warn')
     recall = recall_score(all_labels, all_predictions, zero_division='warn')
+
+    # AUROC（当正负样本都存在时才有意义）
+    try:
+        auroc = roc_auc_score(all_labels, all_scores)
+    except ValueError:
+        auroc = 0.0
     
-    return accuracy, f1, precision, recall
+    return accuracy, f1, precision, recall, auroc
 
 
 def test_intruder_detector(model, identity_model, data_loader, device):
@@ -180,7 +189,7 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     
     # 计算评估指标
     if len(all_predictions) == 0 or len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0, np.array([])
+        return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([])
     
     all_predictions = np.array(all_predictions)
     all_labels = np.array(all_labels)
@@ -188,7 +197,7 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     
     # 处理空数组情况
     if len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0, np.array([])
+        return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([])
     
     accuracy = np.mean(all_predictions == all_labels) if len(all_labels) > 0 else 0.0
     
@@ -196,17 +205,24 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     f1 = f1_score(all_labels, all_predictions, zero_division='warn')
     precision = precision_score(all_labels, all_predictions, zero_division='warn')
     recall = recall_score(all_labels, all_predictions, zero_division='warn')
+
+    # AUROC（当正负样本都存在时才有意义）
+    try:
+        auroc = roc_auc_score(all_labels, all_scores)
+    except ValueError:
+        auroc = 0.0
     
-    return accuracy, f1, precision, recall, all_scores
+    return accuracy, f1, precision, recall, auroc, all_scores
 
 def save_training_history(train_losses, val_metrics, test_metrics, file_path):
     """
     保存训练历史数据到JSON文件
+    val_metrics/test_metrics: (accuracy, f1, precision, recall, auroc)
     """
     history = {
         'train_losses': train_losses,
-        'val_metrics': val_metrics,  # (accuracy, f1, precision, recall)
-        'test_metrics': test_metrics  # (accuracy, f1, precision, recall)
+        'val_metrics': val_metrics,  # (accuracy, f1, precision, recall, auroc)
+        'test_metrics': test_metrics  # (accuracy, f1, precision, recall, auroc)
     }
     
     with open(file_path, 'w') as f:
@@ -334,18 +350,19 @@ def train_intruder_detector(model_path, output_path, device):
         scheduler.step()
         
         # 在每个epoch后测试入侵者检测器性能
-        val_accuracy, val_f1, val_precision, val_recall = validate_intruder_detector(
+        val_accuracy, val_f1, val_precision, val_recall, val_auroc = validate_intruder_detector(
             comprehensive_detector, identity_model, data_loaders['intruder_validation'], device)
 
-        test_accuracy, test_f1, test_precision, test_recall = validate_intruder_detector(
+        test_accuracy, test_f1, test_precision, test_recall, test_auroc = validate_intruder_detector(
             comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
 
-        val_metrics.append((val_accuracy, val_f1, val_precision, val_recall))
-        test_metrics.append((test_accuracy, test_f1, test_precision, test_recall))
+        val_metrics.append((val_accuracy, val_f1, val_precision, val_recall, val_auroc))
+        test_metrics.append((test_accuracy, test_f1, test_precision, test_recall, test_auroc))
 
-        # 简化输出信息，只显示损失、学习率、验证集和测试集的准确率
+        # 简化输出信息，只显示损失、学习率、验证集和测试集的准确率及AUROC
         print(f'Epoch [{epoch+1}/{num_epochs}], 损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
-        print(f'  验证集准确率: {val_accuracy:.4f}, 测试集准确率: {test_accuracy:.4f}')
+        print(f'  验证集: 准确率={val_accuracy:.4f}, AUROC={val_auroc:.4f}')
+        print(f'  测试集: 准确率={test_accuracy:.4f}, AUROC={test_auroc:.4f}')
 
         # 保存最佳模型（基于验证集F1分数）
         if val_f1 > best_f1_score:
@@ -357,8 +374,8 @@ def train_intruder_detector(model_path, output_path, device):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'best_f1_score': best_f1_score,
-                'val_metrics': (val_accuracy, val_f1, val_precision, val_recall),
-                'test_metrics': (test_accuracy, test_f1, test_precision, test_recall),
+                'val_metrics': (val_accuracy, val_f1, val_precision, val_recall, val_auroc),
+                'test_metrics': (test_accuracy, test_f1, test_precision, test_recall, test_auroc),
             }, output_path)
             print(f'  保存最佳模型 (验证集F1分数: {best_f1_score:.4f})')
         else:
@@ -377,10 +394,10 @@ def train_intruder_detector(model_path, output_path, device):
     save_training_history(train_losses, val_metrics, test_metrics, 'intruder/training_history.json')
     
     # 在测试集上进行最终评估
-    test_accuracy, test_f1, test_precision, test_recall, test_scores = test_intruder_detector(
+    test_accuracy, test_f1, test_precision, test_recall, test_auroc, test_scores = test_intruder_detector(
         comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
 
-    print(f"最终测试结果 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}")
+    print(f"最终测试结果 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}, AUROC: {test_auroc:.4f}")
 
     # 保存最终模型
     torch.save({

@@ -1,0 +1,12 @@
+{
+    "model_name": "Model A (Baseline)",
+    "description": "w/o TFGAN & CAL - 仅使用源域数据训练CNN分类器",
+    "metrics": {
+        "fid": Infinity,
+        "inception_score": 0.0,
+        "time_domain_mse": Infinity,
+        "spectral_correlation": 0.0,
+        "cross_domain_accuracy": 26.162790697674417
+    },
+    "best_target_accuracy": 26.162790697674417
+}

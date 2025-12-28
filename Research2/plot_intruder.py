@@ -4,6 +4,7 @@ import os
 import sys
 import torch
 import numpy as np
+from sklearn.metrics import confusion_matrix, roc_curve, auc
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -170,11 +171,41 @@ def plot_recall(val_recalls, test_recalls, save_path):
     plt.close()
     print(f"召回率曲线已保存到 {save_path}")
 
+
+def plot_auroc(val_aurocs, test_aurocs, save_path):
+    """
+    绘制 AUROC 曲线（验证集、测试集）
+    """
+    epochs = range(1, len(val_aurocs) + 1)
+
+    plt.figure(figsize=(12, 8))
+    plt.plot(epochs, val_aurocs, 'g-', label='验证集AUROC', linewidth=2.5, marker='s', markersize=4)
+    plt.plot(epochs, test_aurocs, 'r-', label='测试集AUROC', linewidth=2.5, marker='^', markersize=4)
+    plt.title('验证集与测试集AUROC变化曲线', fontsize=18, fontweight='bold', pad=20)
+    plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
+    plt.ylabel('AUROC', fontsize=14, fontweight='bold')
+    plt.legend(fontsize=12, loc='lower right')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    # 美化坐标轴
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(0.8)
+    ax.spines['bottom'].set_linewidth(0.8)
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"AUROC 曲线已保存到 {save_path}")
+
 def plot_known_vs_intruder_distribution(scores, labels, save_path):
     """
     绘制已知用户和入侵者在入侵者模型决策后的分布图
     """
     # 分离已知用户和入侵者的分数
+    scores = np.array(scores).squeeze()
+    labels = np.array(labels).astype(int)
     known_user_scores = scores[labels == 0]
     intruder_scores = scores[labels == 1]
     
@@ -210,6 +241,54 @@ def plot_known_vs_intruder_distribution(scores, labels, save_path):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"已知用户与入侵者分布图已保存到 {save_path}")
+
+
+def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None):
+    """
+    根据分数和标签绘制混淆矩阵
+    - threshold 为决策阈值；若为 None，则基于 ROC 曲线自动选择 Youden 指数 (TPR - FPR) 最大的最佳阈值
+    """
+    scores = np.array(scores).squeeze()
+    labels = np.array(labels).astype(int)
+
+    # 若未指定阈值，基于 ROC 曲线自动选择最佳阈值
+    if threshold is None:
+        fpr, tpr, thresholds = roc_curve(labels, scores)
+        youden_index = tpr - fpr
+        best_idx = np.argmax(youden_index)
+        threshold = thresholds[best_idx]
+
+    preds = (scores >= threshold).astype(int)
+
+    cm = confusion_matrix(labels, preds)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.colorbar(im, ax=ax)
+
+    classes = ['合法用户', '入侵者']
+    ax.set_xticks(np.arange(len(classes)))
+    ax.set_yticks(np.arange(len(classes)))
+    ax.set_xticklabels(classes, fontsize=12)
+    ax.set_yticklabels(classes, fontsize=12)
+
+    ax.set_ylabel('真实标签', fontsize=14, fontweight='bold')
+    ax.set_xlabel('预测标签', fontsize=14, fontweight='bold')
+    plt.title(f'入侵者检测混淆矩阵 (阈值 = {threshold:.3f})', fontsize=18, fontweight='bold', pad=20)
+
+    # 在每个格子中写上数字
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, format(cm[i, j], 'd'),
+                    ha="center", va="center",
+                    color="white" if cm[i, j] > thresh else "black",
+                    fontsize=12)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"混淆矩阵图已保存到 {save_path} (阈值 = {threshold:.3f})")
 
 def extract_scores_and_labels(device):
     """
@@ -313,6 +392,33 @@ def extract_scores_and_labels(device):
     print(f"提取到 {len(all_scores)} 个样本的预测结果")
     return np.array(all_scores), np.array(all_labels)
 
+
+def plot_roc_curve(scores, labels, save_path):
+    """
+    使用测试集分数绘制 ROC 曲线
+    """
+    scores = np.array(scores).squeeze()
+    labels = np.array(labels).astype(int)
+
+    fpr, tpr, _ = roc_curve(labels, scores)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC 曲线 (AUROC = {roc_auc:.3f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='随机分类器')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('假正率 (FPR)', fontsize=14, fontweight='bold')
+    plt.ylabel('真正率 (TPR)', fontsize=14, fontweight='bold')
+    plt.title('入侵者检测 ROC 曲线', fontsize=18, fontweight='bold', pad=20)
+    plt.legend(loc="lower right", fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"ROC 曲线已保存到 {save_path}")
+
 def plot_all_training_curves(history_path, picture_dir):
     """
     根据训练历史绘制所有训练曲线
@@ -326,8 +432,8 @@ def plot_all_training_curves(history_path, picture_dir):
     
     # 提取训练数据
     train_losses = history.get('train_losses', [])
-    val_metrics = history.get('val_metrics', [])  # (accuracy, f1, precision, recall)
-    test_metrics = history.get('test_metrics', [])  # (accuracy, f1, precision, recall)
+    val_metrics = history.get('val_metrics', [])  # (accuracy, f1, precision, recall, auroc)
+    test_metrics = history.get('test_metrics', [])  # (accuracy, f1, precision, recall, auroc)
     
     if not train_losses or not val_metrics or not test_metrics:
         print("训练历史中缺少必要数据")
@@ -338,11 +444,13 @@ def plot_all_training_curves(history_path, picture_dir):
     val_f1_scores = [m[1] for m in val_metrics]
     val_precisions = [m[2] for m in val_metrics]
     val_recalls = [m[3] for m in val_metrics]
+    val_aurocs = [m[4] for m in val_metrics]
     
     test_accuracies = [m[0] for m in test_metrics]
     test_f1_scores = [m[1] for m in test_metrics]
     test_precisions = [m[2] for m in test_metrics]
     test_recalls = [m[3] for m in test_metrics]
+    test_aurocs = [m[4] for m in test_metrics]
     
     # 绘制训练损失曲线
     plot_training_loss(train_losses, os.path.join(picture_dir, 'training_loss.png'))
@@ -358,6 +466,9 @@ def plot_all_training_curves(history_path, picture_dir):
     
     # 绘制召回率曲线
     plot_recall(val_recalls, test_recalls, os.path.join(picture_dir, 'recall.png'))
+
+    # 绘制 AUROC 曲线
+    plot_auroc(val_aurocs, test_aurocs, os.path.join(picture_dir, 'auroc.png'))
 
 def main():
     """
@@ -376,10 +487,12 @@ def main():
     if os.path.exists(intruder_history_path):
         plot_all_training_curves(intruder_history_path, picture_dir)
 
-    # 绘制已知用户和入侵者分布图
+    # 绘制已知用户和入侵者分布图 + ROC 曲线 + 混淆矩阵
     scores, labels = extract_scores_and_labels(device)
     if scores is not None and labels is not None:
         plot_known_vs_intruder_distribution(scores, labels, os.path.join(picture_dir, 'known_vs_intruder_distribution.png'))
+        plot_roc_curve(scores, labels, os.path.join(picture_dir, 'roc_curve.png'))
+        plot_confusion_matrix_from_scores(scores, labels, os.path.join(picture_dir, 'confusion_matrix.png'))
 
     print("入侵者检测可视化完成!")
 
