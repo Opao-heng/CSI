@@ -277,8 +277,8 @@ def train_intruder_detector(model_path, output_path, device):
     
     # 记录训练历史
     train_losses = []
-    val_metrics = []  # (accuracy, f1, precision, recall)
-    test_metrics = []  # (accuracy, f1, precision, recall)
+    val_metrics = []  # (accuracy, f1, precision, recall, auroc)
+    test_metrics = []  # (accuracy, f1, precision, recall, auroc)
 
     for epoch in range(num_epochs):
         total_loss = 0.0
@@ -390,21 +390,19 @@ def train_intruder_detector(model_path, output_path, device):
     
     print(f"训练完成! 最佳验证集F1分数: {best_f1_score:.4f}")
     
+    # 基于验证集准确率找到最佳 Epoch，并打印该 Epoch 的验证集和测试集综合指标
+    if len(val_metrics) > 0:
+        val_accuracies = [m[0] for m in val_metrics]
+        best_acc_idx = int(np.argmax(val_accuracies))
+        best_epoch_acc = best_acc_idx + 1
+        best_val_accuracy, best_val_f1, best_val_precision, best_val_recall, best_val_auroc = val_metrics[best_acc_idx]
+        best_test_accuracy, best_test_f1, best_test_precision, best_test_recall, best_test_auroc = test_metrics[best_acc_idx]
+        print(f"基于验证集准确率的最佳 Epoch: {best_epoch_acc}")
+        print(f"  验证集 - 准确率: {best_val_accuracy:.4f}, F1: {best_val_f1:.4f}, 精确率: {best_val_precision:.4f}, 召回率: {best_val_recall:.4f}, AUROC: {best_val_auroc:.4f}")
+        print(f"  测试集 - 准确率: {best_test_accuracy:.4f}, F1: {best_test_f1:.4f}, 精确率: {best_test_precision:.4f}, 召回率: {best_test_recall:.4f}, AUROC: {best_test_auroc:.4f}")
+    
     # 保存训练历史
     save_training_history(train_losses, val_metrics, test_metrics, 'intruder/training_history.json')
-    
-    # 在测试集上进行最终评估
-    test_accuracy, test_f1, test_precision, test_recall, test_auroc, test_scores = test_intruder_detector(
-        comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
-
-    print(f"最终测试结果 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}, AUROC: {test_auroc:.4f}")
-
-    # 保存最终模型
-    torch.save({
-        'model_state_dict': comprehensive_detector.state_dict(),
-        'best_f1_score': best_f1_score,
-    }, 'intruder/final_intruder_detector.pth')
-    print("最终模型已保存到 intruder/final_intruder_detector.pth")
 
 
 def main():

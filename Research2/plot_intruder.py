@@ -17,7 +17,7 @@ from Research2.Process.dataloader_intruder import load_intruder_data, create_int
 plt.rcParams['font.sans-serif'] = ['SimHei', 'FangSong', 'Microsoft YaHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
 plt.rcParams['figure.figsize'] = (10, 6)
-plt.rcParams['axes.grid'] = True
+plt.rcParams['axes.grid'] = False  # 参考顶会风格，默认不显示网格
 plt.rcParams['grid.alpha'] = 0.3
 plt.rcParams['axes.axisbelow'] = True
 
@@ -44,12 +44,12 @@ def plot_training_loss(train_losses, save_path):
     epochs = range(1, len(train_losses) + 1)
     
     plt.figure(figsize=(12, 8))
-    plt.plot(epochs, train_losses, 'b-', label='训练损失', linewidth=2.5, marker='o', markersize=4)
+    plt.plot(epochs, train_losses, color='#0072BD', linestyle='-', linewidth=2.0,
+             marker='^', markersize=6, label='训练损失')
     plt.title('训练损失变化曲线', fontsize=18, fontweight='bold', pad=20)
     plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
     plt.ylabel('损失值', fontsize=14, fontweight='bold')
     plt.legend(fontsize=12, loc='upper right')
-    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     # 美化坐标轴
@@ -70,13 +70,14 @@ def plot_accuracy(val_accuracies, test_accuracies, save_path):
     epochs = range(1, len(val_accuracies) + 1)
     
     plt.figure(figsize=(12, 8))
-    plt.plot(epochs, val_accuracies, 'g-', label='验证集准确率', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, test_accuracies, 'r-', label='测试集准确率', linewidth=2.5, marker='^', markersize=4)
+    plt.plot(epochs, val_accuracies, color='#0072BD', linestyle='-', linewidth=2.0,
+             marker='^', markersize=6, label='验证集准确率')
+    plt.plot(epochs, test_accuracies, color='#D95319', linestyle='-', linewidth=2.0,
+             marker='v', markersize=6, label='测试集准确率')
     plt.title('验证集与测试集准确率变化曲线', fontsize=18, fontweight='bold', pad=20)
     plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
     plt.ylabel('准确率', fontsize=14, fontweight='bold')
     plt.legend(fontsize=12, loc='lower right')
-    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     # 美化坐标轴
@@ -90,86 +91,8 @@ def plot_accuracy(val_accuracies, test_accuracies, save_path):
     plt.close()
     print(f"准确率曲线已保存到 {save_path}")
 
-def plot_f1_score(val_f1_scores, test_f1_scores, save_path):
-    """
-    绘制F1分数曲线
-    """
-    epochs = range(1, len(val_f1_scores) + 1)
-    
-    plt.figure(figsize=(12, 8))
-    plt.plot(epochs, val_f1_scores, 'g-', label='验证集F1分数', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, test_f1_scores, 'r-', label='测试集F1分数', linewidth=2.5, marker='^', markersize=4)
-    plt.title('验证集与测试集F1分数变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
-    plt.ylabel('F1分数', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=12, loc='lower right')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # 美化坐标轴
-    ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"F1分数曲线已保存到 {save_path}")
 
-def plot_precision(val_precisions, test_precisions, save_path):
-    """
-    绘制精确率曲线
-    """
-    epochs = range(1, len(val_precisions) + 1)
-    
-    plt.figure(figsize=(12, 8))
-    plt.plot(epochs, val_precisions, 'g-', label='验证集精确率', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, test_precisions, 'r-', label='测试集精确率', linewidth=2.5, marker='^', markersize=4)
-    plt.title('验证集与测试集精确率变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
-    plt.ylabel('精确率', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=12, loc='lower right')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # 美化坐标轴
-    ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"精确率曲线已保存到 {save_path}")
 
-def plot_recall(val_recalls, test_recalls, save_path):
-    """
-    绘制召回率曲线
-    """
-    epochs = range(1, len(val_recalls) + 1)
-    
-    plt.figure(figsize=(12, 8))
-    plt.plot(epochs, val_recalls, 'g-', label='验证集召回率', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, test_recalls, 'r-', label='测试集召回率', linewidth=2.5, marker='^', markersize=4)
-    plt.title('验证集与测试集召回率变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数', fontsize=14, fontweight='bold')
-    plt.ylabel('召回率', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=12, loc='lower right')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # 美化坐标轴
-    ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"召回率曲线已保存到 {save_path}")
 
 
 def plot_auroc(val_aurocs, test_aurocs, save_path):
@@ -199,48 +122,79 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
     plt.close()
     print(f"AUROC 曲线已保存到 {save_path}")
 
-def plot_known_vs_intruder_distribution(scores, labels, save_path):
+
+def plot_all_metrics_panel(val_f1_scores, test_f1_scores,
+                           val_precisions, test_precisions,
+                           val_recalls, test_recalls,
+                           val_aurocs, test_aurocs,
+                           save_path):
     """
-    绘制已知用户和入侵者在入侵者模型决策后的分布图
+    将 F1、Precision、Recall、AUROC 四条曲线合并到一个 2x2 子图中绘制
+    上排：F1（左）、Precision（右）
+    下排：Recall（左）、AUROC（右）
     """
-    # 分离已知用户和入侵者的分数
-    scores = np.array(scores).squeeze()
-    labels = np.array(labels).astype(int)
-    known_user_scores = scores[labels == 0]
-    intruder_scores = scores[labels == 1]
-    
-    plt.figure(figsize=(12, 8))
-    
-    # 绘制直方图
-    plt.hist(known_user_scores, bins=50, alpha=0.7, label='已知用户', color='#1f77b4', edgecolor='black', linewidth=0.5)
-    plt.hist(intruder_scores, bins=50, alpha=0.7, label='入侵者', color='#ff7f0e', edgecolor='black', linewidth=0.5)
-    
-    # 添加统计信息
-    known_mean = np.mean(known_user_scores)
-    intruder_mean = np.mean(intruder_scores)
-    
-    plt.axvline(known_mean, color='#1f77b4', linestyle='--', linewidth=2, 
-                label=f'已知用户均值: {known_mean:.3f}')
-    plt.axvline(intruder_mean, color='#ff7f0e', linestyle='--', linewidth=2, 
-                label=f'入侵者均值: {intruder_mean:.3f}')
-    
-    plt.title('已知用户与入侵者决策分数分布对比', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('决策分数', fontsize=14, fontweight='bold')
-    plt.ylabel('频次', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=12)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # 美化坐标轴
-    ax = plt.gca()
+    epochs = range(1, len(val_f1_scores) + 1)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes = axes.ravel()
+
+    # 1. F1 分数
+    ax = axes[0]
+    ax.plot(epochs, val_f1_scores, color='#0072BD', linestyle='-', linewidth=2.0,
+            marker='^', markersize=4, label='验证集F1')
+    ax.plot(epochs, test_f1_scores, color='#D95319', linestyle='-', linewidth=2.0,
+            marker='v', markersize=4, label='测试集F1')
+    ax.set_title('F1 分数', fontsize=14, fontweight='bold', pad=10)
+    ax.set_xlabel('训练轮数', fontsize=12, fontweight='bold')
+    ax.set_ylabel('F1', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10, loc='lower right')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    
+
+    # 2. Precision
+    ax = axes[1]
+    ax.plot(epochs, val_precisions, color='#0072BD', linestyle='-', linewidth=2.0,
+            marker='^', markersize=4, label='验证集Precision')
+    ax.plot(epochs, test_precisions, color='#D95319', linestyle='-', linewidth=2.0,
+            marker='v', markersize=4, label='测试集Precision')
+    ax.set_title('精确率 (Precision)', fontsize=14, fontweight='bold', pad=10)
+    ax.set_xlabel('训练轮数', fontsize=12, fontweight='bold')
+    ax.set_ylabel('精确率', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10, loc='lower right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # 3. Recall
+    ax = axes[2]
+    ax.plot(epochs, val_recalls, color='#0072BD', linestyle='-', linewidth=2.0,
+            marker='^', markersize=4, label='验证集Recall')
+    ax.plot(epochs, test_recalls, color='#D95319', linestyle='-', linewidth=2.0,
+            marker='v', markersize=4, label='测试集Recall')
+    ax.set_title('召回率 (Recall)', fontsize=14, fontweight='bold', pad=10)
+    ax.set_xlabel('训练轮数', fontsize=12, fontweight='bold')
+    ax.set_ylabel('召回率', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10, loc='lower right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # 4. AUROC
+    ax = axes[3]
+    ax.plot(epochs, val_aurocs, color='#0072BD', linestyle='-', linewidth=2.0,
+            marker='^', markersize=4, label='验证集AUROC')
+    ax.plot(epochs, test_aurocs, color='#D95319', linestyle='-', linewidth=2.0,
+            marker='v', markersize=4, label='测试集AUROC')
+    ax.set_title('AUROC', fontsize=14, fontweight='bold', pad=10)
+    ax.set_xlabel('训练轮数', fontsize=12, fontweight='bold')
+    ax.set_ylabel('AUROC', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10, loc='lower right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"已知用户与入侵者分布图已保存到 {save_path}")
+    print(f"F1 / Precision / Recall / AUROC 综合曲线图已保存到 {save_path}")
+
 
 
 def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None):
@@ -403,18 +357,41 @@ def plot_roc_curve(scores, labels, save_path):
     fpr, tpr, _ = roc_curve(labels, scores)
     roc_auc = auc(fpr, tpr)
 
-    plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC 曲线 (AUROC = {roc_auc:.3f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='随机分类器')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('假正率 (FPR)', fontsize=14, fontweight='bold')
-    plt.ylabel('真正率 (TPR)', fontsize=14, fontweight='bold')
-    plt.title('入侵者检测 ROC 曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.legend(loc="lower right", fontsize=12)
-    plt.grid(True, alpha=0.3)
+    plt.figure(figsize=(9, 7))
+    
+    # 绘制ROC曲线 - 去掉marker，使用平滑曲线
+    plt.plot(fpr, tpr, color='#0072BD', lw=2.5, linestyle='-',
+             label=f'ROC 曲线 (AUROC = {roc_auc:.3f})')
+    
+    # 绘制对角线参考线
+    plt.plot([0, 1], [0, 1], color='#888888', lw=2.0, linestyle='--', 
+             label='随机分类器', alpha=0.7)
+    
+    # 设置坐标轴范围
+    plt.xlim([-0.02, 1.02])
+    plt.ylim([-0.02, 1.02])
+    
+    # 设置坐标轴标签
+    plt.xlabel('假正率 (FPR)', fontsize=16, fontweight='bold')
+    plt.ylabel('真正率 (TPR)', fontsize=16, fontweight='bold')
+    plt.title('入侵者检测 ROC 曲线', fontsize=20, fontweight='bold', pad=20)
+    
+    # 美化图例
+    plt.legend(loc="lower right", fontsize=13, frameon=True, shadow=False, 
+              fancybox=False, framealpha=0.95)
+    
+    # 美化坐标轴
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(1.2)
+    ax.spines['bottom'].set_linewidth(1.2)
+    ax.tick_params(labelsize=12, width=1.2)
+    
+    # 添加网格线，增加可读性
+    plt.grid(True, alpha=0.2, linestyle='-', linewidth=0.8)
+    
     plt.tight_layout()
-
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"ROC 曲线已保存到 {save_path}")
@@ -458,17 +435,14 @@ def plot_all_training_curves(history_path, picture_dir):
     # 绘制准确率曲线（验证集和测试集）
     plot_accuracy(val_accuracies, test_accuracies, os.path.join(picture_dir, 'accuracy.png'))
     
-    # 绘制F1分数曲线
-    plot_f1_score(val_f1_scores, test_f1_scores, os.path.join(picture_dir, 'f1_score.png'))
-    
-    # 绘制精确率曲线
-    plot_precision(val_precisions, test_precisions, os.path.join(picture_dir, 'precision.png'))
-    
-    # 绘制召回率曲线
-    plot_recall(val_recalls, test_recalls, os.path.join(picture_dir, 'recall.png'))
-
-    # 绘制 AUROC 曲线
-    plot_auroc(val_aurocs, test_aurocs, os.path.join(picture_dir, 'auroc.png'))
+    # 将 F1 / Precision / Recall / AUROC 四个指标合并到一张图中
+    plot_all_metrics_panel(
+        val_f1_scores, test_f1_scores,
+        val_precisions, test_precisions,
+        val_recalls, test_recalls,
+        val_aurocs, test_aurocs,
+        os.path.join(picture_dir, 'metrics_panel.png')
+    )
 
 def main():
     """
@@ -487,10 +461,9 @@ def main():
     if os.path.exists(intruder_history_path):
         plot_all_training_curves(intruder_history_path, picture_dir)
 
-    # 绘制已知用户和入侵者分布图 + ROC 曲线 + 混淆矩阵
+    # 绘制 ROC 曲线 + 混淆矩阵
     scores, labels = extract_scores_and_labels(device)
     if scores is not None and labels is not None:
-        plot_known_vs_intruder_distribution(scores, labels, os.path.join(picture_dir, 'known_vs_intruder_distribution.png'))
         plot_roc_curve(scores, labels, os.path.join(picture_dir, 'roc_curve.png'))
         plot_confusion_matrix_from_scores(scores, labels, os.path.join(picture_dir, 'confusion_matrix.png'))
 
