@@ -367,87 +367,119 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
     augmented_signal = augmented_amplitude[0, 0, :].numpy()  # (6000,)
     
     # 使用短时傅里叶变换（STFT）生成时频图
-    nperseg = 512  # 增大窗口大小以提高频率分辨率
-    noverlap = 480  # 增大重叠比例（75%重叠）以提高时间分辨率
+    time_steps = len(original_signal)
+    nperseg = min(256, time_steps // 10)  # 减小窗口以获得更好的时间分辨率
+    noverlap = int(nperseg * 0.75)  # 75%重叠，使能量分布更聚焦
     
-    # 计算原始信号的时频谱
-    freqs_orig, times_orig, Sxx_orig = signal.spectrogram(
-        original_signal, 
-        fs=1.0, 
+    print(f"时间步数: {time_steps}")
+    print(f"STFT参数 - nperseg: {nperseg}, noverlap: {noverlap}")
+    
+    # 计算原始信号的短时傅里叶变换（STFT）
+    freqs_orig, times_orig, Zxx_orig = signal.stft(
+        original_signal - np.mean(original_signal),  # 去除直流分量
+        fs=10.0,  # 采样频率设置为10Hz
+        window='hann',  # 使用汉宁窗减少频谱泄漏
         nperseg=nperseg, 
         noverlap=noverlap,
-        scaling='spectrum'
+        boundary=None  # 不填充边界，减少边界效应
     )
     
-    # 计算增强信号的时频谱
-    freqs_aug, times_aug, Sxx_aug = signal.spectrogram(
-        augmented_signal, 
-        fs=1.0, 
+    # 计算增强信号的短时傅里叶变换（STFT）
+    freqs_aug, times_aug, Zxx_aug = signal.stft(
+        augmented_signal - np.mean(augmented_signal),  # 去除直流分量
+        fs=10.0,
+        window='hann',
         nperseg=nperseg, 
         noverlap=noverlap,
-        scaling='spectrum'
+        boundary=None
     )
     
-    # 取对数以便可视化
-    Sxx_orig_db = 10 * np.log10(np.abs(Sxx_orig) + 1e-10)
-    Sxx_aug_db = 10 * np.log10(np.abs(Sxx_aug) + 1e-10)
+    # 计算功率谱密度（取幅度的平方）
+    magnitude_orig = np.abs(Zxx_orig) ** 2  # 使用功率谱而非幅度谱
+    magnitude_aug = np.abs(Zxx_aug) ** 2
+    
+    # 对数尺度显示，增强对比度
+    magnitude_orig_db = 10 * np.log10(magnitude_orig + 1e-10)  # 转换为dB，避免log(0)
+    magnitude_aug_db = 10 * np.log10(magnitude_aug + 1e-10)
+    
+    # 动态范围压缩：限制显示范围
+    vmin_orig = np.percentile(magnitude_orig_db, 5)  # 下限设为5%分位数
+    vmax_orig = np.percentile(magnitude_orig_db, 95)  # 上限设为95%分位数
+    vmin_aug = np.percentile(magnitude_aug_db, 5)
+    vmax_aug = np.percentile(magnitude_aug_db, 95)
     
     # 绘图设置
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10), facecolor='white')
+    fig_size = (14, 10)
+    fig, axes = plt.subplots(2, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
     
     # 上图: 增强前的时频图
     ax_before = axes[0]
     ax_before.set_facecolor('white')
-    # 将时间索引映射到实际值
-    time_indices_orig = times_orig * (len(original_signal) - 1)
-    # 使用插值方法轻滑热力图
-    im1 = ax_before.pcolormesh(time_indices_orig, freqs_orig[:len(freqs_orig)//2], 
-                                Sxx_orig_db[:len(freqs_orig)//2, :],
-                                shading='auto', cmap='jet', rasterized=True)
-    ax_before.set_ylabel('频率分量', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.set_title('原始CSI时频图', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_before.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
+    
+    im1 = ax_before.pcolormesh(times_orig, freqs_orig, magnitude_orig_db,
+                               shading='gouraud', 
+                               cmap='jet',  # 使用jet颜色映射，能量高的区域显示为暖色
+                               vmin=vmin_orig,
+                               vmax=vmax_orig)
+    
+    # 添加颜色条
     cbar1 = plt.colorbar(im1, ax=ax_before)
-    cbar1.set_label('幅度(dB)', fontsize=10, fontproperties=create_zh_font(10))
-    ax_before.tick_params(axis='both', which='major', labelsize=9)
+    cbar1.set_label('功率 (dB)', fontproperties=create_zh_font(10))
+    
+    # 设置标题和标签
+    ax_before.set_title('原始CSI时频图', fontsize=12, pad=10, fontproperties=create_zh_font(12))
+    ax_before.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
+    ax_before.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
+    ax_before.tick_params(axis='both', which='major', labelsize=8)
+    
+    # 为坐标轴刻度标签设置中文字体
     for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+        label.set_fontproperties(create_zh_font(8))
     
     # 下图: 增强后的时频图
     ax_after = axes[1]
     ax_after.set_facecolor('white')
-    # 将时间索引映射到实际值
-    time_indices_aug = times_aug * (len(augmented_signal) - 1)
-    im2 = ax_after.pcolormesh(time_indices_aug, freqs_aug[:len(freqs_aug)//2], 
-                               Sxx_aug_db[:len(freqs_aug)//2, :],
-                               shading='auto', cmap='jet', rasterized=True)
-    ax_after.set_ylabel('频率分量', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.set_title(f'频率选择性衰落时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 
-                      fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_after.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
+    
+    im2 = ax_after.pcolormesh(times_aug, freqs_aug, magnitude_aug_db,
+                              shading='gouraud', 
+                              cmap='jet',
+                              vmin=vmin_aug,
+                              vmax=vmax_aug)
+    
+    # 添加颜色条
     cbar2 = plt.colorbar(im2, ax=ax_after)
-    cbar2.set_label('幅度(dB)', fontsize=10, fontproperties=create_zh_font(10))
-    ax_after.tick_params(axis='both', which='major', labelsize=9)
+    cbar2.set_label('功率 (dB)', fontproperties=create_zh_font(10))
+    
+    # 设置标题和标签
+    ax_after.set_title(f'频率选择性衰落时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 
+                      fontsize=12, pad=10, fontproperties=create_zh_font(12))
+    ax_after.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
+    ax_after.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
+    ax_after.tick_params(axis='both', which='major', labelsize=8)
+    
+    # 为坐标轴刻度标签设置中文字体
     for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+        label.set_fontproperties(create_zh_font(8))
     
     plt.tight_layout()
+    
+    # 强制刷新图形以确保中文字体正确应用
     plt.draw()
     
-    # 保存图像 - 提高为DPI以轴读务画丝螪f化效果
-    plt.savefig(save_path, dpi=200, bbox_inches='tight',
-                facecolor='white', edgecolor='none', format='png')
-    plt.close()
+    # 保存图像到指定目录
+    plt.savefig(save_path, dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
     
-    print(f"对比图已保存到: {save_path}")
+    plt.close()  # 关闭图形以释放内存
+    print(f"时频图已保存到: {save_path}")
 
 
 def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data.pt',
                                      sample_index=132, num_paths=5, rician_k_db=5.0,
                                      save_path='./preprocess/multipath_fading_comparison.png'):
     """
-    绘制多径衰落增强前后的对比图
+    绘制多径衰落增强前后的对比图（科研论文标准）
     
     参数:
     data_path (str): CSI数据文件路径
@@ -457,6 +489,14 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     save_path (str): 图像保存路径
     """
     import os
+    
+    # 设置科研绘图风格
+    plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
+    
+    # 设置中文字体（硕士论文标准）
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
     
     # 确保输出目录存在
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -478,61 +518,102 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     
     print(f"增强参数: {aug_params}")
     
-    # 绘图设置
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8), facecolor='white')
+    # 科研绘图配置
+    fig_size = (12, 8)  # 增加图像尺寸，提供更多留白
+    
+    fig, axes = plt.subplots(2, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
     
     num_antennas = amplitude_data.shape[0]  # 56个天线
+    time_steps = amplitude_data.shape[2]
     selected_antennas = list(range(num_antennas))
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 使用学术期刊标准配色方案（色盲友好）
+    academic_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', 
+                      '#8491B4', '#91D1C2', '#DC0000', '#7E6148', '#B09C85']
+    colors = [academic_colors[i % len(academic_colors)] for i in range(len(selected_antennas))]
     
     # 上图: 增强前 - 原始数据
     ax_before = axes[0]
     ax_before.set_facecolor('white')
-    for antenna in selected_antennas:
+    for i, antenna in enumerate(selected_antennas):
         # amplitude_data: (56, 3, 6000)
         # 绘制每个天线的第一个维度
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
-                      alpha=0.6, linewidth=0.8, color=colors[antenna % len(colors)])
-    ax_before.set_title('原始CSI数据', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_before.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.tick_params(axis='both', which='major', labelsize=9)
-    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
+    
+    ax_before.set_title('原始CSI数据', fontsize=14, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontsize=12)
+    ax_before.set_ylabel('幅度', fontsize=12)
+    
+    # 设置x轴范围，不留空白
+    ax_before.set_xlim(0, time_steps - 1)
+    
+    # 刻度设置
+    ax_before.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+    ax_before.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    
+    # 添加网格线（学术风格）
+    ax_before.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+    
+    # 设置边框
+    for spine in ax_before.spines.values():
+        spine.set_linewidth(1.2)
+        spine.set_color('black')
+    
+    # 优化刻度数量
+    ax_before.locator_params(axis='y', nbins=6)
+    ax_before.locator_params(axis='x', nbins=8)
     
     # 下图: 增强后 - 多径衰落
     ax_after = axes[1]
     ax_after.set_facecolor('white')
-    for antenna in selected_antennas:
+    for i, antenna in enumerate(selected_antennas):
         # augmented_amplitude: (56, 3, 6000)
         # 绘制每个天线的第一个维度
         ax_after.plot(augmented_amplitude[antenna, 0, :].numpy(),
-                     alpha=0.6, linewidth=0.8, color=colors[antenna % len(colors)])
+                     alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
+    
     ax_after.set_title(f'多径衰落CSI数据 (多径数={num_paths}, Rician_K={rician_k_db}dB)', 
-                      fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_after.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.tick_params(axis='both', which='major', labelsize=9)
-    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+                      fontsize=14, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontsize=12)
+    ax_after.set_ylabel('幅度', fontsize=12)
     
-    plt.tight_layout()
-    plt.draw()
+    # 设置x轴范围，不留空白
+    ax_after.set_xlim(0, time_steps - 1)
     
-    # 保存图像
-    plt.savefig(save_path, dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
+    # 刻度设置
+    ax_after.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+    ax_after.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    
+    # 添加网格线（学术风格）
+    ax_after.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+    
+    # 设置边框
+    for spine in ax_after.spines.values():
+        spine.set_linewidth(1.2)
+        spine.set_color('black')
+    
+    # 优化刻度数量
+    ax_after.locator_params(axis='y', nbins=6)
+    ax_after.locator_params(axis='x', nbins=8)
+    
+    # 调整子图间距，增加留白
+    plt.tight_layout(pad=1.5, h_pad=2.5)
+    
+    # 保存为高质量图像，不留白边
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
     plt.close()
     
-    print(f"对比图已保存到: {save_path}")
+    print(f"科研级对比图已保存到: {save_path}")
 
 
 def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_data.pt',
                                        sample_index=132, snr_db=25, noise_scale=0.02,
                                        save_path='./preprocess/noise_augmentation_comparison.png'):
     """
-    绘制数据增强前后的对比图（母线类噪声）
+    绘制数据增强前后的对比图（科研论文标准）
     
     参数:
     data_path (str): CSI数据文件路径
@@ -542,6 +623,14 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     save_path (str): 图像保存路径
     """
     import os
+    
+    # 设置科研绘图风格
+    plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
+    
+    # 设置中文字体（硕士论文标准）
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
     
     # 确保输出目录存在
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -559,52 +648,93 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     
     print(f"使用SNR: {actual_snr:.2f} dB, 噪声缩放: {noise_scale}")
     
-    # 绘图设置
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8), facecolor='white')
+    # 科研绘图配置
+    fig_size = (12, 8)  # 增加图像尺寸，提供更多留白
+    
+    fig, axes = plt.subplots(2, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
     
     num_antennas = amplitude_data.shape[0]  # 56个天线
+    time_steps = amplitude_data.shape[2]
     selected_antennas = list(range(num_antennas))
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 使用学术期刊标准配色方案（色盲友好）
+    academic_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', 
+                      '#8491B4', '#91D1C2', '#DC0000', '#7E6148', '#B09C85']
+    colors = [academic_colors[i % len(academic_colors)] for i in range(len(selected_antennas))]
     
     # 上图: 增强前 - 原始数据
     ax_before = axes[0]
     ax_before.set_facecolor('white')
-    for antenna in selected_antennas:
+    for i, antenna in enumerate(selected_antennas):
         # 绘制第一个维度的幅度
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
-                      alpha=0.6, linewidth=0.8, color=colors[antenna % len(colors)])
-    ax_before.set_title('原始CSI数据', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_before.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_before.tick_params(axis='both', which='major', labelsize=9)
-    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
+    
+    ax_before.set_title('原始CSI数据', fontsize=14, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontsize=12)
+    ax_before.set_ylabel('幅度', fontsize=12)
+    
+    # 设置x轴范围，不留空白
+    ax_before.set_xlim(0, time_steps - 1)
+    
+    # 刻度设置
+    ax_before.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+    ax_before.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    
+    # 添加网格线（学术风格）
+    ax_before.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+    
+    # 设置边框
+    for spine in ax_before.spines.values():
+        spine.set_linewidth(1.2)
+        spine.set_color('black')
+    
+    # 优化刻度数量
+    ax_before.locator_params(axis='y', nbins=6)
+    ax_before.locator_params(axis='x', nbins=8)
     
     # 下图: 增强后 - 添加轻微噪声
     ax_after = axes[1]
     ax_after.set_facecolor('white')
-    for antenna in selected_antennas:
+    for i, antenna in enumerate(selected_antennas):
         # 绘制第一个维度的幅度
         ax_after.plot(augmented_amplitude[antenna, 0, :].numpy(),
-                     alpha=0.6, linewidth=0.8, color=colors[antenna % len(colors)])
+                     alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
+    
     ax_after.set_title(f'添加噪声后的CSI数据 (SNR={actual_snr:.1f}dB, 噪声缩放={noise_scale})', 
-                      fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    ax_after.set_xlabel('时间索引', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.set_ylabel('幅度', fontsize=11, fontproperties=create_zh_font(11))
-    ax_after.tick_params(axis='both', which='major', labelsize=9)
-    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
-        label.set_fontproperties(create_zh_font(9))
+                      fontsize=14, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontsize=12)
+    ax_after.set_ylabel('幅度', fontsize=12)
     
-    plt.tight_layout()
-    plt.draw()
+    # 设置x轴范围，不留空白
+    ax_after.set_xlim(0, time_steps - 1)
     
-    # 保存图像
-    plt.savefig(save_path, dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
+    # 刻度设置
+    ax_after.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+    ax_after.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    
+    # 添加网格线（学术风格）
+    ax_after.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+    
+    # 设置边框
+    for spine in ax_after.spines.values():
+        spine.set_linewidth(1.2)
+        spine.set_color('black')
+    
+    # 优化刻度数量
+    ax_after.locator_params(axis='y', nbins=6)
+    ax_after.locator_params(axis='x', nbins=8)
+    
+    # 调整子图间距，增加留白
+    plt.tight_layout(pad=1.5, h_pad=2.5)
+    
+    # 保存为高质量图像，不留白边
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
     plt.close()
     
-    print(f"对比图已保存到: {save_path}")
+    print(f"科研级对比图已保存到: {save_path}")
 
 
 def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,

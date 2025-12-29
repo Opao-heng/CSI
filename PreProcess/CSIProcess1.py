@@ -48,7 +48,7 @@ zh_font = create_zh_font(12)
 print(f"已配置中文字体，默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图（科研论文标准）
@@ -135,7 +135,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     print(f"科研级图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -620,8 +620,6 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
 
 
 if __name__ == "__main__":
-
-    plot_csi_multiple_3d_views()
 
     # 调用加噪版本的函数(原始采集数据)
     plot_extended_csi_amplitude_with_noise()
