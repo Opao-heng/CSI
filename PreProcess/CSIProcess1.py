@@ -5,6 +5,7 @@ from matplotlib import font_manager
 import matplotlib as mpl
 from scipy import signal
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.gridspec as gridspec
 
 # 设置中文字体支持 - 更直接有效的方式
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
@@ -47,7 +48,7 @@ zh_font = create_zh_font(12)
 print(f"已配置中文字体，默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图
@@ -104,7 +105,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     print(f"图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -449,15 +450,14 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
 
 
 def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
-                              antenna_index=0, save_path='./preprocess/sample_3d_multiple_views.png'):
+                              save_path='./preprocess/sample_3d_multiple_views.png'):
     """
-    绘制CSI数据的多视角三维可视化
-    从不同角度展示数据的三维结构（子载波×时间×幅度）
+    绘制CSI数据的三个天线三维可视化
+    展示三个天线的三维数据结构（子载波×时间×幅度）
     
     参数:
     data_path (str): CSI数据文件路径
     sample_index (int): 要绘制的样本索引
-    antenna_index (int): 选择的天线索引 (0, 1, 2)
     save_path (str): 图像保存路径
     """
     # 加载数据
@@ -475,38 +475,41 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
     num_antennas = amplitude_data.shape[1]     # 3
     time_steps = amplitude_data.shape[2]       # 6000
     
-    # 选择一个天线的数据
-    antenna_data = amplitude_data[:, antenna_index, :]  # 形状: [56, 6000]
-    
     # 降采样时间维度以优化可视化
     time_downsample = 100
-    downsampled_data = antenna_data[:, ::time_downsample]  # 形状: [56, 60]
     
     # 创建网格坐标
     subcarrier_coords = np.arange(num_subcarriers)
     time_coords = np.arange(0, time_steps, time_downsample)
     Time, Subcarrier = np.meshgrid(time_coords, subcarrier_coords)
     
-    # 创建包含多个子图的图形
-    fig = plt.figure(figsize=(24, 18), facecolor='white')
+    # 创建包含3个子图的图形（3个天线）- 第一排天线1和2，第二排天线3居中
+    fig = plt.figure(figsize=(24, 16), facecolor='white')
     
-    # 定义不同的视角和配色方案
-    views = [
-        {'elev': 30, 'azim': 45, 'title': '标准视角', 'cmap': 'viridis'},
-        {'elev': 30, 'azim': 135, 'title': '侧视角', 'cmap': 'plasma'},
-        {'elev': 60, 'azim': 45, 'title': '俯视角', 'cmap': 'coolwarm'},
-        {'elev': 10, 'azim': 0, 'title': '正视角', 'cmap': 'magma'}
+    # 使用GridSpec实现灵活布局
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # 定义三个天线的配置：天线3在第二排居中
+    antenna_configs = [
+        {'cmap': 'viridis', 'title': '天线 1', 'grid': gs[0, 0:2]},  # 第一排左半部分
+        {'cmap': 'plasma', 'title': '天线 2', 'grid': gs[0, 2:4]},   # 第一排右半部分
+        {'cmap': 'coolwarm', 'title': '天线 3', 'grid': gs[1, 1:3]} # 第二排中间位置
     ]
     
-    for i, view_params in enumerate(views):
-        ax = fig.add_subplot(2, 2, i+1, projection='3d')
+    # 为每个天线绘制3D图
+    for antenna_idx in range(num_antennas):
+        ax = fig.add_subplot(antenna_configs[antenna_idx]['grid'], projection='3d')
+        
+        # 获取当前天线的数据
+        antenna_data = amplitude_data[:, antenna_idx, :]  # 形状: [56, 6000]
+        downsampled_data = antenna_data[:, ::time_downsample]  # 形状: [56, 60]
         
         # 绘制3D表面图
         surf = ax.plot_surface(
             Subcarrier, 
             Time, 
             downsampled_data.numpy(),
-            cmap=view_params['cmap'],
+            cmap=antenna_configs[antenna_idx]['cmap'],
             edgecolor='none',
             alpha=0.95,
             linewidth=0,
@@ -515,21 +518,21 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         )
         
         # 添加颜色条
-        cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=8, pad=0.08)
-        cbar.set_label('幅度', fontproperties=create_zh_font(10), fontsize=10)
-        cbar.ax.tick_params(labelsize=8)
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=12, pad=0.12)
+        cbar.set_label('幅度', fontproperties=create_zh_font(12), fontsize=12)
+        cbar.ax.tick_params(labelsize=10)
         
         # 设置坐标轴标签
-        ax.set_xlabel('子载波索引', fontsize=11, fontproperties=create_zh_font(11), labelpad=8)
-        ax.set_ylabel('时间步', fontsize=11, fontproperties=create_zh_font(11), labelpad=8)
-        ax.set_zlabel('幅度', fontsize=11, fontproperties=create_zh_font(11), labelpad=8)
+        ax.set_xlabel('子载波索引', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
+        ax.set_ylabel('时间步', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
+        ax.set_zlabel('幅度', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
         
         # 设置标题
-        ax.set_title(f"{view_params['title']} - 天线{antenna_index+1}", 
-                    fontsize=13, fontproperties=create_zh_font(13), pad=15)
+        ax.set_title(antenna_configs[antenna_idx]['title'], 
+                    fontsize=16, fontproperties=create_zh_font(16), pad=20, fontweight='bold')
         
-        # 设置视角
-        ax.view_init(elev=view_params['elev'], azim=view_params['azim'])
+        # 设置统一的视角
+        ax.view_init(elev=25, azim=45)
         
         # 优化网格和背景
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
@@ -538,25 +541,26 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         ax.zaxis.pane.fill = False
         
         # 设置刻度字体
-        ax.tick_params(axis='both', which='major', labelsize=9)
+        ax.tick_params(axis='both', which='major', labelsize=11)
         for label in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
-            label.set_fontproperties(create_zh_font(9))
+            label.set_fontproperties(create_zh_font(11))
     
     # 添加总标题
-    fig.suptitle(f'CSI数据多视角三维可视化 - 样本{sample_index}', 
-                fontsize=18, fontproperties=create_zh_font(18), y=0.98)
+    fig.suptitle(f'CSI数据三天线三维可视化 - 样本{sample_index}', 
+                fontsize=20, fontproperties=create_zh_font(20), y=0.98)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     
     # 保存图像
     plt.savefig(save_path, dpi=300, bbox_inches='tight',
                 facecolor='white', edgecolor='none')
     
     plt.close()
-    print(f"多视角3D可视化图像已保存到: {save_path}")
+    print(f"三天线3D可视化图像已保存到: {save_path}")
 
 
 if __name__ == "__main__":
+
     # 调用加噪版本的函数(原始采集数据)
     plot_extended_csi_amplitude_with_noise()
 
