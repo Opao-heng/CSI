@@ -51,13 +51,21 @@ print(f"已配置中文字体，默认大小为12")
 def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
-    绘制CSI数据的幅度图
+    绘制CSI数据的幅度图（科研论文标准）
 
     参数:
     data_path (str): CSI数据文件路径
     sample_index (int): 要绘制的样本索引
     save_path (str): 图像保存路径
     """
+    # 设置科研绘图风格
+    plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
+    
+    # 设置中文字体（硕士论文标准）
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
+    
     # 加载数据
     data = torch.load(data_path)
     print(f"数据形状: {data.shape}")
@@ -65,8 +73,8 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     sample_data = data[sample_index]
     amplitude_data = torch.abs(sample_data)
 
-    # 绘图设置
-    fig_size = (10, 6)
+    # 科研绘图配置
+    fig_size = (12, 8)  # 增加图像尺寸，提供更多留白
 
     fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
@@ -74,35 +82,57 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     num_antennas = amplitude_data.shape[0]
     time_steps = amplitude_data.shape[2]
     selected_antennas = list(range(num_antennas))
-    colors = plt.cm.tab10(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 使用学术期刊标准配色方案（色盲友好）
+    academic_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', 
+                      '#8491B4', '#91D1C2', '#DC0000', '#7E6148', '#B09C85']
+    colors = [academic_colors[i % len(academic_colors)] for i in range(len(selected_antennas))]
 
     for dim in range(3):
         ax = axes[dim]
         ax.set_facecolor('white')
+        
+        # 绘制数据线条
         for i, antenna in enumerate(selected_antennas):
             ax.plot(amplitude_data[antenna, dim, :].numpy(),
-                    alpha=0.8,
-                    linewidth=1.2,
-                    color=colors[i])
-        ax.set_title(f'天线 {dim + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
-        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-        ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
-        ax.tick_params(axis='both', which='major', labelsize=8)
-        # 为坐标轴刻度标签也设置中文字体
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(8))
+                    alpha=0.75,
+                    linewidth=1.0,  # 适中的线宽
+                    color=colors[i],
+                    rasterized=True)  # 栅格化以减小文件大小
+        
+        # 标题和标签 - 使用中文
+        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=12)
+        ax.set_ylabel('幅度', fontsize=12)
+        
+        # 设置x轴范围，不留空白
+        ax.set_xlim(0, time_steps - 1)
+        
+        # 刻度设置
+        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        
+        # 添加网格线（学术风格）
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+        
+        # 设置边框
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.2)
+            spine.set_color('black')
+        
+        # 优化刻度数量
+        ax.locator_params(axis='y', nbins=6)
+        ax.locator_params(axis='x', nbins=8)
 
-    plt.tight_layout()
+    # 调整子图间距，增加留白
+    plt.tight_layout(pad=1.5, h_pad=2.5)
 
-    # 强制刷新图形以确保中文字体正确应用
-    plt.draw()
+    # 保存为高质量图像，不留白边
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
 
-    # 保存图像到指定目录
-    plt.savefig(save_path, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-
-    plt.close()  # 关闭图形以释放内存
-    print(f"图像已保存到: {save_path}")
+    plt.close()
+    print(f"科研级图像已保存到: {save_path}")
 
 
 def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
@@ -212,8 +242,16 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
 def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                                 save_path='./preprocess/extended_sample_amplitude_plot.png', total_time_steps=50000):
     """
-    绘制扩展的CSI数据幅度图，将6000个原始数据包放在中间位置，前后扩展至50000个数据包
+    绘制扩展的CSI数据幅度图，将6000个原始数据包放在中间位置，前后扩展至50000个数据包（科研论文标准）
     """
+    # 设置科研绘图风格
+    plt.style.use('seaborn-v0_8-paper')
+    
+    # 设置中文字体（硕士论文标准）
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['mathtext.fontset'] = 'stix'
+    
     # 加载数据
     data = torch.load(data_path)
 
@@ -268,15 +306,19 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
     # 确保幅度值非负
     extended_amplitude_data = torch.clamp(extended_amplitude_data, min=0)
 
-    # 绘图设置
-    fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
+    # 科研绘图配置
+    fig_size = (12, 8)
 
     fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
 
     num_antennas = extended_amplitude_data.shape[0]
     selected_antennas = list(range(num_antennas))
-    colors = plt.cm.tab20(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 使用学术期刊标准配色方案（色盲友好）
+    academic_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', 
+                      '#8491B4', '#91D1C2', '#DC0000', '#7E6148', '#B09C85']
+    colors = [academic_colors[i % len(academic_colors)] for i in range(len(selected_antennas))]
 
     # 标记原始数据区域
     center_highlight = [center_start, center_end]
@@ -284,56 +326,55 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
     for dim in range(3):
         ax = axes[dim]
         ax.set_facecolor('white')
+        
+        # 绘制数据线条
         for i, antenna in enumerate(selected_antennas):
             ax.plot(extended_amplitude_data[antenna, dim, :].numpy(),
-                    alpha=0.8,
+                    alpha=0.75,
                     linewidth=0.8,
-                    color=colors[i])
+                    color=colors[i],
+                    rasterized=True)
 
-        # 高亮显示原始数据区域
-        ax.axvspan(center_highlight[0], center_highlight[1], alpha=0.2, color='yellow',
-                   label='原始6000个数据包区域')
+        # 标题和标签 - 使用中文
+        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=12)
+        ax.set_ylabel('幅度', fontsize=12)
+        
+        # 设置x轴范围，不留空白
+        ax.set_xlim(0, total_time_steps - 1)
+        
+        # 刻度设置
+        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        
+        # 添加网格线（学术风格）
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+        
+        # 设置边框
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.2)
+            spine.set_color('black')
+        
+        # 优化刻度数量
+        ax.locator_params(axis='y', nbins=6)
+        ax.locator_params(axis='x', nbins=10)
 
-        ax.set_title(f'天线 {dim + 1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
-        ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
-        ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
-        ax.tick_params(axis='both', which='major', labelsize=14)
+    # 调整子图间距，增加留白
+    plt.tight_layout(pad=1.5, h_pad=2.5)
 
-        # 设置x轴刻度以便更好地显示
-        ax.set_xlim(0, total_time_steps)
-        ax.set_xticks(np.linspace(0, total_time_steps, 11))  # 设置11个刻度
+    # 保存为高质量图像，不留白边
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
 
-        # 为坐标轴刻度标签也设置中文字体
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(14))
-
-    # 添加图例
-    if dim == 0:  # 只在第一个子图添加图例
-        legend = ax.legend(loc='upper right')
-        # 为图例文本设置中文字体
-        if legend:
-            for text in legend.get_texts():
-                text.set_fontproperties(create_zh_font(16))
-
-    # 调整子图间距以避免重叠
-    plt.subplots_adjust(left=0.1, right=0.95, top=0.95, bottom=0.08, hspace=0.35)
-
-    # 强制刷新图形以确保中文字体正确应用
-    plt.draw()
-
-    # 保存图像到指定目录
-    plt.savefig(save_path, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-
-    plt.close()  # 关闭图形以释放内存
-    print(f"扩展图像已保存到: {save_path}")
+    plt.close()
+    print(f"科研级扩展图像已保存到: {save_path}")
 
 
 def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                                            save_path='./preprocess/extended_sample_amplitude_with_noise.png', total_time_steps=50000,
                                            noise_std_ratio=0.1):
     """
-    绘制加噪后的扩展CSI数据幅度图，模拟真实环境的数据
+    绘制加噪后的扩展CSI数据幅度图，模拟真实环境的数据（科研论文标准）
     将6000个原始数据包放在中间位置，前后扩展至50000个数据包，并添加高斯噪声
     
     参数:
@@ -343,6 +384,14 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
     total_time_steps (int): 总时间步数
     noise_std_ratio (float): 噪声标准差与信号平均值的比例
     """
+    # 设置科研绘图风格
+    plt.style.use('seaborn-v0_8-paper')
+    
+    # 设置中文字体（硕士论文标准）
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['mathtext.fontset'] = 'stix'
+    
     # 加载数据
     data = torch.load(data_path)
 
@@ -402,51 +451,66 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
     # 确保幅度值非负
     noisy_amplitude_data = torch.clamp(noisy_amplitude_data, min=0)
 
-    # 绘图设置
-    fig_size = (24, 16)  # 增大图像尺寸以使整体更协调
+    # 科研绘图配置
+    fig_size = (12, 8)
 
     fig, axes = plt.subplots(3, 1, figsize=fig_size, facecolor='white')
     fig.patch.set_facecolor('white')
 
     num_antennas = noisy_amplitude_data.shape[0]
     selected_antennas = list(range(num_antennas))
-    colors = plt.cm.tab20(np.linspace(0, 1, len(selected_antennas)))
+    
+    # 使用学术期刊标准配色方案（色盲友好）
+    academic_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', 
+                      '#8491B4', '#91D1C2', '#DC0000', '#7E6148', '#B09C85']
+    colors = [academic_colors[i % len(academic_colors)] for i in range(len(selected_antennas))]
 
     for dim in range(3):
         ax = axes[dim]
         ax.set_facecolor('white')
+        
+        # 绘制数据线条
         for i, antenna in enumerate(selected_antennas):
             ax.plot(noisy_amplitude_data[antenna, dim, :].numpy(),
-                    alpha=0.8,
+                    alpha=0.75,
                     linewidth=0.8,
-                    color=colors[i])
+                    color=colors[i],
+                    rasterized=True)
 
         # 不显示黄色高亮区域，只绘制数据
-        ax.set_title(f'天线 {dim + 1}', fontsize=28, pad=20, fontproperties=create_zh_font(24), fontweight='bold')
-        ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
-        ax.set_ylabel('幅度', fontsize=20, fontproperties=create_zh_font(20))
-        ax.tick_params(axis='both', which='major', labelsize=14)
+        # 标题和标签 - 使用中文
+        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=12)
+        ax.set_ylabel('幅度', fontsize=12)
+        
+        # 设置x轴范围，不留空白
+        ax.set_xlim(0, total_time_steps - 1)
+        
+        # 刻度设置
+        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        
+        # 添加网格线（学术风格）
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
+        
+        # 设置边框
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.2)
+            spine.set_color('black')
+        
+        # 优化刻度数量
+        ax.locator_params(axis='y', nbins=6)
+        ax.locator_params(axis='x', nbins=10)
 
-        # 设置x轴刻度以便更好地显示
-        ax.set_xlim(0, total_time_steps)
-        ax.set_xticks(np.linspace(0, total_time_steps, 11))  # 设置11个刻度
+    # 调整子图间距，增加留白
+    plt.tight_layout(pad=1.5, h_pad=2.5)
 
-        # 为坐标轴刻度标签也设置中文字体
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(14))
+    # 保存为高质量图像，不留白边
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
 
-    # 调整子图间距以避免重叠
-    plt.subplots_adjust(left=0.1, right=0.95, top=0.95, bottom=0.08, hspace=0.35)
-
-    # 强制刷新图形以确保中文字体正确应用
-    plt.draw()
-
-    # 保存图像到指定目录
-    plt.savefig(save_path, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-
-    plt.close()  # 关闭图形以释放内存
-    print(f"加噪扩展图像已保存到: {save_path}")
+    plt.close()
+    print(f"科研级加噪扩展图像已保存到: {save_path}")
 
 
 def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
@@ -484,10 +548,11 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
     Time, Subcarrier = np.meshgrid(time_coords, subcarrier_coords)
     
     # 创建包含3个子图的图形（3个天线）- 第一排天线1和2，第二排天线3居中
-    fig = plt.figure(figsize=(24, 16), facecolor='white')
+    fig = plt.figure(figsize=(16, 10), facecolor='white')
     
-    # 使用GridSpec实现灵活布局
-    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.3, wspace=0.3)
+    # 使用GridSpec实现灵活布局，减少间距
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.15, wspace=0.2,
+                          left=0.05, right=0.95, top=0.93, bottom=0.05)
     
     # 定义三个天线的配置：天线3在第二排居中
     antenna_configs = [
@@ -517,19 +582,19 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
             shade=True
         )
         
-        # 添加颜色条
-        cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=12, pad=0.12)
-        cbar.set_label('幅度', fontproperties=create_zh_font(12), fontsize=12)
-        cbar.ax.tick_params(labelsize=10)
+        # 添加颜色条，调整大小和位置
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.7, aspect=15, pad=0.08)
+        cbar.set_label('幅度', fontproperties=create_zh_font(11), fontsize=14)
+        cbar.ax.tick_params(labelsize=9)
         
         # 设置坐标轴标签
-        ax.set_xlabel('子载波索引', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
-        ax.set_ylabel('时间步', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
-        ax.set_zlabel('幅度', fontsize=13, fontproperties=create_zh_font(13), labelpad=10)
+        ax.set_xlabel('子载波索引', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
+        ax.set_ylabel('时间步', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
+        ax.set_zlabel('幅度', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
         
-        # 设置标题
+        # 设置标题，减小与图形的距离
         ax.set_title(antenna_configs[antenna_idx]['title'], 
-                    fontsize=16, fontproperties=create_zh_font(16), pad=20, fontweight='bold')
+                    fontsize=14, fontproperties=create_zh_font(14), pad=5, fontweight='bold')
         
         # 设置统一的视角
         ax.view_init(elev=25, azim=45)
@@ -544,22 +609,19 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         ax.tick_params(axis='both', which='major', labelsize=11)
         for label in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
             label.set_fontproperties(create_zh_font(11))
+
     
-    # 添加总标题
-    fig.suptitle(f'CSI数据三天线三维可视化 - 样本{sample_index}', 
-                fontsize=20, fontproperties=create_zh_font(20), y=0.98)
-    
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    
-    # 保存图像
-    plt.savefig(save_path, dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
+    # 保存图像，不使用tight_layout以保持GridSpec设置
+    plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
+                facecolor='white', edgecolor='none', format='png')
     
     plt.close()
     print(f"三天线3D可视化图像已保存到: {save_path}")
 
 
 if __name__ == "__main__":
+
+    plot_csi_multiple_3d_views()
 
     # 调用加噪版本的函数(原始采集数据)
     plot_extended_csi_amplitude_with_noise()

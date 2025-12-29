@@ -2,6 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
+import os
 import matplotlib as mpl
 
 
@@ -664,69 +665,45 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
 
 
 if __name__ == '__main__':
-    import os
-    
     data_path = '../RawData/source_env0_env1_data.pt'
     output_dir = './preprocess'
     os.makedirs(output_dir, exist_ok=True)
-    
-    if os.path.exists(data_path):
-        # 1. 执行高斯白噪声增强
-        print("\n" + "="*60)
-        print("正在绘制高斯白噪声增强对比图...")
-        print("="*60 + "\n")
-        
-        try:
-            plot_noise_augmentation_comparison(
-                data_path=data_path,
-                sample_index=132,
-                snr_db=25,
-                noise_scale=0.02,
-                save_path=os.path.join(output_dir, 'noise_augmentation_comparison.png')
-            )
-            print("✓ 高斯噪声对比图生成成功！")
-        except Exception as e:
-            print(f"✗ 无法生成高斯噪声对比图: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # 2. 执行多径衰落增强
-        print("\n" + "="*60)
-        print("正在绘制多径衰落增强对比图...")
-        print("="*60 + "\n")
-        
-        try:
-            plot_multipath_fading_comparison(
-                data_path=data_path,
-                sample_index=132,
-                num_paths=5,
-                rician_k_db=5.0,
-                save_path=os.path.join(output_dir, 'multipath_fading_comparison.png')
-            )
-            print("✓ 多径衰落对比图生成成功！")
-        except Exception as e:
-            print(f"✗ 无法生成多径衰落对比图: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # 3. 执行频率选择性衰落增强
-        print("\n" + "="*60)
-        print("正在绘制频率选择性衰落增强对比图...")
-        print("="*60 + "\n")
-        
-        try:
-            plot_frequency_selective_fading_comparison(
-                data_path=data_path,
-                sample_index=132,
-                a=None,  # 随机采样
-                b=None,  # 随机采样
-                save_path=os.path.join(output_dir, 'frequency_selective_fading_comparison.png')
-            )
-            print("✓ 频率选择性衰落对比图生成成功！")
-        except Exception as e:
-            print(f"✗ 无法生成频率选择性衰落对比图: {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print(f"\n✗ 数据文件不存在: {data_path}")
-        print("提示: 请确保CSI数据文件在 ../RawData/source_env0_env1_data.pt")
+
+    # 1. 执行高斯白噪声增强
+    print("\n" + "="*60)
+    print("正在绘制高斯白噪声增强对比图...")
+    plot_noise_augmentation_comparison(
+        data_path=data_path,
+        sample_index=132,
+        snr_db=25,
+        noise_scale=0.02,
+        save_path=os.path.join(output_dir, 'noise_augmentation_comparison.png')
+    )
+    print("✓ 高斯噪声对比图生成成功！")
+
+    # 2. 执行多径衰落增强
+    print("\n" + "="*60)
+    print("正在绘制多径衰落增强对比图...")
+    print("="*60 + "\n")
+    plot_multipath_fading_comparison(
+        data_path=data_path,
+        sample_index=132,
+        num_paths=5,
+        rician_k_db=5.0,
+        save_path=os.path.join(output_dir, 'multipath_fading_comparison.png')
+    )
+    print("✓ 多径衰落对比图生成成功！")
+
+    # 3. 执行频率选择性衰落增强
+    print("\n" + "="*60)
+    print("正在绘制频率选择性衰落增强对比图...")
+    print("="*60 + "\n")
+
+    plot_frequency_selective_fading_comparison(
+        data_path=data_path,
+        sample_index=132,
+        a=None,  # 随机采样
+        b=None,  # 随机采样
+        save_path=os.path.join(output_dir, 'frequency_selective_fading_comparison.png')
+    )
+    print("✓ 频率选择性衰落对比图生成成功！")
