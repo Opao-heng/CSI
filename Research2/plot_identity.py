@@ -210,9 +210,9 @@ def visualize_identity_features(device):
         save_path_test_accuracy = os.path.join(picture_dir, 'identity_test_accuracy_curves.png')
         plot_test_accuracy_curves(identity_history_path, save_path_test_accuracy)
 
-def plot_identity_confusion_matrix(device, save_path):
+def plot_identity_confusion_matrix(device, save_path_source, save_path_target):
     """
-    生成并绘制身份识别模型的混淆矩阵
+    生成并绘制身份识别模型的源域和目标域混淆矩阵
     """
     # 获取当前脚本所在目录
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -232,67 +232,119 @@ def plot_identity_confusion_matrix(device, save_path):
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"身份识别模型加载完成")
     
-    # 直接加载源域数据和标签
-    source_data_path = os.path.join(current_dir, '..', 'data', 'SourceData', 'source_data.pt')
-    source_labels_path = os.path.join(current_dir, '..', 'data', 'SourceData', 'source_labels.pt')
+    # === 1. 处理源域数据 ===
+    print("\n处理源域数据...")
+    source_data_path = os.path.join(current_dir, 'Data', 'source_env0_env1_data.pt')
+    source_labels_path = os.path.join(current_dir, 'Data', 'source_env0_env1_labels.pt')
     
-    if not os.path.exists(source_data_path) or not os.path.exists(source_labels_path):
-        print("未找到源域数据或标签文件")
-        return
-    
-    source_complete_data = torch.load(source_data_path)
-    source_complete_labels = torch.load(source_labels_path)
-    print(f"源域数据形状: {source_complete_data.shape}")
-    print(f"源域标签形状: {source_complete_labels.shape}")
-    
-    # 获取预测结果
-    y_true = []
-    y_pred = []
-    batch_size = 32
-    
-    with torch.no_grad():
-        for i in range(0, len(source_complete_data), batch_size):
-            batch_data = source_complete_data[i:i+batch_size].to(device)
-            batch_labels = source_complete_labels[i:i+batch_size]
+    if os.path.exists(source_data_path) and os.path.exists(source_labels_path):
+        source_complete_data = torch.load(source_data_path)
+        source_complete_labels = torch.load(source_labels_path)
+        print(f"源域数据形状: {source_complete_data.shape}")
+        print(f"源域标签形状: {source_complete_labels.shape}")
+        
+        # 获取源域预测结果
+        y_true_source = []
+        y_pred_source = []
+        batch_size = 32
+        
+        with torch.no_grad():
+            for i in range(0, len(source_complete_data), batch_size):
+                batch_data = source_complete_data[i:i+batch_size].to(device)
+                batch_labels = source_complete_labels[i:i+batch_size]
+                
+                # 获取模型预测
+                outputs = model(batch_data)
+                logits = outputs['logits']
+                _, predicted = torch.max(logits, 1)
+                
+                # 收集真实标签和预测标签
+                y_true_source.extend(batch_labels.numpy())
+                y_pred_source.extend(predicted.cpu().numpy())
+        
+        # 绘制源域混淆矩阵
+        if y_true_source and y_pred_source:
+            cm_source = confusion_matrix(y_true_source, y_pred_source)
             
-            # 获取模型预测
-            outputs = model(batch_data)
-            logits = outputs['logits']
-            _, predicted = torch.max(logits, 1)
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(cm_source, annot=True, fmt='d', cmap='Blues', 
+                        xticklabels=[f'用户{i}' for i in range(10)],
+                        yticklabels=[f'用户{i}' for i in range(10)],
+                        cbar_kws={'shrink': 0.8},
+                        linewidths=0.1)
             
-            # 收集真实标签和预测标签
-            y_true.extend(batch_labels.numpy())
-            y_pred.extend(predicted.cpu().numpy())
-    
-    # 绘制混淆矩阵
-    if y_true and y_pred:
-        # 计算混淆矩阵
-        cm = confusion_matrix(y_true, y_pred)
-        
-        # 绘制混淆矩阵
-        plt.figure(figsize=(10, 8))
-        
-        # 使用更美观的配色方案
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                    xticklabels=[f'用户{i}' for i in range(10)],
-                    yticklabels=[f'用户{i}' for i in range(10)],
-                    cbar_kws={'shrink': 0.8},
-                    linewidths=0.1)
-        
-        plt.title("身份识别模型混淆矩阵", fontsize=18, fontweight='bold', pad=20)
-        plt.xlabel('预测标签', fontsize=14, fontweight='bold')
-        plt.ylabel('真实标签', fontsize=14, fontweight='bold')
-        
-        # 美化坐标轴
-        ax = plt.gca()
-        ax.tick_params(axis='both', which='major', labelsize=10)
-        
-        plt.tight_layout()
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"混淆矩阵已保存到 {save_path}")
+            plt.title("身份识别模型 - 源域混淆矩阵", fontsize=18, fontweight='bold', pad=20)
+            plt.xlabel('预测标签', fontsize=14, fontweight='bold')
+            plt.ylabel('真实标签', fontsize=14, fontweight='bold')
+            
+            ax = plt.gca()
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            
+            plt.tight_layout()
+            plt.savefig(save_path_source, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"源域混淆矩阵已保存到 {save_path_source}")
+        else:
+            print("未能生成源域混淆矩阵数据")
     else:
-        print("未能生成混淆矩阵数据")
+        print("未找到源域数据或标签文件")
+    
+    # === 2. 处理目标域数据 ===
+    print("\n处理目标域数据...")
+    target_data_path = os.path.join(current_dir, 'Data', 'target_env2_data.pt')
+    target_labels_path = os.path.join(current_dir, 'Data', 'target_env2_labels.pt')
+    
+    if os.path.exists(target_data_path) and os.path.exists(target_labels_path):
+        target_complete_data = torch.load(target_data_path)
+        target_complete_labels = torch.load(target_labels_path)
+        print(f"目标域数据形状: {target_complete_data.shape}")
+        print(f"目标域标签形状: {target_complete_labels.shape}")
+        
+        # 获取目标域预测结果
+        y_true_target = []
+        y_pred_target = []
+        batch_size = 32
+        
+        with torch.no_grad():
+            for i in range(0, len(target_complete_data), batch_size):
+                batch_data = target_complete_data[i:i+batch_size].to(device)
+                batch_labels = target_complete_labels[i:i+batch_size]
+                
+                # 获取模型预测
+                outputs = model(batch_data)
+                logits = outputs['logits']
+                _, predicted = torch.max(logits, 1)
+                
+                # 收集真实标签和预测标签
+                y_true_target.extend(batch_labels.numpy())
+                y_pred_target.extend(predicted.cpu().numpy())
+        
+        # 绘制目标域混淆矩阵
+        if y_true_target and y_pred_target:
+            cm_target = confusion_matrix(y_true_target, y_pred_target)
+            
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(cm_target, annot=True, fmt='d', cmap='Oranges', 
+                        xticklabels=[f'用户{i}' for i in range(10)],
+                        yticklabels=[f'用户{i}' for i in range(10)],
+                        cbar_kws={'shrink': 0.8},
+                        linewidths=0.1)
+            
+            plt.title("身份识别模型 - 目标域混淆矩阵", fontsize=18, fontweight='bold', pad=20)
+            plt.xlabel('预测标签', fontsize=14, fontweight='bold')
+            plt.ylabel('真实标签', fontsize=14, fontweight='bold')
+            
+            ax = plt.gca()
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            
+            plt.tight_layout()
+            plt.savefig(save_path_target, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"目标域混淆矩阵已保存到 {save_path_target}")
+        else:
+            print("未能生成目标域混淆矩阵数据")
+    else:
+        print("未找到目标域数据或标签文件")
 
 def main():
     """
@@ -309,9 +361,10 @@ def main():
     # 可视化身份识别模型特征（包括准确率曲线等）
     visualize_identity_features(device)
     
-    # 绘制身份识别模型混淆矩阵
-    confusion_matrix_path = os.path.join(picture_dir, 'identity_confusion_matrix.png')
-    plot_identity_confusion_matrix(device, confusion_matrix_path)
+    # 绘制身份识别模型混淆矩阵（源域和目标域）
+    confusion_matrix_source_path = os.path.join(picture_dir, 'identity_source_confusion_matrix.png')
+    confusion_matrix_target_path = os.path.join(picture_dir, 'identity_target_confusion_matrix.png')
+    plot_identity_confusion_matrix(device, confusion_matrix_source_path, confusion_matrix_target_path)
     
     # 绘制训练损失曲线
     identity_history_path = 'identify/training_history.json'

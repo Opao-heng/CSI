@@ -160,84 +160,6 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
     print(f"  评估结果已保存到: {result_path}")
 
 
-def plot_feature_distribution_2d(real_features, fake_features, real_labels=None, method='tsne', output_dir='GAN'):
-    """
-    绘制真实样本与生成样本的特征分布二维图（使用t-SNE降维）
-    如果提供了real_labels，则按用户标签显示10个真实用户的特征分布群
-    """
-
-    # 步骤1: 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 步骤2: 转换为numpy数组
-    if isinstance(real_features, torch.Tensor):
-        real_features = real_features.cpu().detach().numpy()
-    if isinstance(fake_features, torch.Tensor):
-        fake_features = fake_features.cpu().detach().numpy()
-    if real_labels is not None and isinstance(real_labels, torch.Tensor):
-        real_labels = real_labels.cpu().detach().numpy()
-    
-    # 步骤3: 合并特征并创建标签
-    all_features = np.vstack([real_features, fake_features])
-    type_labels = np.array([0] * len(real_features) + [1] * len(fake_features))
-    
-    # 步骤4: 降维到2D (仅保留t-SNE方法)
-    print(f"  正在使用 {method.upper()} 进行特征降维...")
-    if method.lower() == 'tsne':
-        n_samples = len(all_features)
-        perplexity = min(30, max(5, n_samples // 20))
-        reducer = TSNE(n_components=2, random_state=42, perplexity=perplexity, n_iter=1500, 
-                      learning_rate='auto', init='pca')
-        features_2d = reducer.fit_transform(all_features)
-    else:
-        raise ValueError("method必须是'tsne'")
-    
-    # 步骤5: 分离真实和生成样本的2D特征
-    real_2d = features_2d[type_labels == 0]
-    fake_2d = features_2d[type_labels == 1]
-    
-    # 步骤6: 绘制散点图 - 按用户标签显示真实样本
-    plt.figure(figsize=(14, 11))
-    
-    if real_labels is not None:
-        # 从真实样本标签中提取唯一用户ID
-        unique_users = np.unique(real_labels)
-        # 使用不同的颜色表示不同的用户
-        colors = plt.cm.tab20(np.linspace(0, 1, len(unique_users)))
-        
-        # 为每个用户绘制一个散点群
-        for idx, user_id in enumerate(sorted(unique_users)):
-            mask = real_labels == user_id
-            if np.any(mask):
-                plt.scatter(real_2d[mask, 0], real_2d[mask, 1], 
-                           c=[colors[idx]], label=f'User {int(user_id)}', 
-                           alpha=0.6, s=40, edgecolors='black', linewidth=0.5, marker='o')
-        
-        # 绘制生成样本
-        plt.scatter(fake_2d[:, 0], fake_2d[:, 1], c='red', alpha=0.4, s=30, 
-                   label='Generated Samples', edgecolors='darkred', linewidth=0.3, marker='^')
-    else:
-        # 如果没有用户标签，使用原来的方法
-        plt.scatter(real_2d[:, 0], real_2d[:, 1], c='blue', alpha=0.5, s=30, 
-                   label='Real Target Samples', edgecolors='k', linewidth=0.3)
-        plt.scatter(fake_2d[:, 0], fake_2d[:, 1], c='red', alpha=0.5, s=30, 
-                   label='Generated Samples', edgecolors='k', linewidth=0.3)
-    
-    plt.title(f'Feature Distribution ({method.upper()}) - Real Target Users vs Generated', 
-              fontsize=16, fontweight='bold')
-    plt.xlabel(f'{method.upper()} Component 1', fontsize=13)
-    plt.ylabel(f'{method.upper()} Component 2', fontsize=13)
-    plt.legend(fontsize=11, loc='best', frameon=True, fancybox=True, shadow=True, ncol=2)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # 步骤7: 保存图形
-    plot_path = os.path.join(output_dir, f'feature_distribution_{method}.png')
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"  特征分布图({method.upper()})已保存到: {plot_path}")
-    plt.close()
-
-
 def compute_fid(real_features, fake_features):
     """
     计算Fréchet Inception Distance，衡量真实样本和生成样本在特征空间的分布差异
@@ -483,27 +405,7 @@ def load_model_and_generate_plots(model_path, source_loader, target_loader, devi
     print("正在绘制训练指标图...")
     json_file_path = r"C:\Users\USER\Desktop\liuheng\Research1\GAN\gan_evaluation_results.json"
     plot_training_metrics_from_json(json_file_path)
-    
-    # 绘制特征分布TSNE图
-    print("正在绘制特征分布TSNE图...")
-    with torch.no_grad():
-        # 提取目标域真实样本的特征
-        real_features_list = []
-        real_labels_list = []
-        for x_t_real, target_labels in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)
-            real_features_list.append(features)
-            real_labels_list.append(target_labels)
-        real_features = torch.cat(real_features_list, dim=0)
-        real_labels = torch.cat(real_labels_list, dim=0)
-            
-        # 提取生成样本的特征
-        synthetic_data_device = synthetic_data.to(device)
-        fake_features = E(synthetic_data_device)
-        
-    plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne', output_dir='GAN')
-    
+
     print("所有图表绘制完成!")
 
 

@@ -143,7 +143,7 @@ def main():
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     
     # 训练参数
-    num_epochs = 100
+    num_epochs = 150
     best_accuracy = 0.0
     early_stop_counter = 0
     patience = 15
