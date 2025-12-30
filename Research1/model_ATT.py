@@ -93,7 +93,7 @@ class FeatureExtractor(nn.Module):
 class MultiHeadAttention(nn.Module):
     """多头注意力机制实现"""
 
-    def __init__(self, dim=512, num_heads=8):
+    def __init__(self, dim=512, num_heads=6):
         super(MultiHeadAttention, self).__init__()
         self.dim = dim
         self.num_heads = num_heads

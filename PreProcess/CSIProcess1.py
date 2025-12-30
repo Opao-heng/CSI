@@ -19,12 +19,6 @@ print("已设置中文字体: SimHei, Microsoft YaHei")
 def create_zh_font(size=12):
     """
     创建带有指定字体大小的中文字体属性对象
-
-    参数:
-    size (int): 字体大小
-
-    返回:
-    FontProperties: 配置好的字体属性对象
     """
     try:
         # 尝试使用系统中的中文字体
@@ -52,11 +46,6 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图（科研论文标准）
-
-    参数:
-    data_path (str): CSI数据文件路径
-    sample_index (int): 要绘制的样本索引
-    save_path (str): 图像保存路径
     """
     # 设置科研绘图风格
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
@@ -610,7 +599,6 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         for label in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
             label.set_fontproperties(create_zh_font(11))
 
-    
     # 保存图像，不使用tight_layout以保持GridSpec设置
     plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
                 facecolor='white', edgecolor='none', format='png')
