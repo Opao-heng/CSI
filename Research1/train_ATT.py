@@ -244,7 +244,7 @@ def save_training_history(train_losses, val_accuracies, loss_components_history,
 
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.deterministic = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 加载数据文件
@@ -307,6 +307,7 @@ if __name__ == "__main__":
     val_accuracies = []  # 验证准确率记录
     loss_components_history = []  # 损失组件历史
     test_results_history = []  # 测试结果历史
+    best_avg_accuracy = 0.0  # 源域和目标域测试准确率的平均值
 
     # 主训练循环
     print("开始训练循环...")
@@ -330,7 +331,6 @@ if __name__ == "__main__":
               f'目标: {loss_components["target"]:.4f}, '
               f'MMD: {loss_components["mmd"]:.4f})')
         print(f'  验证准确率: {val_accuracy:.2f}%')
-        print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         
         # 在每个epoch后测试模型
         print(f'  测试效果:')
@@ -344,8 +344,12 @@ if __name__ == "__main__":
         print(f'    源域测试准确率: {src_test_accuracy:.2f}%')
         print(f'    目标域测试准确率: {tgt_test_accuracy:.2f}%')
         
-        # 保存最佳模型
-        if val_accuracy > best_accuracy:
+        # 计算源域和目标域测试准确率的平均值
+        avg_test_accuracy = (test_results['src_test_accuracy'] + test_results['tgt_test_accuracy']) / 2
+        
+        # 保存最佳模型（基于平均测试准确率）
+        if avg_test_accuracy > best_avg_accuracy:
+            best_avg_accuracy = avg_test_accuracy
             best_accuracy = val_accuracy
             early_stop_counter = 0
             save_best_model(model, optimizer, scheduler, best_model_path, val_accuracy, epoch, loss_components)

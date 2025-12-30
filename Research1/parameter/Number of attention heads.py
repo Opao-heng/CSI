@@ -56,9 +56,9 @@ for i, (h, acc) in enumerate(zip(num_heads, accuracy)):
 ax.axvspan(5, 7, alpha=0.15, color='#90EE90', label='最优区域')
 
 # 设置坐标轴
-ax.set_xlabel('注意力头数 (Number of Attention Heads)', fontsize=13, fontweight='bold')
-ax.set_ylabel('识别准确率 (Accuracy) [%]', fontsize=13, fontweight='bold', color='#2E86AB')
-ax.tick_params(axis='y', labelcolor='#2E86AB', labelsize=11)
+ax.set_xlabel('注意力头数', fontsize=13, fontweight='bold')
+ax.set_ylabel('识别准确率 (Accuracy) [%]', fontsize=13, fontweight='bold')
+ax.tick_params(axis='y', labelsize=11)
 ax.tick_params(axis='x', labelsize=11)
 
 # 设置x轴刻度
@@ -74,9 +74,6 @@ ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8)
 # 添加图例
 ax.legend(loc='lower right', fontsize=11, framealpha=0.95, edgecolor='gray')
 
-# 添加标题
-ax.set_title('注意力头数敏感性分析\nSensitivity Analysis of Attention Head Numbers', 
-             fontsize=14, fontweight='bold', pad=15)
 
 # 调整布局，增加留白
 plt.tight_layout(pad=2.0)
