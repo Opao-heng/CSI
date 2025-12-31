@@ -43,8 +43,8 @@ def create_zh_font(size=12):
 
 
 # 创建默认大小的中文字体
-zh_font = create_zh_font(12)
-print(f"已配置中文字体，默认大小为12")
+zh_font = create_zh_font(10.5)
+print(f"已配置中文字体，默认大小为10.5 (五号字)")
 
 def add_gaussian_white_noise(data, snr_db=None, snr_range=(20, 40), noise_scale=0.02):
     """
@@ -447,16 +447,16 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
                               vmin=vmin_aug,
                               vmax=vmax_aug)
     
-    # 添加颜色条
+    # 添加颜色条 (五号字)
     cbar2 = plt.colorbar(im2, ax=ax_after)
-    cbar2.set_label('功率 (dB)', fontproperties=create_zh_font(10))
+    cbar2.set_label('功率 (dB)', fontproperties=create_zh_font(10.5))
     
-    # 设置标题和标签
+    # 设置标题和标签 (五号字)
     ax_after.set_title(f'频率选择性衰落时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 
-                      fontsize=12, pad=10, fontproperties=create_zh_font(12))
-    ax_after.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-    ax_after.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
-    ax_after.tick_params(axis='both', which='major', labelsize=8)
+                      fontsize=10.5, pad=10, fontproperties=create_zh_font(10.5))
+    ax_after.set_xlabel('时间', fontsize=10.5, fontproperties=create_zh_font(10.5))
+    ax_after.set_ylabel('频率分量 (Hz)', fontsize=10.5, fontproperties=create_zh_font(10.5))
+    ax_after.tick_params(axis='both', which='major', labelsize=10)
     
     # 为坐标轴刻度标签设置中文字体
     for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
@@ -773,10 +773,10 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                     alpha=0.8,
                     linewidth=1.2,
                     color=colors[i])
-        ax.set_title(f'天线 {dim + 1}', fontsize=12, pad=10, fontproperties=create_zh_font(12))
-        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-        ax.set_ylabel('幅度', fontsize=10, fontproperties=create_zh_font(10))
-        ax.tick_params(axis='both', which='major', labelsize=8)
+        ax.set_title(f'天线 {dim + 1}', fontsize=10.5, pad=10, fontproperties=create_zh_font(10.5))
+        ax.set_xlabel('时间', fontsize=10.5, fontproperties=create_zh_font(10.5))
+        ax.set_ylabel('幅度', fontsize=10.5, fontproperties=create_zh_font(10.5))
+        ax.tick_params(axis='both', which='major', labelsize=10)
         # 为坐标轴刻度标签也设置中文字体
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontproperties(create_zh_font(8))

@@ -2,47 +2,57 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
-import matplotlib as mpl
 from scipy import signal
-from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.gridspec as gridspec
 
-# 设置中文字体支持 - 更直接有效的方式
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
 
-# 直接设置支持中文的字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
-print("已设置中文字体: SimHei, Microsoft YaHei")
+# 设置全局字体配置：中文宋体 + 英文Times New Roman
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Times New Roman', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式使用stix字体
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
 
 
-# 创建特定的中文字体属性对象的工厂函数
-def create_zh_font(size=12):
+# 创建统一的字体配置工厂函数
+def create_zh_font(size=12, serif=False):
     """
-    创建带有指定字体大小的中文字体属性对象
+    创建带有指定字体大小的字体属性对象
+    中文使用宋体(SimSun)，英文/数字使用Times New Roman
     """
     try:
-        # 尝试使用系统中的中文字体
+        # 尝试使用宋体
         available_fonts = [f.name for f in font_manager.fontManager.ttflist]
-        chinese_font_names = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'STHeiTi', 'STSong']
-
-        for font_name in chinese_font_names:
-            if font_name in available_fonts:
-                font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
-                return font_manager.FontProperties(fname=font_path, size=size)
-
-        # 如果找不到中文字体，使用默认字体
-        return font_manager.FontProperties(size=size)
+        
+        # 优先使用宋体（SimSun）
+        if 'SimSun' in available_fonts:
+            font_path = font_manager.findfont(font_manager.FontProperties(family='SimSun'))
+            font_prop = font_manager.FontProperties(fname=font_path, size=size)
+        else:
+            # 如果找不到宋体，尝试其他中文字体
+            chinese_font_names = ['SimSun', 'FangSong', 'SimHei', 'Microsoft YaHei']
+            font_prop = None
+            for font_name in chinese_font_names:
+                if font_name in available_fonts:
+                    font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
+                    font_prop = font_manager.FontProperties(fname=font_path, size=size)
+                    break
+            if font_prop is None:
+                font_prop = font_manager.FontProperties(size=size)
+        
+        return font_prop
     except Exception as e:
         print(f"字体加载异常: {e}")
         return font_manager.FontProperties(size=size)
 
 
-# 创建默认大小的中文字体
-zh_font = create_zh_font(12)
-print(f"已配置中文字体，默认大小为12")
+# 创建默认大小的字体
+zh_font = create_zh_font(20)
+print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图（科研论文标准）
@@ -50,8 +60,9 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     # 设置科研绘图风格
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
     
-    # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
+    plt.rcParams['font.sans-serif'] = ['SimSun', 'Times New Roman', 'DejaVu Sans']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
     
@@ -90,16 +101,16 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                     rasterized=True)  # 栅格化以减小文件大小
         
         # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
-        ax.set_xlabel('时间 (采样点)', fontsize=12)
-        ax.set_ylabel('幅度', fontsize=12)
+        ax.set_title(f'天线 {dim + 1}', fontsize=20, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=20)
+        ax.set_ylabel('幅度', fontsize=20)
         
         # 设置x轴范围，不留空白
         ax.set_xlim(0, time_steps - 1)
         
         # 刻度设置
-        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        ax.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
         
         # 添加网格线（学术风格）
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -124,7 +135,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     print(f"科研级图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -173,7 +184,7 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
         
         # 计算短时傅里叶变换（STFT），使用汉宁窗减少边界效应
         frequencies, times, Zxx = signal.stft(signal_data, 
-                                               fs=10.0,  # 采样频率设置为10Hz，使频率范围为0-5Hz
+                                               fs=1.0,  # 采样频率设置为1.0，使时间轴范围为0-6000
                                                window='hann',  # 使用汉宁窗减少频谱泄漏
                                                nperseg=nperseg, 
                                                noverlap=noverlap,
@@ -203,17 +214,17 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
         
         # 添加颜色条
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('功率 (dB)', fontproperties=create_zh_font(10))
+        cbar.set_label('功率 (dB)', fontproperties=create_zh_font(18))
         
         # 设置标题和标签
-        ax.set_title(f'天线 {dim + 1} 时频图', fontsize=12, pad=10, fontproperties=create_zh_font(12))
-        ax.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-        ax.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
-        ax.tick_params(axis='both', which='major', labelsize=8)
+        ax.set_title(f'天线 {dim + 1} 时频图', fontsize=20, pad=10, fontproperties=create_zh_font(20))
+        ax.set_xlabel('时间', fontsize=20, fontproperties=create_zh_font(20))
+        ax.set_ylabel('频率分量 (Hz)', fontsize=20, fontproperties=create_zh_font(20))
+        ax.tick_params(axis='both', which='major', labelsize=20)
         
         # 为坐标轴刻度标签设置中文字体
         for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(8))
+            label.set_fontproperties(create_zh_font(20))
     
     plt.tight_layout()
     
@@ -236,8 +247,9 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
     # 设置科研绘图风格
     plt.style.use('seaborn-v0_8-paper')
     
-    # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
+    plt.rcParams['font.sans-serif'] = ['SimSun', 'Times New Roman', 'DejaVu Sans']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'stix'
     
@@ -325,16 +337,16 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
                     rasterized=True)
 
         # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
-        ax.set_xlabel('时间 (采样点)', fontsize=12)
-        ax.set_ylabel('幅度', fontsize=12)
+        ax.set_title(f'天线 {dim + 1}', fontsize=20, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=20)
+        ax.set_ylabel('幅度', fontsize=20)
         
         # 设置x轴范围，不留空白
         ax.set_xlim(0, total_time_steps - 1)
         
         # 刻度设置
-        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        ax.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
         
         # 添加网格线（学术风格）
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -365,19 +377,13 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
     """
     绘制加噪后的扩展CSI数据幅度图，模拟真实环境的数据（科研论文标准）
     将6000个原始数据包放在中间位置，前后扩展至50000个数据包，并添加高斯噪声
-    
-    参数:
-    data_path (str): CSI数据文件路径
-    sample_index (int): 要绘制的样本索引
-    save_path (str): 图像保存路径
-    total_time_steps (int): 总时间步数
-    noise_std_ratio (float): 噪声标准差与信号平均值的比例
     """
     # 设置科研绘图风格
     plt.style.use('seaborn-v0_8-paper')
     
-    # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
+    plt.rcParams['font.sans-serif'] = ['SimSun', 'Times New Roman', 'DejaVu Sans']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'stix'
     
@@ -468,16 +474,16 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
 
         # 不显示黄色高亮区域，只绘制数据
         # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontsize=14, pad=12, fontweight='normal')
-        ax.set_xlabel('时间 (采样点)', fontsize=12)
-        ax.set_ylabel('幅度', fontsize=12)
+        ax.set_title(f'天线 {dim + 1}', fontsize=20, pad=12, fontweight='normal')
+        ax.set_xlabel('时间 (采样点)', fontsize=20)
+        ax.set_ylabel('幅度', fontsize=20)
         
         # 设置x轴范围，不留空白
         ax.set_xlim(0, total_time_steps - 1)
         
         # 刻度设置
-        ax.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-        ax.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+        ax.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+        ax.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
         
         # 添加网格线（学术风格）
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -539,9 +545,9 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
     # 创建包含3个子图的图形（3个天线）- 第一排天线1和2，第二排天线3居中
     fig = plt.figure(figsize=(16, 10), facecolor='white')
     
-    # 使用GridSpec实现灵活布局，减少间距
-    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.15, wspace=0.2,
-                          left=0.05, right=0.95, top=0.93, bottom=0.05)
+    # 使用GridSpec实现灵活布局，调整边距以完整显示内容
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.3, wspace=0.3,
+                          left=0.1, right=0.92, top=0.88, bottom=0.1)
     
     # 定义三个天线的配置：天线3在第二排居中
     antenna_configs = [
@@ -573,17 +579,17 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         
         # 添加颜色条，调整大小和位置
         cbar = fig.colorbar(surf, ax=ax, shrink=0.7, aspect=15, pad=0.08)
-        cbar.set_label('幅度', fontproperties=create_zh_font(11), fontsize=14)
-        cbar.ax.tick_params(labelsize=9)
+        cbar.set_label('幅度', fontproperties=create_zh_font(20), fontsize=20)
+        cbar.ax.tick_params(labelsize=20)
         
         # 设置坐标轴标签
-        ax.set_xlabel('子载波索引', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
-        ax.set_ylabel('时间步', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
-        ax.set_zlabel('幅度', fontsize=14, fontproperties=create_zh_font(13), labelpad=8)
+        ax.set_xlabel('子载波索引', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
+        ax.set_ylabel('时间步', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
+        ax.set_zlabel('幅度', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
         
-        # 设置标题，减小与图形的距离
+        # 设置标题，增大与图形的距离
         ax.set_title(antenna_configs[antenna_idx]['title'], 
-                    fontsize=14, fontproperties=create_zh_font(14), pad=5, fontweight='bold')
+                    fontsize=20, fontproperties=create_zh_font(20), pad=20, fontweight='bold')
         
         # 设置统一的视角
         ax.view_init(elev=25, azim=45)
@@ -594,10 +600,12 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         ax.yaxis.pane.fill = False
         ax.zaxis.pane.fill = False
         
-        # 设置刻度字体
-        ax.tick_params(axis='both', which='major', labelsize=11)
+        # 设置刻度字体 - 增大间距以便标签不重叠
+        ax.tick_params(axis='x', which='major', labelsize=20, pad=20)
+        ax.tick_params(axis='y', which='major', labelsize=20, pad=20)
+        ax.tick_params(axis='z', which='major', labelsize=20, pad=20)
         for label in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
-            label.set_fontproperties(create_zh_font(11))
+            label.set_fontproperties(create_zh_font(20))
 
     # 保存图像，不使用tight_layout以保持GridSpec设置
     plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
@@ -608,7 +616,6 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
 
 
 if __name__ == "__main__":
-
     # 调用加噪版本的函数(原始采集数据)
     plot_extended_csi_amplitude_with_noise()
 
