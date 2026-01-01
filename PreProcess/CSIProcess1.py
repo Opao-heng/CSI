@@ -52,7 +52,7 @@ zh_font = create_zh_font(20)
 print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为12")
 
 
-def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图（科研论文标准）
@@ -135,7 +135,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     print(f"科研级图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -184,7 +184,7 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
         
         # 计算短时傅里叶变换（STFT），使用汉宁窗减少边界效应
         frequencies, times, Zxx = signal.stft(signal_data, 
-                                               fs=1.0,  # 采样频率设置为1.0，使时间轴范围为0-6000
+                                               fs=10.0,  # 采样频率设置为10.0，使频率范围0-5Hz，时间轴范围0-600
                                                window='hann',  # 使用汉宁窗减少频谱泄漏
                                                nperseg=nperseg, 
                                                noverlap=noverlap,
@@ -206,7 +206,9 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
         print(f"天线 {dim + 1} 显示范围: [{vmin:.2f}, {vmax:.2f}] dB")
         
         # 绘制时频图
-        im = ax.pcolormesh(times, frequencies, magnitude_db, 
+        # 使用0-6000的采样点作为横坐标
+        sample_points = np.linspace(0, time_steps - 1, len(times))
+        im = ax.pcolormesh(sample_points, frequencies, magnitude_db, 
                           shading='gouraud', 
                           cmap='jet',  # 使用jet颜色映射，能量高的区域显示为暖色
                           vmin=vmin,
@@ -545,9 +547,9 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
     # 创建包含3个子图的图形（3个天线）- 第一排天线1和2，第二排天线3居中
     fig = plt.figure(figsize=(16, 10), facecolor='white')
     
-    # 使用GridSpec实现灵活布局，调整边距以完整显示内容
-    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.3, wspace=0.3,
-                          left=0.1, right=0.92, top=0.88, bottom=0.1)
+    # 使用GridSpec实现灵活布局，减少四周空白，让子图靠得更近
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.15, wspace=0.15,
+                          left=0.05, right=0.95, top=0.95, bottom=0.05)
     
     # 定义三个天线的配置：天线3在第二排居中
     antenna_configs = [
@@ -556,7 +558,15 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         {'cmap': 'coolwarm', 'title': '天线 3', 'grid': gs[1, 1:3]} # 第二排中间位置
     ]
     
-    # 为每个天线绘制3D图
+    # 为每个天线绘制３D图
+    # 首先计算所有天线数据的全局范围，以保证坐标轴一致
+    global_z_min = float('inf')
+    global_z_max = float('-inf')
+    for antenna_idx in range(num_antennas):
+        antenna_data = amplitude_data[:, antenna_idx, ::time_downsample]
+        global_z_min = min(global_z_min, antenna_data.min().item())
+        global_z_max = max(global_z_max, antenna_data.max().item())
+        
     for antenna_idx in range(num_antennas):
         ax = fig.add_subplot(antenna_configs[antenna_idx]['grid'], projection='3d')
         
@@ -582,14 +592,14 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         cbar.set_label('幅度', fontproperties=create_zh_font(20), fontsize=20)
         cbar.ax.tick_params(labelsize=20)
         
-        # 设置坐标轴标签
-        ax.set_xlabel('子载波索引', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
-        ax.set_ylabel('时间步', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
-        ax.set_zlabel('幅度', fontsize=20, fontproperties=create_zh_font(20), labelpad=40)
+        # 设置坐标轴标签 - 增大间距避免重叠
+        ax.set_xlabel('子载波索引', fontsize=20, fontproperties=create_zh_font(20), labelpad=15)
+        ax.set_ylabel('时间步', fontsize=20, fontproperties=create_zh_font(20), labelpad=25, rotation=-15)
+        ax.set_zlabel('幅度', fontsize=20, fontproperties=create_zh_font(20), labelpad=25)
         
-        # 设置标题，增大与图形的距离
+        # 设置标题 - 靠近图形
         ax.set_title(antenna_configs[antenna_idx]['title'], 
-                    fontsize=20, fontproperties=create_zh_font(20), pad=20, fontweight='bold')
+                    fontsize=20, fontproperties=create_zh_font(20), pad=1, fontweight='bold')
         
         # 设置统一的视角
         ax.view_init(elev=25, azim=45)
@@ -600,12 +610,15 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         ax.yaxis.pane.fill = False
         ax.zaxis.pane.fill = False
         
-        # 设置刻度字体 - 增大间距以便标签不重叠
-        ax.tick_params(axis='x', which='major', labelsize=20, pad=20)
-        ax.tick_params(axis='y', which='major', labelsize=20, pad=20)
-        ax.tick_params(axis='z', which='major', labelsize=20, pad=20)
+        # 设置刻度字体 - 增大间距避免重叠
+        ax.tick_params(axis='x', which='major', labelsize=20, pad=10)
+        ax.tick_params(axis='y', which='major', labelsize=20, pad=10)
+        ax.tick_params(axis='z', which='major', labelsize=20, pad=10)
         for label in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
             label.set_fontproperties(create_zh_font(20))
+        
+        # 统一设置坐标轴范围
+        ax.set_zlim(global_z_min, global_z_max)
 
     # 保存图像，不使用tight_layout以保持GridSpec设置
     plt.savefig(save_path, dpi=600, bbox_inches=None, pad_inches=0,
@@ -616,6 +629,7 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
 
 
 if __name__ == "__main__":
+
     # 调用加噪版本的函数(原始采集数据)
     plot_extended_csi_amplitude_with_noise()
 
