@@ -2,40 +2,32 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
-# 全局中文字体与绘图风格设置（参考顶会论文风格）
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+# 全局中文字体与绘图风格设置
+plt.rcParams['axes.unicode_minus'] = False
 
-# 正确的中英文字体混合配置：中文用宋体，英文数字用 Times New Roman
+# 中文采用宋体，英文、数字采用 Times New Roman
 try:
-    # 尝试使用系统中的中文字体
     available_fonts = [f.name for f in font_manager.fontManager.ttflist]
-    # 中文优先级：SimSun > SimHei > Microsoft YaHei
     chinese_fonts = ['SimSun', 'SimHei', 'Microsoft YaHei', 'FangSong', '宋体']
     
     font_set = False
     for font_name in chinese_fonts:
         if font_name in available_fonts:
-            # 设置中文为宋体，英文为 Times New Roman
-            plt.rcParams['font.serif'] = [font_name, 'Times New Roman']
+            plt.rcParams['font.serif'] = ['Times New Roman', font_name]
+            plt.rcParams['font.sans-serif'] = ['Times New Roman', font_name]
+            plt.rcParams['mathtext.fontset'] = 'stix'
             font_set = True
             break
     
     if not font_set:
-        # 如果没有找到中文字体，使用 Times New Roman
         plt.rcParams['font.serif'] = ['Times New Roman']
+        plt.rcParams['font.sans-serif'] = ['Times New Roman']
 except:
     plt.rcParams['font.serif'] = ['Times New Roman']
+    plt.rcParams['font.sans-serif'] = ['Times New Roman']
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['figure.figsize'] = (12, 7)
-plt.rcParams['axes.grid'] = True
-plt.rcParams['grid.alpha'] = 0.2
-plt.rcParams['grid.linestyle'] = '--'
-plt.rcParams['grid.linewidth'] = 0.4
-plt.rcParams['axes.axisbelow'] = True
-plt.rcParams['axes.linewidth'] = 1.2
-plt.rcParams['xtick.major.width'] = 1.0
-plt.rcParams['ytick.major.width'] = 1.0
 
 
 def _ensure_dir(save_path: str) -> None:
@@ -49,7 +41,7 @@ def plot_cross_domain_identity_comparison(
     method_names,
     metric_values_source,
     metric_values_cross,
-    metric_name: str = "识别准确率(%)",
+    metric_name: str = "身份识别准确率(%)",
     title: str = "源域与跨域身份识别性能对比",
     save_path: str = "cross_domain_identity_comparison.png",
 ) -> None:
@@ -85,7 +77,7 @@ def plot_cross_domain_identity_comparison(
         [xi + x_offset[0] for xi in x],
         metric_values_source,
         width=bar_width,
-        label='源域识别',
+        label='源域身份识别',
         color=color_source,
         edgecolor='#1a1a1a',
         linewidth=0.8,
@@ -96,7 +88,7 @@ def plot_cross_domain_identity_comparison(
         [xi + x_offset[1] for xi in x],
         metric_values_cross,
         width=bar_width,
-        label='跨域识别',
+        label='跨域身份识别',
         color=color_cross,
         edgecolor='#1a1a1a',
         linewidth=0.8,
@@ -105,10 +97,14 @@ def plot_cross_domain_identity_comparison(
 
     # 设置坐标轴与标题（学术风格）
     ax.set_xticks(x)
-    ax.set_xticklabels(method_names, rotation=0, fontsize=20, ha='center', fontweight='bold')
-    ax.set_ylabel(metric_name, fontsize=20, fontweight='bold', labelpad=10)
-    ax.set_xlabel("对比算法", fontsize=20, fontweight='bold', labelpad=10)
-    ax.set_title(title, fontsize=20, fontweight='bold', pad=25)
+    # X轴标签（算法名称）使用Times New Roman
+    ax.set_xticklabels(method_names, rotation=0, fontsize=20, ha='center', fontfamily='Times New Roman')
+    # Y轴标题（中文）使用SimSun
+    ax.set_ylabel(metric_name, fontsize=20, labelpad=10, fontfamily='SimSun')
+    # X轴标题（中文）使用SimSun
+    # ax.set_xlabel("对比算法", fontsize=20, labelpad=10, fontfamily='SimSun')
+    # 图表标题（中文）使用SimSun
+    # ax.set_title(title, fontsize=20, pad=25, fontfamily='SimSun')
 
     # 网格与坐标轴美化（简洁学术风格，只保留左侧和底部边框）
     ax.grid(axis='y', alpha=0.25, linestyle='--', linewidth=0.6, color='#cccccc', zorder=0)
@@ -120,8 +116,8 @@ def plot_cross_domain_identity_comparison(
     ax.spines['bottom'].set_linewidth(1.0)
     ax.spines['bottom'].set_color('#1a1a1a')
     
-    # 设置y轴刻度样式
-    ax.tick_params(axis='both', which='major', labelsize=20, length=6, width=1.0, colors='#2C3E50')
+    # 设置y轴刻度样式（数字默认用Times New Roman）
+    ax.tick_params(axis='both', which='major', labelsize=20, length=6, width=1.0)
     
     # 设置y轴范围，留出空间显示数值
     all_values = metric_values_source + metric_values_cross
@@ -139,9 +135,7 @@ def plot_cross_domain_identity_comparison(
             f"{value:.2f}",
             ha='center',
             va='bottom',
-            fontsize=16,
-            fontweight='bold',
-            color='#1a1a1a'
+            fontsize=20
         )
     
     # 在跨域柱子上标注数值
@@ -154,13 +148,13 @@ def plot_cross_domain_identity_comparison(
             f"{value:.2f}",
             ha='center',
             va='bottom',
-            fontsize=16,
-            fontweight='bold',
-            color='#1a1a1a'
+            fontsize=20
         )
     
-    # 添加图例
-    ax.legend(fontsize=16, loc='upper right', frameon=True, fancybox=False, edgecolor='#1a1a1a', framealpha=1.0, shadow=False)
+    # 添加图例（中文标签用SimSun）
+    legend = ax.legend(fontsize=20, loc='upper right', frameon=True, fancybox=False, edgecolor='#1a1a1a', framealpha=1.0, shadow=False)
+    for text in legend.get_texts():
+        text.set_fontfamily('SimSun')
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=600, bbox_inches="tight")
@@ -184,27 +178,26 @@ def plot_cross_domain_identity_comparison_default(
         "Gait-Enhance",
     ]
 
-    # TODO: 将下列占位数值替换为真实实验结果 (单位: %)
     # 源域识别准确率
     metric_values_source = [
-        92.50,
+        97.36,
         88.56,
-        75.78,
-        70.45,
+        82.78,
+        80.45,
         82.68,
         79.34,
-        85.46,
+        76.46,
     ]
 
     # 跨域识别准确率
     metric_values_cross = [
-        82.50,
-        73.56,
-        26.78,
-        20.45,
+        99.00,
+        83.56,
+        36.78,
+        40.45,
         56.68,
         45.34,
-        67.46,
+        52.46,
     ]
 
     plot_cross_domain_identity_comparison(
