@@ -1,7 +1,4 @@
 import os
-import json
-from typing import Optional
-
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
@@ -171,69 +168,6 @@ def plot_cross_domain_identity_comparison(
     print(f"源域与跨域身份识别性能对比图已保存到: {save_path}")
 
 
-def plot_cross_domain_identity_comparison_from_json(
-    json_path: str = "cross_domain_identity_results.json",
-    metric_key_source: str = "source_accuracy",
-    metric_key_cross: str = "cross_accuracy",
-    metric_name: Optional[str] = None,
-    title: str = "源域与跨域身份识别性能对比",
-    save_path: Optional[str] = None,
-) -> None:
-    """从 JSON 文件加载结果并绘制对比图。
-
-    JSON 推荐结构示例:
-    {
-        "metric_name": "识别准确率(%)",
-        "results": {
-            "CSIID": {"source_accuracy": 85.50, "cross_accuracy": 72.35},
-            "TFGAN-CAL": {"source_accuracy": 95.80, "cross_accuracy": 90.50}
-        }
-    }
-    """
-    if not os.path.exists(json_path):
-        raise FileNotFoundError(f"未找到结果文件: {json_path}")
-
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # 解析 metric_name
-    metric_name_final = metric_name or data.get("metric_name", "识别准确率(%)")
-
-    # 解析 results
-    if "results" in data:
-        results = data["results"]
-    else:
-        results = data
-
-    # 支持两种结构:
-    # 1) "TFGAN-CAL": {"source_accuracy": 95.8, "cross_accuracy": 90.5}
-    # 2) "TFGAN-CAL": {"source_accuracy": 95.8, "cross_accuracy": 90.5, "f1": 88.3, ...}
-    method_names = []
-    metric_values_source = []
-    metric_values_cross = []
-    for name, value in results.items():
-        if isinstance(value, dict):
-            if metric_key_source not in value or metric_key_cross not in value:
-                raise KeyError(f"方法 {name} 的结果中缺少指定的 metric_key: {metric_key_source} 或 {metric_key_cross}")
-            metric_values_source.append(float(value[metric_key_source]))
-            metric_values_cross.append(float(value[metric_key_cross]))
-        else:
-            raise ValueError(f"方法 {name} 的结果必须是字典，包含源域和跨域准确率")
-        method_names.append(name)
-
-    if not save_path:
-        save_path = "cross_domain_identity_comparison.png"
-
-    plot_cross_domain_identity_comparison(
-        method_names=method_names,
-        metric_values_source=metric_values_source,
-        metric_values_cross=metric_values_cross,
-        metric_name=metric_name_final,
-        title=title,
-        save_path=save_path,
-    )
-
-
 def plot_cross_domain_identity_comparison_default(
     save_path: str = "cross_domain_identity_comparison.png",
 ) -> None:
@@ -284,12 +218,5 @@ def plot_cross_domain_identity_comparison_default(
 
 
 if __name__ == "__main__":
-    # 优先尝试从 JSON 文件加载结果；如不存在则使用占位数据
-    default_json_path = "cross_domain_identity_results.json"
-
-    if os.path.exists(default_json_path):
-        print(f"检测到结果文件: {default_json_path}, 正在从 JSON 绘图...")
-        plot_cross_domain_identity_comparison_from_json(default_json_path)
-    else:
-        print("未检测到 JSON 结果文件，将使用占位数据绘制，请在代码中填写真实指标值后重新运行。")
-        plot_cross_domain_identity_comparison_default()
+    # 直接使用占位数据绘制
+    plot_cross_domain_identity_comparison_default()
