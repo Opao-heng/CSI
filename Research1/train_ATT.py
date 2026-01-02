@@ -215,6 +215,17 @@ def save_best_model(model, optimizer, scheduler, path, accuracy, epoch, loss_com
     print(f"  保存最佳模型 (准确率: {accuracy:.2f}%)")
 
 
+def count_model_parameters(model):
+    """
+    计算模型的总参数量和可训练参数量
+    """
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    non_trainable_params = total_params - trainable_params
+    
+    return total_params, trainable_params, non_trainable_params
+
+
 def save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention'):
     """
     保存训练历史数据到JSON文件
@@ -268,6 +279,14 @@ if __name__ == "__main__":
 
     # 模型初始化
     model = CrossAttentionModel(num_classes=10).to(device)
+    
+    # 打印模型参数量
+    total_params, trainable_params, non_trainable_params = count_model_parameters(model)
+    print(f"\n=== 模型参数统计 ===")
+    print(f"总参数量: {total_params:,}")
+    print(f"可训练参数量: {trainable_params:,}")
+    print(f"非可训练参数量: {non_trainable_params:,}")
+    print(f"="*30 + "\n")
 
     # 训练超参数设置
     num_epochs = 150  # 增加训练轮数

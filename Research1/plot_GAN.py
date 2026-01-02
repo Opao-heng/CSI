@@ -86,7 +86,7 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend()
     
-    # 子图2: 对抗损失
+    # 子图2: 生成器对抗损失
     axes[0, 1].plot(epochs, g_adv_losses, 'orange', linewidth=2, label='Adversarial Loss')
     axes[0, 1].set_title('Generator Adversarial Loss', fontsize=14, fontweight='bold')
     axes[0, 1].set_xlabel('Epoch', fontsize=12)
@@ -120,13 +120,19 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
 
 def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
     """
-    将GAN的GAN质量指标和训练损失统计保存为JSON文件
+    将GAN的GAN质量指标和训练损失分别保存为JSON文件
     """
 
     # 步骤1: 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
-    # 步骤2: 整理GAN质量指标和训练损失统计
+    # 步骤2: 提取各项损失的完整历史
+    d_losses = [l['d_loss'] for l in train_losses]
+    g_adv_losses = [l['g_adv_loss'] for l in train_losses]
+    mmd_losses = [l['mmd_loss'] for l in train_losses]
+    freq_losses = [l['freq_loss'] for l in train_losses]
+    
+    # 步骤3: 整理GAN质量指标
     results = {
         'timestamp': datetime.now().isoformat(),
         'evaluation_metrics': {
@@ -135,25 +141,16 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
             'time_domain_mse': comprehensive_metrics.get('time_domain_mse', -1),
             'spectral_correlation': comprehensive_metrics.get('spectral_correlation', -1)
         },
-        'training_loss_summary': {
-            'min_d_loss': min([l['d_loss'] for l in train_losses]) if train_losses else 0,
-            'max_d_loss': max([l['d_loss'] for l in train_losses]) if train_losses else 0,
-            'final_d_loss': train_losses[-1]['d_loss'] if train_losses else 0,
-            'min_g_adv_loss': min([l['g_adv_loss'] for l in train_losses]) if train_losses else 0,
-            'max_g_adv_loss': max([l['g_adv_loss'] for l in train_losses]) if train_losses else 0,
-            'final_g_adv_loss': train_losses[-1]['g_adv_loss'] if train_losses else 0,
-            'min_mmd_loss': min([l['mmd_loss'] for l in train_losses]) if train_losses else 0,
-            'max_mmd_loss': max([l['mmd_loss'] for l in train_losses]) if train_losses else 0,
-            'final_mmd_loss': train_losses[-1]['mmd_loss'] if train_losses else 0,
-            'min_freq_loss': min([l['freq_loss'] for l in train_losses]) if train_losses else 0,
-            'max_freq_loss': max([l['freq_loss'] for l in train_losses]) if train_losses else 0,
-            'final_freq_loss': train_losses[-1]['freq_loss'] if train_losses else 0,
+        'training_losses': {
+            'd_loss': d_losses,
+            'g_adv_loss': g_adv_losses,
+            'mmd_loss': mmd_losses,
+            'freq_loss': freq_losses,
             'total_epochs': len(train_losses)
-        },
-        'full_training_history': train_losses
+        }
     }
 
-    # 步骤3: 将结果保存为JSON文件
+    # 步骤4: 将结果保存为JSON文件
     result_path = os.path.join(output_dir, 'gan_evaluation_results.json')
     with open(result_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=4, ensure_ascii=False)

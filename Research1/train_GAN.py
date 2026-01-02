@@ -11,12 +11,10 @@ from Research1.loss_GAN import (
     frequency_consistency_loss,
     wasserstein_generator_loss, 
     wasserstein_discriminator_loss,
-    reconstruction_loss
 )
 from Research1.plot_GAN import (
     plot_training_metrics, 
     save_evaluation_results,
-    plot_feature_distribution_2d,
     evaluate_gan_comprehensive
 )
 
@@ -85,8 +83,8 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
         if epoch == 0 or (epoch + 1) % 5 == 0 or epoch == epochs - 1:
             elapsed_time = (datetime.now() - training_start_time).total_seconds() / 60
             print(f"  轮数 [{epoch + 1:3d}/{epochs}] | 耗时: {elapsed_time:.1f}分钟")
-            print(f"    D损失: {loss_dict['d_loss']:.4f} | G损失: {loss_dict['g_total_loss']:.4f} | GP: {loss_dict.get('gp_loss', 0):.4f}")
-            print(f"    MMD: {loss_dict['mmd_loss']:.6f} | 频域: {loss_dict['freq_loss']:.6f}")
+            print(f"    判别器损失: {loss_dict['d_loss']:.4f} | 生成器对抗损失: {loss_dict['g_adv_loss']:.4f}")
+            print(f"    MMD损失: {loss_dict['mmd_loss']:.6f} | 频域损失: {loss_dict['freq_loss']:.6f}")
 
     # 步骤8: 保存训练完成后的模型
     print(f"  GAN模型训练完成")
@@ -123,31 +121,8 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
     print(f"  ③ 时域MSE (Time-domain MSE)             : {comprehensive_metrics.get('time_domain_mse', -1):.6f} (越小越好)")
     print(f"  ④ 频谱相关性系数 (Spectral Correlation)  : {comprehensive_metrics.get('spectral_correlation', -1):.4f} (越接近1越好)")
     print("="*70 + "\n")
-        
-    # 步骤12: 绘制特征分布二维图
-    print(f"  正在提取特征用于分布可视化...")
-    E.eval()
-    with torch.no_grad():
-        # 提取目标域真实样本的特征
-        real_features_list = []
-        real_labels_list = []
-        for x_t_real, target_labels in target_loader:
-            x_t_real = x_t_real.to(device)
-            features = E(x_t_real)
-            real_features_list.append(features)
-            real_labels_list.append(target_labels)
-        real_features = torch.cat(real_features_list, dim=0)
-        real_labels = torch.cat(real_labels_list, dim=0)
-            
-        # 提取生成样本的特征
-        synthetic_data_device = synthetic_data.to(device)
-        fake_features = E(synthetic_data_device)
-        
-    # 使用t-SNE方法绘制特征分布
-    print(f"  正在绘制特征分布图(t-SNE)...")
-    plot_feature_distribution_2d(real_features, fake_features, real_labels=real_labels, method='tsne', output_dir='GAN')
 
-    # 步骤14: 保存全面评估结果
+    # 步骤12: 保存全面评估结果
     save_evaluation_results(comprehensive_metrics, train_loss_history, 'GAN')
     return synthetic_data, synthetic_labels
 
@@ -271,14 +246,12 @@ def train_epoch(E, G, D, D_spec, source_loader, target_loader, target_data, targ
     for key in ['g_loss', 'mmd', 'freq']:
         metrics[key] /= max(num_g_batches, 1)
     
+    # 返回整个epoch的各项损失指标
     return {
-        'd_loss': metrics['d_loss'],
-        'g_total_loss': metrics['g_loss'],
-        'g_adv_loss': metrics['g_loss'],
-        'mmd_loss': metrics['mmd'],
-        'freq_loss': metrics['freq'],
-        'gp_loss': metrics['gp'],
-        'wasserstein_dist': 0
+        'd_loss': metrics['d_loss'],  # 判别器损失
+        'g_adv_loss': metrics['g_loss'],  # 生成器对抗损失
+        'mmd_loss': metrics['mmd'],  # MMD损失
+        'freq_loss': metrics['freq']  # 频域损失
     }
 
 
@@ -365,14 +338,7 @@ def save_combined_target_data(synthetic_data, synthetic_labels, target_loader, o
 
 
 if __name__ == "__main__":
-    # 步骤0: 设置随机种子以确保结果可重现
-    print("步骤0: 设置随机种子以确保结果可重现...")
-    torch.manual_seed(40)
-    np.random.seed(40)
-    torch.backends.cudnn.benchmark = True
-    print("  随机种子设置成功\n")
-
-    # 步骤1: 从磁盘加载源域和目标域数据
+    # 步骤1: 加载源域和目标域数据
     print("步骤1: 正在加载数据文件...")
     source_data = torch.load('Data/source_env0_env1_data.pt')
     source_labels = torch.load('Data/source_env0_env1_labels.pt')
