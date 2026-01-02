@@ -175,7 +175,7 @@ def generate_matched_synthetic_data(real_features, real_labels, num_samples=500,
 
 
 def plot_feature_distribution_tsne_improved(real_features, real_labels, synthetic_features=None, 
-                                            synthetic_labels=None, output_path='GAN/feature_distribution_tsne_improved.png'):
+                                            synthetic_labels=None, output_path='TFGAN/feature_distribution_tsne_improved.png'):
     """
     改进版的特征分布t-SNE可视化
     清晰显示10个用户的特征分布群和生成数据的贴合情况

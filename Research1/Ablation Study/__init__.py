@@ -4,8 +4,8 @@ TFGAN-CAL 消融实验模块
 包含5个模型变体的实现和评估:
 - Model A: Baseline (w/o TFGAN & CAL)
 - Model B: w/o Generator, Only CAL
-- Model C: w/o Freq-D, Time-only GAN
-- Model D: w/o AdaIN, Concat-only GAN
+- Model C: w/o Freq-D, Time-only TFGAN
+- Model D: w/o AdaIN, Concat-only TFGAN
 - Model E: TFGAN-CAL (Full)
 """
 

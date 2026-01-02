@@ -1,6 +1,6 @@
 """
 Model D 训练和评估脚本
-w/o AdaIN, Concat-only GAN - 移除AdaIN,仅使用concat融合
+w/o AdaIN, Concat-only TFGAN - 移除AdaIN,仅使用concat融合
 """
 
 import torch
@@ -166,7 +166,7 @@ def main():
     
     num_epochs = 200
     
-    print("\n开始训练 Model D (w/o AdaIN, Concat-only GAN)...")
+    print("\n开始训练 Model D (w/o AdaIN, Concat-only TFGAN)...")
     print("=" * 70)
     
     for epoch in range(num_epochs):
@@ -188,7 +188,7 @@ def main():
     comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
     
     print("\n" + "="*70)
-    print("Model D (w/o AdaIN, Concat-only GAN) 评估结果：")
+    print("Model D (w/o AdaIN, Concat-only TFGAN) 评估结果：")
     print("="*70)
     print(f"  ① FID (Fréchet Inception Distance)      : {comprehensive_metrics.get('fid', -1):.4f}")
     print(f"  ② IS (Inception Score)                  : {comprehensive_metrics.get('inception_score', -1):.4f}")
@@ -200,7 +200,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     results = {
-        'model_name': 'Model D (w/o AdaIN, Concat-only GAN)',
+        'model_name': 'Model D (w/o AdaIN, Concat-only TFGAN)',
         'description': '移除AdaIN,仅使用concat融合',
         'metrics': comprehensive_metrics
     }

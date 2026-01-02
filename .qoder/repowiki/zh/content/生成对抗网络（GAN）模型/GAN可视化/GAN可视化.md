@@ -399,7 +399,7 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
 新增了`save_evaluation_results`函数，将综合评估结果和训练损失统计保存为JSON文件，便于后续分析和比较。
 
 ```python
-def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
+def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='TFGAN'):
     """
     将GAN的GAN质量指标和训练损失统计保存为JSON文件
     """
@@ -434,7 +434,7 @@ def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN
 函数现在支持`real_labels`参数，用于接收目标域真实样本的用户标签。当提供此参数时，函数将按用户ID分别显示10个不同用户的真实样本簇，每个用户使用不同的颜色表示。
 
 ```python
-def plot_feature_distribution_2d(real_features, fake_features, real_labels=None, method='tsne', output_dir='GAN'):
+def plot_feature_distribution_2d(real_features, fake_features, real_labels=None, method='tsne', output_dir='TFGAN'):
     """
     绘制真实样本与生成样本的特征分布二维图（使用t-SNE降维）
     如果提供了real_labels，则按用户标签显示10个真实用户的特征分布群

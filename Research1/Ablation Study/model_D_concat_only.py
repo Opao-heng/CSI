@@ -1,5 +1,5 @@
 """
-Model D: w/o AdaIN, Concat-only GAN
+Model D: w/o AdaIN, Concat-only TFGAN
 保留生成器和双判别器,但移除AdaIN,仅使用concat方式融合特征
 """
 

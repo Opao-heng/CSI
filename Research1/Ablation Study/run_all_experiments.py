@@ -40,8 +40,8 @@ def main():
     print("\n本脚本将依次运行以下5个模型的训练和评估:")
     print("  1. Model A (Baseline)")
     print("  2. Model B (w/o Generator, Only CAL)")
-    print("  3. Model C (w/o Freq-D, Time-only GAN)")
-    print("  4. Model D (w/o AdaIN, Concat-only GAN)")
+    print("  3. Model C (w/o Freq-D, Time-only TFGAN)")
+    print("  4. Model D (w/o AdaIN, Concat-only TFGAN)")
     print("  5. Model E (TFGAN-CAL, Full)")
     print("\n预计总耗时: 6-10小时")
     
@@ -55,8 +55,8 @@ def main():
     experiments = [
         ("Model A (Baseline)", "train_model_A"),
         ("Model B (w/o Generator, Only CAL)", "train_model_B"),
-        ("Model C (w/o Freq-D, Time-only GAN)", "train_model_C"),
-        ("Model D (w/o AdaIN, Concat-only GAN)", "train_model_D"),
+        ("Model C (w/o Freq-D, Time-only TFGAN)", "train_model_C"),
+        ("Model D (w/o AdaIN, Concat-only TFGAN)", "train_model_D"),
         ("Model E (TFGAN-CAL, Full)", "train_model_E"),
     ]
     

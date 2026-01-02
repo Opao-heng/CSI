@@ -1,6 +1,6 @@
 """
 Model C 训练和评估脚本
-w/o Freq-D, Time-only GAN - 仅使用时域判别器
+w/o Freq-D, Time-only TFGAN - 仅使用时域判别器
 """
 
 import torch
@@ -164,7 +164,7 @@ def main():
     
     num_epochs = 200
     
-    print("\n开始训练 Model C (w/o Freq-D, Time-only GAN)...")
+    print("\n开始训练 Model C (w/o Freq-D, Time-only TFGAN)...")
     print("=" * 70)
     
     for epoch in range(num_epochs):
@@ -187,7 +187,7 @@ def main():
     comprehensive_metrics = evaluate_gan_comprehensive(E, G, source_loader, target_loader, device=device)
     
     print("\n" + "="*70)
-    print("Model C (w/o Freq-D, Time-only GAN) 评估结果：")
+    print("Model C (w/o Freq-D, Time-only TFGAN) 评估结果：")
     print("="*70)
     print(f"  ① FID (Fréchet Inception Distance)      : {comprehensive_metrics.get('fid', -1):.4f}")
     print(f"  ② IS (Inception Score)                  : {comprehensive_metrics.get('inception_score', -1):.4f}")
@@ -200,7 +200,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     results = {
-        'model_name': 'Model C (w/o Freq-D, Time-only GAN)',
+        'model_name': 'Model C (w/o Freq-D, Time-only TFGAN)',
         'description': '仅使用时域判别器的GAN',
         'metrics': comprehensive_metrics
     }

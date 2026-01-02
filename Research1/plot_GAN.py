@@ -148,10 +148,10 @@ def plot_training_metrics_from_json(json_file_path):
         raise KeyError("JSON文件中找不到 'full_training_history' 或 'training_losses' 键")
     
     # 调用原有的绘图函数
-    plot_training_metrics(train_loss_history, output_dir='GAN')
+    plot_training_metrics(train_loss_history, output_dir='TFGAN')
 
 
-def plot_training_metrics(train_loss_history, output_dir='GAN'):
+def plot_training_metrics(train_loss_history, output_dir='TFGAN'):
     """
     绘制GAN训练过程中的各项指标
     """
@@ -228,7 +228,7 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     plt.close()
     
 
-def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='GAN'):
+def save_evaluation_results(comprehensive_metrics, train_losses, output_dir='TFGAN'):
     """
     将GAN的GAN质量指标和训练损失分别保存为JSON文件
     """
@@ -476,6 +476,6 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
 
 if __name__ == "__main__":
     # 加载模型并生成图表
-    model_path = r"C:\Users\USER\Desktop\liuheng\Research1\GAN\best_gan_model.pth"
-    json_file_path = r"C:\Users\USER\Desktop\liuheng\Research1\GAN\gan_evaluation_results.json"
+    model_path = r"/Research1/TFGAN\best_gan_model.pth"
+    json_file_path = r"/Research1/TFGAN\gan_evaluation_results.json"
     plot_training_metrics_from_json(json_file_path)

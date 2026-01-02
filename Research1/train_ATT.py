@@ -292,7 +292,7 @@ if __name__ == "__main__":
     num_epochs = 150  # 增加训练轮数
     best_accuracy = 0.0
     best_model_path = "Attention/best_attention_model.pth"
-    patience = 20  # 增加早停耐心值
+    patience = 15  # 增加早停耐心值
     early_stop_counter = 0
 
     # 损失函数、优化器、学习率调度器配置
@@ -405,11 +405,11 @@ if __name__ == "__main__":
     src_predictions, src_labels_list = get_predictions_and_labels(model, source_loader, device, domain_type='source')
     src_confusion_matrix_path = 'Attention/source_confusion_matrix.png'
     plot_confusion_matrix(src_labels_list, src_predictions, 10, src_confusion_matrix_path, 
-                         title='源域混淆矩阵 (Source Domain Confusion Matrix)')
+                         title='源域混淆矩阵')
     
     # 获取目标域预测标签和真实标签
     print("生成目标域混淆矩阵...")
     tgt_predictions, tgt_labels_list = get_predictions_and_labels(model, target_loader, device, domain_type='target')
     tgt_confusion_matrix_path = 'Attention/target_confusion_matrix.png'
     plot_confusion_matrix(tgt_labels_list, tgt_predictions, 10, tgt_confusion_matrix_path,
-                         title='目标域混淆矩阵 (Target Domain Confusion Matrix)')
+                         title='目标域混淆矩阵')

@@ -1,5 +1,5 @@
 """
-Model C: w/o Freq-D, Time-only GAN
+Model C: w/o Freq-D, Time-only TFGAN
 保留生成器和交叉注意力,但仅使用时域判别器(移除频域判别器)
 """
 
