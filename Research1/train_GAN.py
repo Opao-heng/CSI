@@ -1,7 +1,6 @@
 import torch
 import os
 import torch.optim as optim
-import numpy as np
 from torch.utils.data import DataLoader
 from datetime import datetime
 from Research1.model_GAN import build_model
