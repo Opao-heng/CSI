@@ -413,7 +413,7 @@ if __name__ == "__main__":
     # 检查文件是否存在
     if not os.path.exists(history_file_path):
         print(f"错误: 训练历史文件不存在 - {history_file_path}")
-        print("请先运行训练脚本 train_ATT.py 生成训练历史数据")
+        print("请先运行训练脚本 train_CNN.py 生成训练历史数据")
         sys.exit(1)
     
     # 绘制所有训练结果

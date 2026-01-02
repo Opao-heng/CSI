@@ -1,8 +1,3 @@
-"""
-Model D: w/o AdaIN, Concat-only TFGAN
-保留生成器和双判别器,但移除AdaIN,仅使用concat方式融合特征
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +5,9 @@ from torch.nn.utils import spectral_norm
 
 
 class FeatureExtractor(nn.Module):
-    """特征提取器"""
+    """
+    特征提取器
+    """
     def __init__(self, input_dim=(3, 56, 6000), feature_dim=128):
         super(FeatureExtractor, self).__init__()
         self.backbone = nn.Sequential(
@@ -38,10 +35,12 @@ class FeatureExtractor(nn.Module):
         return self.fc(x)
 
 
-class Generator_ConcatOnly(nn.Module):
-    """生成器 - 仅使用Concat,不使用AdaIN"""
+class Generator(nn.Module):
+    """
+    生成器 - 移除AdaIN风格注入层（消融实验Model B）
+    """
     def __init__(self, in_channels=3, subcarriers=56, time_steps=6000, feature_dim=128):
-        super(Generator_ConcatOnly, self).__init__()
+        super(Generator, self).__init__()
         self.in_channels = in_channels
         self.subcarriers = subcarriers
         self.flat_channels = in_channels * subcarriers
@@ -73,31 +72,22 @@ class Generator_ConcatOnly(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
         
-        # 特征融合 - 使用concat方式
+        # 特征融合
         self.style_fc = nn.Sequential(
             nn.Linear(feature_dim, 256),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(256, 512)
         )
         
-        # 解码器 - 不使用AdaIN, 只用普通归一化
-        self.dec1 = nn.Sequential(
-            nn.ConvTranspose1d(512 + 512, 256, kernel_size=4, stride=2, padding=1),
-            nn.InstanceNorm1d(256),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
+        # 解码器 - 移除AdaIN，使用普通的InstanceNorm
+        self.dec1 = nn.ConvTranspose1d(512 + 512, 256, kernel_size=4, stride=2, padding=1)
+        self.norm1 = nn.InstanceNorm1d(256)
         
-        self.dec2 = nn.Sequential(
-            nn.ConvTranspose1d(256 + 256, 128, kernel_size=6, stride=4, padding=1),
-            nn.InstanceNorm1d(128),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
+        self.dec2 = nn.ConvTranspose1d(256 + 256, 128, kernel_size=6, stride=4, padding=1)
+        self.norm2 = nn.InstanceNorm1d(128)
         
-        self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(128 + 128, 64, kernel_size=8, stride=4, padding=2),
-            nn.InstanceNorm1d(64),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
+        self.dec3 = nn.ConvTranspose1d(128 + 128, 64, kernel_size=8, stride=4, padding=2)
+        self.norm3 = nn.InstanceNorm1d(64)
         
         self.output_conv = nn.Sequential(
             nn.Conv1d(64, self.flat_channels, kernel_size=7, padding=3),
@@ -116,7 +106,7 @@ class Generator_ConcatOnly(nn.Module):
         # 中间处理
         h = self.middle(e3)
         
-        # 特征融合 - 仅使用concat
+        # 特征融合
         if f_t.size(0) >= B:
             style = f_t[:B]
         else:
@@ -126,17 +116,20 @@ class Generator_ConcatOnly(nn.Module):
         style_feat = self.style_fc(style).unsqueeze(-1).expand(-1, -1, h.size(-1))
         h = torch.cat([h, style_feat], dim=1)
         
-        # 解码 + 跳连 (不使用AdaIN)
-        d1 = self.dec1(h)
+        # 解码 + 跳连 - 使用普通的InstanceNorm替代AdaIN
+        d1 = F.leaky_relu(self.dec1(h), 0.2)
         d1 = self._match_size(d1, e2)
+        d1 = self.norm1(d1)  # 替代AdaIN
         d1 = torch.cat([d1, e2], dim=1)
         
-        d2 = self.dec2(d1)
+        d2 = F.leaky_relu(self.dec2(d1), 0.2)
         d2 = self._match_size(d2, e1)
+        d2 = self.norm2(d2)  # 替代AdaIN
         d2 = torch.cat([d2, e1], dim=1)
         
-        d3 = self.dec3(d2)
+        d3 = F.leaky_relu(self.dec3(d2), 0.2)
         d3 = self._match_size(d3, x)
+        d3 = self.norm3(d3)  # 替代AdaIN
         
         output = self.output_conv(d3)
         if output.size(-1) != T:
@@ -151,7 +144,9 @@ class Generator_ConcatOnly(nn.Module):
 
 
 class Discriminator(nn.Module):
-    """时域判别器"""
+    """
+    时域判别器
+    """
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
         super(Discriminator, self).__init__()
         
@@ -180,7 +175,9 @@ class Discriminator(nn.Module):
 
 
 class SpectralDiscriminator(nn.Module):
-    """频域判别器"""
+    """
+    频域判别器
+    """
     def __init__(self, in_channels=3*56, use_spectral_norm=True):
         super(SpectralDiscriminator, self).__init__()
         
@@ -204,16 +201,18 @@ class SpectralDiscriminator(nn.Module):
     def forward(self, x):
         B, C, S, T = x.shape
         x = x.view(B, C * S, T)
+        
+        # 转换到频域
         x_fft = torch.fft.rfft(x, dim=-1)
         x_mag = x_fft.abs()
+        
         x = self.net(x_mag).squeeze(-1)
         return self.fc(x)
 
 
 def build_model():
-    """构建Model D: 使用Concat-only Generator"""
     E = FeatureExtractor()
-    G = Generator_ConcatOnly()
+    G = Generator()
     D = Discriminator()
-    D_spec = SpectralDiscriminator()
-    return E, G, D, D_spec
+    D_spectral = SpectralDiscriminator()
+    return E, G, D, D_spectral
