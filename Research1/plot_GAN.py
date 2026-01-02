@@ -11,41 +11,111 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from matplotlib import font_manager
 
-# 设置中文字体支持
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
+
+# 设置全局字体配置：使用font fallback机制实现中英文分离
+# 关键：设置font.sans-serif让中文正常显示，通过Text对象的family参数控制英文
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+
+# 启用字体回退机制
+try:
+    from matplotlib import font_manager
+    # 注册字体回退：中文用SimSun，英文数字用Times New Roman
+    font_manager.fontManager.addfont = lambda x: None  # 防止重复添加
+except:
+    pass
+
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
 
 
-def create_zh_font(size=12):
+def get_chinese_font_properties(size=20):
     """
-    创建带有指定字体大小的中文字体属性对象
-
-    参数:
-    size (int): 字体大小
-
-    返回:
-    FontProperties: 配置好的字体属性对象
+    获取中文字体属性（宋体）
     """
     try:
-        # 尝试使用系统中的中文字体
-        available_fonts = [f.name for f in font_manager.fontManager.ttflist]
-        chinese_font_names = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'STHeiTi', 'STSong']
+        return font_manager.FontProperties(family='SimSun', size=size)
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
 
-        for font_name in chinese_font_names:
-            if font_name in available_fonts:
-                font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
-                return font_manager.FontProperties(fname=font_path, size=size)
+def get_english_font_properties(size=20):
+    """
+    获取英文/数字字体属性（Times New Roman）
+    """
+    try:
+        return font_manager.FontProperties(family='Times New Roman', size=size)
+    except:
+        return font_manager.FontProperties(family='serif', size=size)
 
-        # 如果找不到中文字体，使用默认字体
-        return font_manager.FontProperties(size=size)
-    except Exception as e:
-        print(f"字体加载异常: {e}")
-        return font_manager.FontProperties(size=size)
+def get_mixed_font_properties(size=20):
+    """
+    获取混合字体属性（中文宋体+英文Times New Roman）
+    通过设置fallback实现中英文分离
+    """
+    try:
+        # 创建支持中英文混合的字体属性
+        prop = font_manager.FontProperties(size=size)
+        # 设置字体回退列表：SimSun for Chinese, Times New Roman for English/Numbers
+        prop.set_family(['SimSun', 'Times New Roman'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def create_mixed_text_with_fonts(ax, text, fontsize, **kwargs):
+    """
+    创建支持中英文分离字体的文本对象
+    中文使用宋体，英文和数字使用Times New Roman
+    通过Unicode编码分离中英文
+    
+    Args:
+        ax: matplotlib axes对象
+        text: 要显示的文本
+        fontsize: 字体大小
+        **kwargs: 其他传递给set_title/set_xlabel的参数
+    
+    Returns:
+        formatted_text: 格式化后的文本
+        font_properties: 字体属性
+    """
+    import re
+    
+    # 判断是否包含中文
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+    has_english_or_digit = bool(re.search(r'[a-zA-Z0-9]', text))
+    
+    if has_chinese and has_english_or_digit:
+        # 混合文本：使用fallback机制
+        # 设置字体列表，让matplotlib自动处理
+        prop = font_manager.FontProperties(size=fontsize)
+        # 关键：先Times New Roman后接SimSun，英文优先用TNR，中文回退到SimSun
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return text, prop
+    elif has_chinese:
+        # 纯中文
+        return text, get_chinese_font_properties(fontsize)
+    else:
+        # 纯英文/数字
+        return text, get_english_font_properties(fontsize)
+
+
+# 创建默认字体属性
+zh_font = get_chinese_font_properties(20)
+en_font = get_english_font_properties(20)
+mixed_font = get_mixed_font_properties(20)  # 中英文混合字体
+print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为20")
 
 
 def plot_training_metrics_from_json(json_file_path):
     """
     从JSON文件中读取训练历史并绘制GAN训练过程中的各项指标
+    支持两种JSON格式：
+    1. 旧格式: {'full_training_history': [...]}
+    2. 新格式: {'training_losses': {'d_loss': [...], 'g_adv_loss': [...], ...}}
     """
     import json
     
@@ -53,8 +123,29 @@ def plot_training_metrics_from_json(json_file_path):
     with open(json_file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
-    # 提取训练历史
-    train_loss_history = data['full_training_history']
+    # 判断JSON格式并提取训练历史
+    if 'full_training_history' in data:
+        # 旧格式：直接使用
+        train_loss_history = data['full_training_history']
+    elif 'training_losses' in data:
+        # 新格式：需要转换
+        training_losses = data['training_losses']
+        d_losses = training_losses['d_loss']
+        g_adv_losses = training_losses['g_adv_loss']
+        mmd_losses = training_losses['mmd_loss']
+        freq_losses = training_losses['freq_loss']
+        
+        # 转换为旧格式（列表的字典）
+        train_loss_history = []
+        for i in range(len(d_losses)):
+            train_loss_history.append({
+                'd_loss': d_losses[i],
+                'g_adv_loss': g_adv_losses[i],
+                'mmd_loss': mmd_losses[i],
+                'freq_loss': freq_losses[i]
+            })
+    else:
+        raise KeyError("JSON文件中找不到 'full_training_history' 或 'training_losses' 键")
     
     # 调用原有的绘图函数
     plot_training_metrics(train_loss_history, output_dir='GAN')
@@ -75,46 +166,65 @@ def plot_training_metrics(train_loss_history, output_dir='GAN'):
     freq_losses = [loss['freq_loss'] for loss in train_loss_history]  # 频域一致性损失
     epochs = range(1, len(train_loss_history) + 1)
     
+    print(f"开始绘制训练指标，共 {len(train_loss_history)} 个epoch")
+    print(f"判别器损失范围: [{min(d_losses):.4f}, {max(d_losses):.4f}]")
+    print(f"对抗损失范围: [{min(g_adv_losses):.4f}, {max(g_adv_losses):.4f}]")
+    print(f"MMD损失范围: [{min(mmd_losses):.4f}, {max(mmd_losses):.4f}]")
+    print(f"频域损失范围: [{min(freq_losses):.6f}, {max(freq_losses):.6f}]")
+    
     # 步骤3: 创建大型图表，包含4个子图
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10), facecolor='white')
+    fig.patch.set_facecolor('white')
     
     # 子图1: 判别器损失
-    axes[0, 0].plot(epochs, d_losses, 'r-', linewidth=2, label='Discriminator Loss')
-    axes[0, 0].set_title('Discriminator Loss', fontsize=14, fontweight='bold')
-    axes[0, 0].set_xlabel('Epoch', fontsize=12)
-    axes[0, 0].set_ylabel('Loss', fontsize=12)
+    axes[0, 0].plot(epochs, d_losses, 'r-', linewidth=2, label='判别器损失')
+    #axes[0, 0].set_ylabel('损失', fontproperties=zh_font, fontsize=20)
     axes[0, 0].grid(True, alpha=0.3)
-    axes[0, 0].legend()
+    #axes[0, 0].legend(prop=zh_font, fontsize=20)
+    axes[0, 0].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[0, 0].get_xticklabels() + axes[0, 0].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[0, 0], '(a) 判别器损失', 20)
+    axes[0, 0].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
     # 子图2: 生成器对抗损失
-    axes[0, 1].plot(epochs, g_adv_losses, 'orange', linewidth=2, label='Adversarial Loss')
-    axes[0, 1].set_title('Generator Adversarial Loss', fontsize=14, fontweight='bold')
-    axes[0, 1].set_xlabel('Epoch', fontsize=12)
-    axes[0, 1].set_ylabel('Loss', fontsize=12)
+    axes[0, 1].plot(epochs, g_adv_losses, 'orange', linewidth=2, label='对抗损失')
+    #axes[0, 1].set_ylabel('损失', fontproperties=zh_font, fontsize=20)
     axes[0, 1].grid(True, alpha=0.3)
-    axes[0, 1].legend()
+    #axes[0, 1].legend(prop=zh_font, fontsize=20)
+    axes[0, 1].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[0, 1].get_xticklabels() + axes[0, 1].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[0, 1], '(b) 生成器对抗损失', 20)
+    axes[0, 1].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
     # 子图3: MMD损失
-    axes[1, 0].plot(epochs, mmd_losses, 'g-', linewidth=2, label='MMD Loss')
-    axes[1, 0].set_title('MMD Loss (Distribution Alignment)', fontsize=14, fontweight='bold')
-    axes[1, 0].set_xlabel('Epoch', fontsize=12)
-    axes[1, 0].set_ylabel('Loss', fontsize=12)
+    axes[1, 0].plot(epochs, mmd_losses, 'g-', linewidth=2, label='MMD损失')
+    #axes[1, 0].set_ylabel('损失', fontproperties=zh_font, fontsize=20)
     axes[1, 0].grid(True, alpha=0.3)
-    axes[1, 0].legend()
+    #axes[1, 0].legend(prop=zh_font, fontsize=20)
+    axes[1, 0].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[1, 0].get_xticklabels() + axes[1, 0].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[1, 0], '(c) MMD损失', 20)
+    axes[1, 0].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
     # 子图4: 频域一致性损失
-    axes[1, 1].plot(epochs, freq_losses, 'm-', linewidth=2, label='Frequency Consistency Loss')
-    axes[1, 1].set_title('Frequency Consistency Loss', fontsize=14, fontweight='bold')
-    axes[1, 1].set_xlabel('Epoch', fontsize=12)
-    axes[1, 1].set_ylabel('Loss', fontsize=12)
+    axes[1, 1].plot(epochs, freq_losses, 'm-', linewidth=2, label='频域一致性损失')
+    #axes[1, 1].set_ylabel('损失', fontproperties=zh_font, fontsize=20)
     axes[1, 1].grid(True, alpha=0.3)
-    axes[1, 1].legend()
+    #axes[1, 1].legend(prop=zh_font, fontsize=20)
+    axes[1, 1].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[1, 1].get_xticklabels() + axes[1, 1].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[1, 1], '(d) 频域一致性损失', 20)
+    axes[1, 1].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
     # 步骤4: 调整布局并保存图形
-    plt.tight_layout()
+    plt.tight_layout(pad=1.5)
     plot_path = os.path.join(output_dir, 'training_metrics.png')
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"  训练指标图已保存到: {plot_path}")
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+    print(f"\n训练指标图已保存到: {plot_path}")
     plt.close()
     
 
