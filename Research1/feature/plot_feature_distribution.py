@@ -6,28 +6,55 @@ from matplotlib import font_manager
 from matplotlib.patches import Ellipse
 from matplotlib.collections import PatchCollection
 
-# 设置中文字体支持
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
+
+# 设置全局字体配置：使用font fallback机制实现中英文分离
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
 
 
-def create_zh_font(size=12):
+def get_chinese_font_properties(size=18):
     """
-    创建带有指定字体大小的中文字体属性对象
+    获取中文字体属性（宋体）
     """
     try:
-        available_fonts = [f.name for f in font_manager.fontManager.ttflist]
-        chinese_font_names = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'STHeiTi', 'STSong']
-        
-        for font_name in chinese_font_names:
-            if font_name in available_fonts:
-                font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
-                return font_manager.FontProperties(fname=font_path, size=size)
-        
-        return font_manager.FontProperties(size=size)
-    except Exception as e:
-        print(f"字体加载异常: {e}")
-        return font_manager.FontProperties(size=size)
+        return font_manager.FontProperties(family='SimSun', size=size)
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def get_english_font_properties(size=18):
+    """
+    获取英文/数字字体属性（Times New Roman）
+    """
+    try:
+        return font_manager.FontProperties(family='Times New Roman', size=size)
+    except:
+        return font_manager.FontProperties(family='serif', size=size)
+
+def get_mixed_font_properties(size=18):
+    """
+    获取混合字体属性（中文宋体+英文Times New Roman）
+    通过设置fallback实现中英文分离
+    """
+    try:
+        prop = font_manager.FontProperties(size=size)
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def create_zh_font(size=18):
+    """
+    创建带有指定字体大小的中文字体属性对象（宋体）
+    """
+    return get_chinese_font_properties(size)
 
 
 def generate_user_clusters(num_users=10, samples_per_user=100, feature_dim=128):
@@ -240,7 +267,7 @@ def plot_feature_distribution_tsne_improved(real_features, real_labels, syntheti
         
         # 绘制真实样本点（填充圆形）
         plt.scatter(real_user_2d[:, 0], real_user_2d[:, 1],
-                   c=[colors[idx]], label=f'User {int(user_id)} (Real)',
+                   c=[colors[idx]], label=f'User {int(user_id)} (真实)',
                    alpha=0.7, s=80, edgecolors='black', linewidth=0.8, marker='o')
         
         # 计算并绘制该用户的置信椭圆（显示分布的轮廓）
@@ -272,21 +299,26 @@ def plot_feature_distribution_tsne_improved(real_features, real_labels, syntheti
                 if np.any(mask):
                     synthetic_user_2d = synthetic_2d[mask]
                     plt.scatter(synthetic_user_2d[:, 0], synthetic_user_2d[:, 1],
-                               c=[colors[idx]], label=f'User {int(user_id)} (Generated)',
+                               c=[colors[idx]], label=f'User {int(user_id)} (生成)',
                                alpha=0.5, s=60, edgecolors=colors[idx], linewidth=0.5, marker='^')
         else:
             # 如果没有合成标签，用红色表示所有生成样本
             plt.scatter(synthetic_2d[:, 0], synthetic_2d[:, 1],
-                       c='red', label='Generated Samples',
+                       c='red', label='生成样本',
                        alpha=0.4, s=40, edgecolors='darkred', linewidth=0.5, marker='^')
     
-    # 设置标题和标签（使用中文字体）
-
-    plt.xlabel('t-SNE成分1', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))
-    plt.ylabel('t-SNE成分2', fontsize=14, fontweight='bold', fontproperties=create_zh_font(14))    
+    # 设置标题和标签（使用混合字体：中文宋体，数字Times New Roman）
+    # plt.xlabel('t-SNE成分1', fontsize=24, fontweight='bold', fontproperties=get_mixed_font_properties(24))
+    # plt.ylabel('t-SNE成分2', fontsize=24, fontweight='bold', fontproperties=get_mixed_font_properties(24))
     
-    # 设置图例（使用中文字体）
-    plt.legend(fontsize=10, loc='best', frameon=True, fancybox=True, shadow=True, ncol=3, prop=create_zh_font(10))
+    # 设置刻度标签为Times New Roman（数字）
+    ax = plt.gca()
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(get_english_font_properties(24))
+    ax.tick_params(axis='both', which='major', labelsize=24)
+    
+    # 设置图例（使用混合字体）
+    plt.legend(fontsize=14, loc='best', frameon=True, fancybox=True, shadow=True, ncol=2, prop=get_mixed_font_properties(14))
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
@@ -299,8 +331,8 @@ def plot_feature_distribution_tsne_improved(real_features, real_labels, syntheti
 if __name__ == "__main__":
     print("\n=== 生成模拟数据 ===")
     
-    # 步骤1: 生成真实用户特征分布（10个用户）
-    print("生成真实用户特征分布...")
+    # 步骤1: 真实用户特征分布（10个用户）
+    print("真实用户特征分布...")
     real_features, real_labels = generate_user_clusters(
         num_users=10, 
         samples_per_user=35,  # 每个用户35个样本，避免过度拥挤
@@ -309,7 +341,7 @@ if __name__ == "__main__":
     print(f"  真实特征形状: {real_features.shape}, 标签数: {len(np.unique(real_labels))}")
     
     # 步骤2: 生成与真实数据贴合的合成数据（分别贴合各用户）
-    print("\n生成与真实数据贴合的合成数据...")
+    print("\n真实数据贴合的合成数据...")
     synthetic_features, synthetic_labels = generate_matched_synthetic_data(
         real_features,
         real_labels,

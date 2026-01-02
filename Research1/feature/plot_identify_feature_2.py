@@ -1,6 +1,41 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib import font_manager
+
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
+plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
+
+def get_chinese_font_properties(size=18):
+    """获取中文字体属性（宋体）"""
+    try:
+        return font_manager.FontProperties(family='SimSun', size=size)
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def get_english_font_properties(size=18):
+    """获取英文/数字字体属性（Times New Roman）"""
+    try:
+        return font_manager.FontProperties(family='Times New Roman', size=size)
+    except:
+        return font_manager.FontProperties(family='serif', size=size)
+
+def get_mixed_font_properties(size=18):
+    """获取混合字体属性（中文宋体+英文Times New Roman）"""
+    try:
+        prop = font_manager.FontProperties(size=size)
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
 
 """
 目标：尽量在“点数、点大小、整体布局、颜色与图例结构”上贴近你提供的原图：
@@ -115,9 +150,11 @@ def plot_panel(ax,
     # 设置坐标轴刻度
     ax.set_xticks(np.arange(-40, 70, 10))
     ax.set_yticks(np.arange(-50, 60, 10))
-    ax.tick_params(labelsize=8)
-    ax.set_xlabel("")
-    ax.set_ylabel("")
+    ax.tick_params(labelsize=18)
+    # 设置刻度标签为Times New Roman
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(get_english_font_properties(10))
+
 
 
 def add_legends(fig, axes, unique_ids):
@@ -127,9 +164,9 @@ def add_legends(fig, axes, unique_ids):
     # Env 图例（圆形代表源域，正方形代表目标域）
     env_handles = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="k",
-               markersize=6, label="源域"),
+               markersize=10, label="源域"),
         Line2D([0], [0], marker="s", color="w", markerfacecolor="k",
-               markersize=6, label="目标域"),
+               markersize=10, label="目标域"),
     ]
 
     # Id 图例（放在右下角）
@@ -137,7 +174,7 @@ def add_legends(fig, axes, unique_ids):
     for idx, id_idx in enumerate(unique_ids):
         color = cmap(idx % 10)
         handle = Line2D([0], [0], marker="o", color="w",
-                        markerfacecolor=color, markersize=6,
+                        markerfacecolor=color, markersize=10,
                         label=f"Id: {id_idx}")
         id_handles.append(handle)
 
@@ -147,8 +184,10 @@ def add_legends(fig, axes, unique_ids):
         legend_id = ax.legend(handles=id_handles,
                              loc="lower right",
                              frameon=True,
-                             fontsize=8,
+                             fontsize=18,
                              title="身份",
+                             title_fontproperties=get_chinese_font_properties(11),
+                             prop=get_mixed_font_properties(11),
                              borderaxespad=0.5)
         ax.add_artist(legend_id)  # 保留ID图例
         
@@ -162,17 +201,19 @@ def add_legends(fig, axes, unique_ids):
         
         # 将环境图例放在ID图例正上方，紧密贴合
         ax.legend(handles=env_handles,
-                 loc="lower right",
-                 bbox_to_anchor=(1.0, bbox_id_ax.y1),  # 使用ID图例顶部的y坐标
+                 loc="lower left",
                  frameon=True,
-                 fontsize=8,
+                 fontsize=18,
                  title="环境",
+                 title_fontproperties=get_chinese_font_properties(10),
+                 prop=get_chinese_font_properties(10),
                  borderaxespad=0.5)
 
 
 def main():
-    # 字体设置（如果系统没有 SimHei，会自动回退到默认字体）
-    plt.rcParams["font.sans-serif"] = ["SimHei", "Arial"]
+    # 字体设置（中文宋体+英文Times New Roman）
+    plt.rcParams["font.sans-serif"] = ["SimSun", "Arial"]
+    plt.rcParams["font.serif"] = ["SimSun", "Times New Roman"]
     plt.rcParams["axes.unicode_minus"] = False
 
     num_ids = 10
@@ -212,7 +253,6 @@ def main():
     # 同时保存为 PNG（论文或报告中使用）
     plt.savefig("identify_feature_distribution.png", dpi=300, bbox_inches="tight")
 
-    plt.show()
 
 
 if __name__ == "__main__":
