@@ -221,8 +221,7 @@ def main():
     
     # 保存训练历史
     history_file_path = 'Identify/training_history.json'
-    save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, 
-                         history_file_path)
+    save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, history_file_path)
 
 
 if __name__ == "__main__":

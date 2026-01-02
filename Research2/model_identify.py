@@ -94,17 +94,18 @@ class FeatureExtractor(nn.Module):
             nn.AdaptiveAvgPool1d(32)
         )
         
-        # 特征融合和映射 - 增加深度
+        # 特征融合和映射 - 优化dropout策略提升跨域稳定性
         self.feature_fusion = nn.Sequential(
             nn.Linear(64 * 32, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.15),  # 降低dropout率,避免过度丢弃跨域关键特征
             nn.Linear(512, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.1),   # 进一步降低dropout率
             nn.Linear(256, feature_dim),
+            nn.BatchNorm1d(feature_dim),  # 添加BatchNorm提升稳定性
             nn.ReLU()
         )
         
@@ -129,55 +130,125 @@ class FeatureExtractor(nn.Module):
         return features
 
 
-class AttentionModule(nn.Module):
-    """注意力模块 - 增强特征表示"""
+class MultiHeadSelfAttention(nn.Module):
+    """多头自注意力机制 - 增强跨域特征表示能力"""
     
-    def __init__(self, feature_dim=128):
-        super(AttentionModule, self).__init__()
+    def __init__(self, feature_dim=128, num_heads=4):
+        super(MultiHeadSelfAttention, self).__init__()
+        assert feature_dim % num_heads == 0, "feature_dim必须能被num_heads整除"
+        
         self.feature_dim = feature_dim
-        self.attention_weights = nn.Sequential(
-            nn.Linear(feature_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 1)
+        self.num_heads = num_heads
+        self.head_dim = feature_dim // num_heads
+        
+        # Q, K, V投影层
+        self.query = nn.Linear(feature_dim, feature_dim)
+        self.key = nn.Linear(feature_dim, feature_dim)
+        self.value = nn.Linear(feature_dim, feature_dim)
+        
+        # 输出投影
+        self.out_proj = nn.Linear(feature_dim, feature_dim)
+        self.layer_norm1 = nn.LayerNorm(feature_dim)
+        self.layer_norm2 = nn.LayerNorm(feature_dim)
+        
+        # FFN增强特征表示
+        self.ffn = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim * 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(feature_dim * 2, feature_dim),
+            nn.Dropout(0.1)
         )
-        self.layer_norm = nn.LayerNorm(feature_dim)
         
     def forward(self, x):
         # x shape: [batch_size, feature_dim]
-        attention_scores = self.attention_weights(x)
-        attention_weights = torch.softmax(attention_scores, dim=0)
+        batch_size = x.size(0)
         
-        weighted_features = x * attention_weights
-        out = self.layer_norm(x + weighted_features)
+        # 添加序列维度 [batch, 1, feature_dim]
+        x_seq = x.unsqueeze(1)
         
-        return out
+        # Q, K, V投影并分头
+        Q = self.query(x_seq).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.key(x_seq).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.value(x_seq).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # 计算注意力分数
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attn_weights = torch.softmax(attn_scores, dim=-1)
+        
+        # 应用注意力
+        attn_output = torch.matmul(attn_weights, V)
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, 1, self.feature_dim)
+        
+        # 输出投影
+        attn_output = self.out_proj(attn_output).squeeze(1)
+        
+        # 残差连接 + LayerNorm
+        x = self.layer_norm1(x + attn_output)
+        
+        # FFN + 残差连接 + LayerNorm
+        x = self.layer_norm2(x + self.ffn(x))
+        
+        return x
 
 
 class ProjectionHead(nn.Module):
-    """投影头 - 将特征映射到32维空间用于对比学习"""
+    """增强投影头 - 将特征映射到32维空间用于对比学习,提升跨域对齐能力"""
     
     def __init__(self, input_dim=128, projection_dim=32):
         super(ProjectionHead, self).__init__()
-        self.projection = nn.Sequential(
-            nn.Linear(input_dim, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Linear(64, projection_dim)
+        hidden_dim = 96
+        
+        # 第一层投影
+        self.proj1 = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU()
         )
         
+        # 第二层投影
+        self.proj2 = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU()
+        )
+        
+        # 第三层投影到目标维度
+        self.proj3 = nn.Linear(64, projection_dim)
+        
+        # 残差连接的调整层
+        self.shortcut = nn.Linear(input_dim, projection_dim) if input_dim != projection_dim else nn.Identity()
+        
     def forward(self, x):
-        return self.projection(x)
+        # 主路径: 3层非线性投影
+        out = self.proj1(x)
+        out = self.proj2(out)
+        out = self.proj3(out)
+        
+        # 残差连接: 帮助保留原始特征信息
+        shortcut = self.shortcut(x)
+        
+        # 融合残差
+        return out + 0.1 * shortcut  # 使用较小的残差权重,避免干扰投影空间学习
 
 
 class IdentityClassifier(nn.Module):
-    """身份分类器 - 对已知用户进行身份识别"""
+    """增强身份分类器 - 提升跨域判别能力"""
     
     def __init__(self, feature_dim=128, num_classes=10):
         super(IdentityClassifier, self).__init__()
+        # 扩展为3层结构,增强判别能力
         self.classifier = nn.Sequential(
-            nn.Linear(feature_dim, 64),
+            nn.Linear(feature_dim, 96),
+            nn.BatchNorm1d(96),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.15),
+            
+            nn.Linear(96, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            
             nn.Linear(64, num_classes)
         )
         
@@ -191,7 +262,7 @@ class IdentifyDetectionSystem(nn.Module):
     def __init__(self, num_classes=10, feature_dim=128, projection_dim=32):
         super(IdentifyDetectionSystem, self).__init__()
         self.feature_extractor = FeatureExtractor(feature_dim=feature_dim)
-        self.attention = AttentionModule(feature_dim=feature_dim)
+        self.attention = MultiHeadSelfAttention(feature_dim=feature_dim, num_heads=4)
         self.projection_head = ProjectionHead(feature_dim, projection_dim)
         self.identity_classifier = IdentityClassifier(feature_dim, num_classes)
         

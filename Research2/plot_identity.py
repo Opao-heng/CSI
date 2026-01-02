@@ -7,15 +7,80 @@ import numpy as np
 from sklearn.manifold import TSNE
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
+from matplotlib import font_manager
 from model_identify import IdentifyDetectionSystem
 
-# 设置中文字体和美化参数
-plt.rcParams['font.sans-serif'] = ['SimHei', 'FangSong', 'Microsoft YaHei', 'Arial Unicode MS']
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
+
+# 设置全局字体配置：使用font fallback机制实现中英文分离
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+
 plt.rcParams['figure.figsize'] = (10, 6)
 plt.rcParams['axes.grid'] = True
 plt.rcParams['grid.alpha'] = 0.3
 plt.rcParams['axes.axisbelow'] = True
+
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
+
+def get_chinese_font_properties(size=20):
+    """
+    获取中文字体属性（宋体）
+    """
+    try:
+        return font_manager.FontProperties(family='SimSun', size=size)
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def get_english_font_properties(size=20):
+    """
+    获取英文/数字字体属性（Times New Roman）
+    """
+    try:
+        return font_manager.FontProperties(family='Times New Roman', size=size)
+    except:
+        return font_manager.FontProperties(family='serif', size=size)
+
+def get_mixed_font_properties(size=20):
+    """
+    获取混合字体属性（中文宋体+英文Times New Roman）
+    通过设置fallback实现中英文分离
+    """
+    try:
+        prop = font_manager.FontProperties(size=size)
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def create_mixed_text_with_fonts(ax, text, fontsize=20, **kwargs):
+    """
+    创建支持中英文分离字体的文本对象
+    中文使用宋体，英文和数字使用Times New Roman
+    """
+    import re
+    
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+    has_english_or_digit = bool(re.search(r'[a-zA-Z0-9]', text))
+    
+    if has_chinese and has_english_or_digit:
+        prop = font_manager.FontProperties(size=fontsize)
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return text, prop
+    elif has_chinese:
+        return text, get_chinese_font_properties(fontsize)
+    else:
+        return text, get_english_font_properties(fontsize)
+
+# 创建默认字体属性
+zh_font = get_chinese_font_properties(20)
+en_font = get_english_font_properties(20)
+mixed_font = get_mixed_font_properties(20)
 
 def load_training_history(history_path):
     """
@@ -55,20 +120,27 @@ def plot_training_loss_curves(history_file_path, save_path):
     plt.figure(figsize=(12, 8))
     
     # 绘制总损失曲线
-    plt.plot(epochs, train_losses, 'b-', label='总损失 (Total Loss)', linewidth=2.5, marker='o', markersize=4)
+    plt.plot(epochs, train_losses, 'b-', label='总损失', linewidth=2.5, marker='o', markersize=4)
     
     # 绘制各项损失曲线
     identity_losses = [comp['identity'] for comp in loss_components_history]
     contrastive_losses = [comp['contrastive'] for comp in loss_components_history]
     
-    plt.plot(epochs, identity_losses, label='身份损失 (Identity Loss)', linewidth=2.5, marker='s', markersize=4)
-    plt.plot(epochs, contrastive_losses, label='对比损失 (Contrastive Loss)', linewidth=2.5, marker='^', markersize=4)
+    plt.plot(epochs, identity_losses, label='身份损失', linewidth=2.5, marker='s', markersize=4)
+    plt.plot(epochs, contrastive_losses, label='对比损失', linewidth=2.5, marker='^', markersize=4)
     
-    plt.title('训练损失变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数 (Epoch)', fontsize=14, fontweight='bold')
-    plt.ylabel('损失值 (Loss)', fontsize=14, fontweight='bold')
+    # 设置标题和标签 - 中文用宋体，英文数字用Times New Roman
+    title_text, title_font = create_mixed_text_with_fonts(None, '训练损失变化曲线', 20)
+    plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 20)
+    plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+    
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 20)
+    plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
+    
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=12, loc='upper right')
+    plt.legend(prop=zh_font, fontsize=20, loc='upper right')
     plt.tight_layout()
     
     # 美化坐标轴
@@ -77,6 +149,11 @@ def plot_training_loss_curves(history_file_path, save_path):
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(0.8)
     ax.spines['bottom'].set_linewidth(0.8)
+    
+    # 设置刻度标签字体
+    ax.tick_params(axis='both', which='major', labelsize=20)
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -106,15 +183,22 @@ def plot_accuracy_curves(history_file_path, save_path):
     
     # 绘制训练和验证准确率曲线（带标记点）
     if train_accuracies:
-        plt.plot(epochs, train_accuracies, 'b-', label='训练准确率 (Train Accuracy)', linewidth=2.5, marker='o', markersize=4)
+        plt.plot(epochs, train_accuracies, 'b-', label='训练准确率', linewidth=2.5, marker='o', markersize=4)
     if val_accuracies:
-        plt.plot(epochs, val_accuracies, 'g-', label='验证准确率 (Validation Accuracy)', linewidth=2.5, marker='s', markersize=4)
+        plt.plot(epochs, val_accuracies, 'g-', label='验证准确率', linewidth=2.5, marker='s', markersize=4)
     
-    plt.title('训练与验证准确率变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数 (Epoch)', fontsize=14, fontweight='bold')
-    plt.ylabel('准确率 (%)', fontsize=14, fontweight='bold')
+    # 设置标题和标签
+    title_text, title_font = create_mixed_text_with_fonts(None, '训练与验证准确率变化曲线', 20)
+    plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 20)
+    plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+    
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率', 20)
+    plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
+    
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=12, loc='lower right')
+    plt.legend(prop=zh_font, fontsize=20, loc='lower right')
     plt.tight_layout()
     
     # 美化坐标轴
@@ -123,7 +207,12 @@ def plot_accuracy_curves(history_file_path, save_path):
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(0.8)
     ax.spines['bottom'].set_linewidth(0.8)
-    ax.set_ylim([0, 100])  # 设置y轴范围为0-100%
+    ax.set_ylim([0, 100])
+    
+    # 设置刻度标签字体
+    ax.tick_params(axis='both', which='major', labelsize=20)
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -163,15 +252,22 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     
     # 绘制源域和目标域测试准确率曲线（带标记点）
     if src_test_accuracies:
-        plt.plot(epochs, src_test_accuracies, 'r-', label='源域测试准确率 (Source Test Accuracy)', linewidth=2.5, marker='^', markersize=4)
+        plt.plot(epochs, src_test_accuracies, 'r-', label='源域测试准确率', linewidth=2.5, marker='^', markersize=4)
     if tgt_test_accuracies:
-        plt.plot(epochs, tgt_test_accuracies, 'm-', label='目标域测试准确率 (Target Test Accuracy)', linewidth=2.5, marker='d', markersize=4)
+        plt.plot(epochs, tgt_test_accuracies, 'm-', label='目标域测试准确率', linewidth=2.5, marker='d', markersize=4)
     
-    plt.title('源域与目标域测试准确率变化曲线', fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('训练轮数 (Epoch)', fontsize=14, fontweight='bold')
-    plt.ylabel('准确率 (%)', fontsize=14, fontweight='bold')
+    # 设置标题和标签
+    title_text, title_font = create_mixed_text_with_fonts(None, '源域与目标域测试准确率变化曲线', 20)
+    plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 20)
+    plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+    
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率', 20)
+    plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
+    
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=12, loc='lower right')
+    plt.legend(prop=zh_font, fontsize=20, loc='lower right')
     plt.tight_layout()
     
     # 美化坐标轴
@@ -180,7 +276,12 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(0.8)
     ax.spines['bottom'].set_linewidth(0.8)
-    ax.set_ylim([0, 100])  # 设置y轴范围为0-100%
+    ax.set_ylim([0, 100])
+    
+    # 设置刻度标签字体
+    ax.tick_params(axis='both', which='major', labelsize=20)
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -209,6 +310,7 @@ def visualize_identity_features(device):
         # 绘制源域与目标域测试准确率曲线
         save_path_test_accuracy = os.path.join(picture_dir, 'identity_test_accuracy_curves.png')
         plot_test_accuracy_curves(identity_history_path, save_path_test_accuracy)
+
 
 def plot_identity_confusion_matrix(device, save_path_source, save_path_target):
     """
@@ -271,14 +373,24 @@ def plot_identity_confusion_matrix(device, save_path_source, save_path_target):
                         xticklabels=[f'用户{i}' for i in range(10)],
                         yticklabels=[f'用户{i}' for i in range(10)],
                         cbar_kws={'shrink': 0.8},
-                        linewidths=0.1)
+                        linewidths=0.1,
+                        annot_kws={'fontproperties': en_font, 'fontsize': 16})
             
-            plt.title("身份识别模型 - 源域混淆矩阵", fontsize=18, fontweight='bold', pad=20)
-            plt.xlabel('预测标签', fontsize=14, fontweight='bold')
-            plt.ylabel('真实标签', fontsize=14, fontweight='bold')
+            #title_text, title_font = create_mixed_text_with_fonts(None, '身份识别模型源域混淆矩阵', 16)
+            #plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+            
+            xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '预测标签', 16)
+            plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+            
+            ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '真实标签', 16)
+            plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
             
             ax = plt.gca()
-            ax.tick_params(axis='both', which='major', labelsize=10)
+            ax.tick_params(axis='both', which='major', labelsize=16)
+            
+            # 设置刻度标签字体
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontproperties(mixed_font)
             
             plt.tight_layout()
             plt.savefig(save_path_source, dpi=300, bbox_inches='tight')
@@ -328,14 +440,24 @@ def plot_identity_confusion_matrix(device, save_path_source, save_path_target):
                         xticklabels=[f'用户{i}' for i in range(10)],
                         yticklabels=[f'用户{i}' for i in range(10)],
                         cbar_kws={'shrink': 0.8},
-                        linewidths=0.1)
+                        linewidths=0.1,
+                        annot_kws={'fontproperties': en_font, 'fontsize': 16})
             
-            plt.title("身份识别模型 - 目标域混淆矩阵", fontsize=18, fontweight='bold', pad=20)
-            plt.xlabel('预测标签', fontsize=14, fontweight='bold')
-            plt.ylabel('真实标签', fontsize=14, fontweight='bold')
+            #title_text, title_font = create_mixed_text_with_fonts(None, '身份识别模型目标域混淆矩阵', 16)
+            #plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+            
+            xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '预测标签', 16)
+            plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+            
+            ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '真实标签', 16)
+            plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
             
             ax = plt.gca()
-            ax.tick_params(axis='both', which='major', labelsize=10)
+            ax.tick_params(axis='both', which='major', labelsize=16)
+            
+            # 设置刻度标签字体
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontproperties(mixed_font)
             
             plt.tight_layout()
             plt.savefig(save_path_target, dpi=300, bbox_inches='tight')
