@@ -10,7 +10,7 @@ import json
 import numpy as np
 from torch.utils.data import DataLoader
 from model_C_time_only_GAN import build_model
-from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
+from Research1.DataProcess.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
     mmd_loss,
     frequency_consistency_loss,

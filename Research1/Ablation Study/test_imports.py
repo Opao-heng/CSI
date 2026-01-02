@@ -16,7 +16,7 @@ def test_imports():
     print("=" * 70)
     
     tests = [
-        ("Model A (Baseline)", "from model_A_baseline import BaselineModel"),
+        ("Model A (Baseline1)", "from model_A_baseline import BaselineModel"),
         ("Model B (Only CAL)", "from model_B_only_CAL import ModelB_OnlyCAL"),
         ("Model C (Time-only TFGAN)", "from model_C_time_only_GAN import build_model"),
         ("Model D (Concat-only)", "from model_D_concat_only import build_model"),

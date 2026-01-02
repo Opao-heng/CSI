@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from datetime import datetime
 from Research1.model_GAN import build_model
-from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
+from Research1.DataProcess.dataloder_GAN import CustomDataset, select_samples_by_label
 from Research1.loss_GAN import (
     mmd_loss,
     frequency_consistency_loss,

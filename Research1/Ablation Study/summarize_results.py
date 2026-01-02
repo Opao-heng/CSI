@@ -32,7 +32,7 @@ def format_metric(value):
 def main():
     base_dir = 'Ablation Study'
     models = {
-        'Model A (Baseline)': os.path.join(base_dir, 'model_A'),
+        'Model A (Baseline1)': os.path.join(base_dir, 'model_A'),
         'Model B (w/o Generator)': os.path.join(base_dir, 'model_B'),
         'Model C (w/o Freq-D)': os.path.join(base_dir, 'model_C'),
         'Model D (w/o AdaIN)': os.path.join(base_dir, 'model_D'),
@@ -67,7 +67,7 @@ def main():
     print("=" * 100)
     print("\n注: ↓表示越小越好, ↑表示越大越好")
     print("\n模型说明:")
-    print("  Model A: Baseline - 仅使用源域数据训练CNN分类器")
+    print("  Model A: Baseline1 - 仅使用源域数据训练CNN分类器")
     print("  Model B: w/o Generator - 仅使用交叉注意力,不使用生成器")
     print("  Model C: w/o Freq-D - 仅使用时域判别器,移除频域判别器")
     print("  Model D: w/o AdaIN - 移除AdaIN,仅使用concat融合")

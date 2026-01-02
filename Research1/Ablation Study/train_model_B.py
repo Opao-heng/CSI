@@ -13,7 +13,7 @@ import json
 import numpy as np
 from torch.utils.data import DataLoader
 from model_B_only_CAL import ModelB_OnlyCAL
-from Research1.Process.dataloder_GAN import CustomDataset, select_samples_by_label
+from Research1.DataProcess.dataloder_GAN import CustomDataset, select_samples_by_label
 
 
 def mmd_loss(source_features, target_features):

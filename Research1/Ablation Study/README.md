@@ -50,7 +50,7 @@
 ### 1. 训练单个模型
 
 ```bash
-# Model A (Baseline)
+# Model A (Baseline1)
 cd "c:\Users\USER\Desktop\liuheng"
 python -m "Research1.Ablation Study.train_model_A"
 

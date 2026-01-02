@@ -1,5 +1,5 @@
 """
-Model A (Baseline): w/o TFGAN & CAL
+Model A (Baseline1): w/o TFGAN & CAL
 基线模型 - 仅使用源域数据训练CNN分类器,不使用生成器和交叉注意力
 """
 

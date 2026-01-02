@@ -38,7 +38,7 @@ def main():
     print("TFGAN-CAL 消融实验 - 批量运行")
     print("=" * 80)
     print("\n本脚本将依次运行以下5个模型的训练和评估:")
-    print("  1. Model A (Baseline)")
+    print("  1. Model A (Baseline1)")
     print("  2. Model B (w/o Generator, Only CAL)")
     print("  3. Model C (w/o Freq-D, Time-only TFGAN)")
     print("  4. Model D (w/o AdaIN, Concat-only TFGAN)")
@@ -53,7 +53,7 @@ def main():
     
     # 定义实验列表
     experiments = [
-        ("Model A (Baseline)", "train_model_A"),
+        ("Model A (Baseline1)", "train_model_A"),
         ("Model B (w/o Generator, Only CAL)", "train_model_B"),
         ("Model C (w/o Freq-D, Time-only TFGAN)", "train_model_C"),
         ("Model D (w/o AdaIN, Concat-only TFGAN)", "train_model_D"),

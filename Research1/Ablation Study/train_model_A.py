@@ -1,5 +1,5 @@
 """
-Model A (Baseline) 训练和评估脚本
+Model A (Baseline1) 训练和评估脚本
 仅使用源域数据训练,在目标域上测试
 """
 
@@ -11,7 +11,7 @@ import json
 import numpy as np
 from torch.utils.data import DataLoader
 from model_A_baseline import BaselineModel
-from Research1.Process.dataloder_ATT import CustomDataset
+from Research1.DataProcess.dataloder_ATT import CustomDataset
 from Research1.plot_GAN import (
     evaluate_gan_comprehensive,
     compute_time_domain_mse,
@@ -136,7 +136,7 @@ def main():
     num_epochs = 100
     best_accuracy = 0.0
     
-    print("\n开始训练 Model A (Baseline)...")
+    print("\n开始训练 Model A (Baseline1)...")
     print("=" * 70)
     
     for epoch in range(num_epochs):
@@ -158,11 +158,11 @@ def main():
     print("=" * 70)
     
     # 评估模型
-    print("\n评估 Model A (Baseline)...")
+    print("\n评估 Model A (Baseline1)...")
     metrics = evaluate_model(model, target_loader, device)
     
     print("\n" + "="*70)
-    print("Model A (Baseline) 评估结果：")
+    print("Model A (Baseline1) 评估结果：")
     print("="*70)
     print(f"  ① FID (Fréchet Inception Distance)      : N/A (无生成器)")
     print(f"  ② IS (Inception Score)                  : N/A (无生成器)")
@@ -176,7 +176,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     results = {
-        'model_name': 'Model A (Baseline)',
+        'model_name': 'Model A (Baseline1)',
         'description': 'w/o TFGAN & CAL - 仅使用源域数据训练CNN分类器',
         'metrics': metrics,
         'best_target_accuracy': best_accuracy
