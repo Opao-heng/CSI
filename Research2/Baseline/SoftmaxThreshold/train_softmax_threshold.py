@@ -18,7 +18,7 @@ from model_softmax_threshold import evaluate_softmax_threshold
 def main(threshold: float = 0.9):
     """Softmax Threshold (ST) 基线实验入口。
 
-    - 使用已训练好的身份识别模型 `identify/best_identify_model.pth` 提取特征/Logits
+    - 使用已训练好的身份识别模型 `Identify/best_identify_model.pth` 提取特征/Logits
     - 对入侵者测试集直接应用 Softmax 阈值进行开放集检测
     - 仅保存 Accuracy / AUROC / F1 三个指标到当前文件夹的 `intruder_detection_results.json`
     """
@@ -29,7 +29,7 @@ def main(threshold: float = 0.9):
     print("加载身份识别模型...")
     identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
 
-    ckpt_path = os.path.join(PROJECT_ROOT, "Research2", "identify", "best_identify_model.pth")
+    ckpt_path = os.path.join(PROJECT_ROOT, "Research2", "Identify", "best_identify_model.pth")
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"未找到身份识别模型权重文件: {ckpt_path}")
 

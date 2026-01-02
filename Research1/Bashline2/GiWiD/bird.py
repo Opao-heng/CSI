@@ -255,7 +255,7 @@ class BIRD(Net):
         '''
         Rrturns:
         --------
-        Is it an intruder.
+        Is it an Intruder.
         '''
         rcst_errors = self.cal_loss(amps, None, None, keep_batch = True);
         return rcst_errors >= self.threshold;

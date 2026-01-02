@@ -122,51 +122,102 @@ class TraditionalOpenMax:
 
 class LearnableThresholdDetector(nn.Module):
     """
-    可学习的阈值检测器
-    利用身份识别模型提取的特征进行训练，学习区分合法用户和入侵者的阈值
+    入侵者检测器 - 基于深度学习的异常检测模型
+    核心思想：学习已知用户特征的紧凑表示和决策边界，识别偏离该边界的入侵者
+    
+    设计理念：
+    1. 特征压缩：将128维特征压缩到更紧凑的空间，放大正常/异常的差异
+    2. 非线性变换：通过深层网络学习复杂的决策边界
+    3. 距离度量：学习特征空间中的距离度量，判断样本是否属于已知用户分布
     """
     
     def __init__(self, feature_dim=128):
         super(LearnableThresholdDetector, self).__init__()
         self.feature_dim = feature_dim
         
-        # 简化特征编码器 - 减少复杂性以防止过拟合
-        self.feature_encoder = nn.Sequential(
-            nn.Linear(feature_dim, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
+        # 编码器：将特征映射到紧凑的判别空间
+        # 128 -> 96 -> 64 -> 48 -> 32
+        self.encoder = nn.Sequential(
+            nn.Linear(feature_dim, 96),
+            nn.BatchNorm1d(96),
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-            nn.Linear(64, 32),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
+            
+            nn.Linear(96, 64),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.25),
+            
+            nn.Linear(64, 48),
+            nn.BatchNorm1d(48),
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.2),
-            nn.Linear(32, 16),
-            nn.BatchNorm1d(16),
-            nn.ReLU()
+            
+            nn.Linear(48, 32),
+            nn.BatchNorm1d(32),
+            nn.LeakyReLU(0.2)
         )
         
-        # 简化分类器
-        self.classifier = nn.Sequential(
-            nn.Linear(16, 8),
-            nn.ReLU(),
+        # 异常度估计器：估计样本的异常程度
+        # 使用bottleneck结构强制学习紧凑表示
+        self.anomaly_estimator = nn.Sequential(
+            nn.Linear(32, 16),  # bottleneck
+            nn.BatchNorm1d(16),
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.2),
-            nn.Linear(8, 1)
+            
+            nn.Linear(16, 24),  # 扩展
+            nn.BatchNorm1d(24),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.15),
+            
+            nn.Linear(24, 16),
+            nn.LeakyReLU(0.2)
+        )
+        
+        # 决策层：输出异常分数
+        # 多路径融合：同时使用编码特征和异常度估计
+        self.decision_head = nn.Sequential(
+            nn.Linear(32 + 16, 24),  # 拼接编码特征(32) + 异常度特征(16)
+            nn.BatchNorm1d(24),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.2),
+            
+            nn.Linear(24, 12),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.1),
+            
+            nn.Linear(12, 1)  # 输出：异常分数
         )
         
     def forward(self, features):
         """
         前向传播
+        Args:
+            features: 身份识别模型提取的特征 (batch_size, 128)
+        Returns:
+            dict: {
+                'predictions': 二分类预测 (0:合法用户, 1:入侵者),
+                'probabilities': 入侵者概率,
+                'logits': 原始分数
+            }
         """
-        # 处理单个样本的情况
+        # 处理单个样本
         if features.dim() == 1:
             features = features.unsqueeze(0)
-            
-        # 特征编码
-        encoded_features = self.feature_encoder(features)
         
-        # 分类
-        logits = self.classifier(encoded_features).squeeze()
-        probabilities = torch.sigmoid(logits)  # 明确使用sigmoid函数
+        # 1. 特征编码到紧凑空间
+        encoded = self.encoder(features)  # [batch, 32]
+        
+        # 2. 异常度估计
+        anomaly_score = self.anomaly_estimator(encoded)  # [batch, 16]
+        
+        # 3. 融合编码特征和异常度，做最终决策
+        combined = torch.cat([encoded, anomaly_score], dim=1)  # [batch, 48]
+        logits = self.decision_head(combined).squeeze()  # [batch]
+        
+        # 4. 转换为概率
+        probabilities = torch.sigmoid(logits)
         
         # 确保输出维度正确
         if probabilities.dim() == 0:

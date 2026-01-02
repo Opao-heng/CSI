@@ -2,40 +2,106 @@ import torch
 import torch.nn as nn
 
 
+class ResidualBlock1D(nn.Module):
+    """1D残差块 - 提升特征提取能力"""
+    
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1):
+        super(ResidualBlock1D, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding=kernel_size//2)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, 1, padding=kernel_size//2)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+        
+        # 如果输入输出维度不同，使用1x1卷积进行映射
+        self.downsample = None
+        if stride != 1 or in_channels != out_channels:
+            self.downsample = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, 1, stride),
+                nn.BatchNorm1d(out_channels)
+            )
+    
+    def forward(self, x):
+        identity = x
+        
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        
+        out = self.conv2(out)
+        out = self.bn2(out)
+        
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        
+        out += identity
+        out = self.relu(out)
+        
+        return out
+
+
+class ChannelAttention(nn.Module):
+    """通道注意力机制 - 增强重要特征通道"""
+    
+    def __init__(self, channels, reduction=8):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.max_pool = nn.AdaptiveMaxPool1d(1)
+        
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False)
+        )
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        b, c, _ = x.size()
+        
+        avg_out = self.fc(self.avg_pool(x).view(b, c))
+        max_out = self.fc(self.max_pool(x).view(b, c))
+        
+        out = self.sigmoid(avg_out + max_out).view(b, c, 1)
+        return x * out
+
+
 class FeatureExtractor(nn.Module):
-    """特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
+    """优化的特征提取器 - 输入CSI数据，输出128维判别性特征向量"""
     
     def __init__(self, feature_dim=128):
         super(FeatureExtractor, self).__init__()
-        # 简化的时间维度1D卷积
+        
+        # 改进的时间维度卷积 - 使用残差块
         self.time_conv = nn.Sequential(
             nn.Conv1d(3, 32, kernel_size=15, stride=2, padding=7),
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
             
-            nn.Conv1d(32, 64, kernel_size=9, stride=2, padding=4),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
+            ResidualBlock1D(32, 64, kernel_size=9, stride=2),
             nn.MaxPool1d(2),
             
-            nn.Conv1d(64, 128, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
+            ResidualBlock1D(64, 128, kernel_size=5, stride=1),
+            ChannelAttention(128),  # 添加通道注意力
             nn.AdaptiveAvgPool1d(64)
         )
         
-        # 简化的子载波维度处理
+        # 改进的子载波维度处理 - 使用残差块和注意力
         self.subcarrier_conv = nn.Sequential(
-            nn.Conv1d(128, 64, kernel_size=7, stride=2, padding=3),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
+            ResidualBlock1D(128, 96, kernel_size=7, stride=2),
+            ChannelAttention(96),
+            ResidualBlock1D(96, 64, kernel_size=5, stride=1),
             nn.AdaptiveAvgPool1d(32)
         )
         
-        # 特征融合和映射
+        # 特征融合和映射 - 增加深度
         self.feature_fusion = nn.Sequential(
-            nn.Linear(64 * 32, 256),
+            nn.Linear(64 * 32, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(256, feature_dim),

@@ -402,7 +402,7 @@ def train_intruder_detector(model_path, output_path, device):
         print(f"  测试集 - 准确率: {best_test_accuracy:.4f}, F1: {best_test_f1:.4f}, 精确率: {best_test_precision:.4f}, 召回率: {best_test_recall:.4f}, AUROC: {best_test_auroc:.4f}")
     
     # 保存训练历史
-    save_training_history(train_losses, val_metrics, test_metrics, 'intruder/training_history.json')
+    save_training_history(train_losses, val_metrics, test_metrics, 'Intruder/training_history.json')
 
 
 def main():
@@ -421,8 +421,8 @@ def main():
         torch.backends.cudnn.enabled = True
     
     # 模型路径
-    model_path = "identify/best_identify_model.pth"  # 身份识别训练好的模型
-    output_path = "intruder/best_intruder_detector.pth"
+    model_path = "Identify/best_identify_model.pth"  # 身份识别训练好的模型
+    output_path = "Intruder/best_intruder_detector.pth"
 
     # 训练入侵者检测器
     train_intruder_detector(model_path, output_path, device)
