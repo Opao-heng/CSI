@@ -8,14 +8,23 @@ import matplotlib.gridspec as gridspec
 # 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
 
-# 设置全局字体配置：中文宋体 + 英文Times New Roman
-# 关键：同时支持中文和英文，不强制使用serif
+# 设置全局字体配置：使用font fallback机制实现中英文分离
+# 关键：设置font.sans-serif让中文正常显示，通过Text对象的family参数控制英文
 plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
-plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
 plt.rcParams['mathtext.fontset'] = 'custom'
 plt.rcParams['mathtext.rm'] = 'Times New Roman'
 plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
 plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+
+# 启用字体回退机制
+try:
+    from matplotlib import font_manager
+    # 注册字体回退：中文用SimSun，英文数字用Times New Roman
+    font_manager.fontManager.addfont = lambda x: None  # 防止重复添加
+except:
+    pass
+
 print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
 
 
@@ -46,14 +55,65 @@ def get_english_font_properties(size=12):
     except:
         return font_manager.FontProperties(family='serif', size=size)
 
+def get_mixed_font_properties(size=12):
+    """
+    获取混合字体属性（中文宋体+英文Times New Roman）
+    通过设置fallback实现中英文分离
+    """
+    try:
+        # 创建支持中英文混合的字体属性
+        prop = font_manager.FontProperties(size=size)
+        # 设置字体回退列表：SimSun for Chinese, Times New Roman for English/Numbers
+        prop.set_family(['SimSun', 'Times New Roman'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def create_mixed_text_with_fonts(ax, text, fontsize, **kwargs):
+    """
+    创建支持中英文分离字体的文本对象
+    中文使用宋体，英文和数字使用Times New Roman
+    通过Unicode编码分离中英文
+    
+    Args:
+        ax: matplotlib axes对象
+        text: 要显示的文本
+        fontsize: 字体大小
+        **kwargs: 其他传递给set_title/set_xlabel的参数
+    
+    Returns:
+        formatted_text: 格式化后的文本
+        font_properties: 字体属性
+    """
+    import re
+    
+    # 判断是否包含中文
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+    has_english_or_digit = bool(re.search(r'[a-zA-Z0-9]', text))
+    
+    if has_chinese and has_english_or_digit:
+        # 混合文本：使用fallback机制
+        # 设置字体列表，让matplotlib自动处理
+        prop = font_manager.FontProperties(size=fontsize)
+        # 关键：先Times New Roman后接SimSun，英文优先用TNR，中文回退到SimSun
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return text, prop
+    elif has_chinese:
+        # 纯中文
+        return text, get_chinese_font_properties(fontsize)
+    else:
+        # 纯英文/数字
+        return text, get_english_font_properties(fontsize)
+
 
 # 创建默认字体属性
 zh_font = get_chinese_font_properties(20)
 en_font = get_english_font_properties(20)
-print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为12")
+mixed_font = get_mixed_font_properties(20)  # 中英文混合字体
+print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为20")
 
 
-def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56, #132
+def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132, #132
                        save_path='./preprocess/sample_amplitude_plot.png'):
     """
     绘制CSI数据的幅度图（科研论文标准）
@@ -63,7 +123,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     
     # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
     plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
-    plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'custom'
     plt.rcParams['mathtext.rm'] = 'Times New Roman'
@@ -103,8 +163,10 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                     color=colors[i],
                     rasterized=True)  # 栅格化以减小文件大小
         
-        # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontproperties=zh_font, fontsize=20, pad=12, fontweight='normal')
+        # 标题和标签 - 中文用宋体，数字用Times New Roman
+        title_text, title_font = create_mixed_text_with_fonts(ax, f'天线 {dim + 1}', 20)
+        ax.set_title(title_text, fontsize=20, pad=12, fontweight='normal',
+                    fontproperties=title_font)
         ax.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
         ax.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
         
@@ -142,7 +204,7 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
     print(f"科研级图像已保存到: {save_path}")
 
 
-def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
+def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
                             save_path='./preprocess/sample_time_frequency_plot.png'):
     """
     绘制CSI数据的时频图（使用STFT短时傅里叶变换）
@@ -228,8 +290,9 @@ def plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sam
         for label in cbar.ax.get_yticklabels():
             label.set_fontproperties(en_font)
         
-        # 设置标题和标签
-        ax.set_title(f'天线 {dim + 1} 时频图', fontproperties=zh_font, fontsize=20, pad=10)
+        # 设置标题和标签 - 中文用宋体，数字用Times New Roman
+        title_text, title_font = create_mixed_text_with_fonts(ax, f'天线 {dim + 1} 时频图', 20)
+        ax.set_title(title_text, fontsize=20, pad=10, fontproperties=title_font)
         ax.set_xlabel('时间', fontproperties=zh_font, fontsize=20)
         ax.set_ylabel('频率分量 (Hz)', fontproperties=zh_font, fontsize=20)
         ax.tick_params(axis='both', which='major', labelsize=20)
@@ -261,7 +324,7 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
     
     # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
     plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
-    plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'custom'
     plt.rcParams['mathtext.rm'] = 'Times New Roman'
@@ -352,8 +415,10 @@ def plot_extended_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt',
         # 标记原始数据区域
         center_highlight = [center_start, center_end]
 
-        # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontproperties=zh_font, fontsize=20, pad=12, fontweight='normal')
+        # 标题和标签 - 中文用宋体，数字用Times New Roman
+        title_text, title_font = create_mixed_text_with_fonts(ax, f'天线 {dim + 1}', 20)
+        ax.set_title(title_text, fontsize=20, pad=12, fontweight='normal',
+                    fontproperties=title_font)
         ax.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
         ax.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
         
@@ -403,7 +468,7 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
     
     # 设置字体（硕士论文标准）: 中文宋体 + 英文Times New Roman
     plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
-    plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'custom'
     plt.rcParams['mathtext.rm'] = 'Times New Roman'
@@ -494,8 +559,10 @@ def plot_extended_csi_amplitude_with_noise(data_path='../RawData/source_env0_env
                     rasterized=True)
 
         # 不显示黄色高亮区域，只绘制数据
-        # 标题和标签 - 使用中文
-        ax.set_title(f'天线 {dim + 1}', fontproperties=zh_font, fontsize=20, pad=12, fontweight='normal')
+        # 标题和标签 - 中文用宋体，数字用Times New Roman
+        title_text, title_font = create_mixed_text_with_fonts(ax, f'天线 {dim + 1}', 20)
+        ax.set_title(title_text, fontsize=20, pad=12, fontweight='normal',
+                    fontproperties=title_font)
         ax.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
         ax.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
         
@@ -623,9 +690,10 @@ def plot_csi_multiple_3d_views(data_path='../RawData/source_env0_env1_data.pt', 
         ax.set_ylabel('时间步', fontproperties=zh_font, fontsize=20, labelpad=25, rotation=-15)
         ax.set_zlabel('幅度', fontproperties=zh_font, fontsize=20, labelpad=25)
         
-        # 设置标题 - 靠近图形
-        ax.set_title(antenna_configs[antenna_idx]['title'], 
-                    fontproperties=zh_font, fontsize=20, pad=1, fontweight='bold')
+        # 设置标题 - 中文用宋体，数字用Times New Roman
+        title_text, title_font = create_mixed_text_with_fonts(ax, antenna_configs[antenna_idx]['title'], 20)
+        ax.set_title(title_text, fontsize=20, pad=1, fontweight='bold',
+                    fontproperties=title_font)
         
         # 设置统一的视角
         ax.view_init(elev=25, azim=45)
@@ -664,12 +732,17 @@ if __name__ == "__main__":
     plot_extended_csi_amplitude()
 
     # 调用可视化时幅图(步态分割后数据)
-    plot_csi_amplitude()
+    plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,  # 132
+                       save_path='./preprocess/sample132_amplitude_plot.png')
     plot_csi_multiple_3d_views()
+    plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
+                     save_path='./preprocess/sample56_amplitude_plot.png')
 
     # 调用可视化时频图(步态分割后数据)
-    plot_csi_time_frequency()
-
+    plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=132,
+                            save_path='./preprocess/sample132_time_frequency_plot.png')
+    plot_csi_time_frequency(data_path='../RawData/source_env0_env1_data.pt', sample_index=56,
+                            save_path='./preprocess/sample56_time_frequency_plot.png')
 
 
 

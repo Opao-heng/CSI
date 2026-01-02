@@ -6,12 +6,89 @@ import os
 import matplotlib as mpl
 
 
-# 设置中文字体支持 - 中英文分离字体配置
+# 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
-plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']  # 中文宋体，英文Times New Roman
-plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.size'] = 20  # 全局字体大小设置为20
-print("已设置字体: 中文-宋体, 英文/数字-Times New Roman, 字体大小-20")
+
+# 设置全局字体配置：使用font fallback机制实现中英文分离
+plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman', 'DejaVu Serif']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
+print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
+
+
+# 创建统一的字体配置工厂函数
+def get_chinese_font_properties(size=20):
+    """
+    获取中文字体属性（宋体）
+    """
+    try:
+        return font_manager.FontProperties(family='SimSun', size=size)
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def get_english_font_properties(size=20):
+    """
+    获取英文/数字字体属性（Times New Roman）
+    """
+    try:
+        return font_manager.FontProperties(family='Times New Roman', size=size)
+    except:
+        return font_manager.FontProperties(family='serif', size=size)
+
+def get_mixed_font_properties(size=20):
+    """
+    获取混合字体属性（中文宋体+英文Times New Roman）
+    通过设置fallback实现中英文分离
+    """
+    try:
+        prop = font_manager.FontProperties(size=size)
+        prop.set_family(['SimSun', 'Times New Roman'])
+        return prop
+    except:
+        return font_manager.FontProperties(family='sans-serif', size=size)
+
+def create_mixed_text_with_fonts(ax, text, fontsize, **kwargs):
+    """
+    创建支持中英文分离字体的文本对象
+    中文使用宋体，英文和数字使用Times New Roman
+    
+    Args:
+        ax: matplotlib axes对象
+        text: 要显示的文本
+        fontsize: 字体大小
+        **kwargs: 其他传递给set_title/set_xlabel的参数
+    
+    Returns:
+        formatted_text: 格式化后的文本
+        font_properties: 字体属性
+    """
+    import re
+    
+    # 判断是否包含中文
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+    has_english_or_digit = bool(re.search(r'[a-zA-Z0-9]', text))
+    
+    if has_chinese and has_english_or_digit:
+        # 混合文本：使用fallback机制
+        prop = font_manager.FontProperties(size=fontsize)
+        prop.set_family(['Times New Roman', 'SimSun'])
+        return text, prop
+    elif has_chinese:
+        # 纯中文
+        return text, get_chinese_font_properties(fontsize)
+    else:
+        # 纯英文/数字
+        return text, get_english_font_properties(fontsize)
+
+
+# 创建默认字体属性
+zh_font = get_chinese_font_properties(20)
+en_font = get_english_font_properties(20)
+mixed_font = get_mixed_font_properties(20)  # 中英文混合字体
+print(f"已配置字体，中文-宋体, 英文/数字-Times New Roman, 默认大小为20")
 
 def add_gaussian_white_noise(data, snr_db=None, snr_range=(20, 40), noise_scale=0.02):
     """
@@ -384,7 +461,10 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
     ax_before = axes[0]
     ax_before.set_facecolor('white')
     
-    im1 = ax_before.pcolormesh(times_orig, freqs_orig, magnitude_orig_db,
+    # 将times_orig映射到原始采样点范围 0-6000
+    times_orig_scaled = times_orig * (time_steps / times_orig[-1])
+    
+    im1 = ax_before.pcolormesh(times_orig_scaled, freqs_orig, magnitude_orig_db,
                                shading='gouraud', 
                                cmap='jet',  # 使用jet颜色映射，能量高的区域显示为暖色
                                vmin=vmin_orig,
@@ -392,19 +472,30 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
     
     # 添加颜色条
     cbar1 = plt.colorbar(im1, ax=ax_before)
-    cbar1.set_label('功率 (dB)', fontsize=20)
+    cbar1.set_label('功率 (dB)', fontproperties=zh_font, fontsize=20)
+    cbar1.ax.tick_params(labelsize=20)
+    # 颜色条刻度标签使用Times New Roman
+    for label in cbar1.ax.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     # 设置标题和标签
-    ax_before.set_title('原始CSI时频图', fontsize=20, pad=10)
-    ax_before.set_xlabel('时间', fontsize=20)
-    ax_before.set_ylabel('频率分量 (Hz)', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_before, '未添加频率选择性衰落的CSI时频图', 20)
+    ax_before.set_title(title_text, fontproperties=title_font, fontsize=20, pad=10)
+    ax_before.set_xlabel('时间', fontproperties=zh_font, fontsize=20)
+    ax_before.set_ylabel('频率分量 (Hz)', fontproperties=zh_font, fontsize=20)
     ax_before.tick_params(axis='both', which='major', labelsize=20)
+    # 刻度标签使用Times New Roman
+    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     # 下图: 增强后的时频图
     ax_after = axes[1]
     ax_after.set_facecolor('white')
     
-    im2 = ax_after.pcolormesh(times_aug, freqs_aug, magnitude_aug_db,
+    # 将times_aug映射到原始采样点范围 0-6000
+    times_aug_scaled = times_aug * (time_steps / times_aug[-1])
+    
+    im2 = ax_after.pcolormesh(times_aug_scaled, freqs_aug, magnitude_aug_db,
                               shading='gouraud', 
                               cmap='jet',
                               vmin=vmin_aug,
@@ -412,14 +503,22 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
     
     # 添加颜色条
     cbar2 = plt.colorbar(im2, ax=ax_after)
-    cbar2.set_label('功率 (dB)', fontsize=20)
+    cbar2.set_label('功率 (dB)', fontproperties=zh_font, fontsize=20)
+    cbar2.ax.tick_params(labelsize=20)
+    # 颜色条刻度标签使用Times New Roman
+    for label in cbar2.ax.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     # 设置标题和标签
-    ax_after.set_title(f'频率选择性衰落时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 
-                      fontsize=20, pad=10)
-    ax_after.set_xlabel('时间', fontsize=20)
-    ax_after.set_ylabel('频率分量 (Hz)', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_after, 
+        f'添加频率选择性衰落后的CSI时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 20)
+    ax_after.set_title(title_text, fontproperties=title_font, fontsize=20, pad=10)
+    ax_after.set_xlabel('时间', fontproperties=zh_font, fontsize=20)
+    ax_after.set_ylabel('频率分量 (Hz)', fontproperties=zh_font, fontsize=20)
     ax_after.tick_params(axis='both', which='major', labelsize=20)
+    # 刻度标签使用Times New Roman
+    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     plt.tight_layout()
     
@@ -453,11 +552,11 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
     
     # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
-    plt.rcParams['font.family'] = 'serif'
-    plt.rcParams['font.size'] = 20
+    plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+    plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
     plt.rcParams['axes.unicode_minus'] = False
-    plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
+    plt.rcParams['mathtext.fontset'] = 'custom'
+    plt.rcParams['mathtext.rm'] = 'Times New Roman'
     
     # 确保输出目录存在
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -503,9 +602,10 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
                       alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_before.set_title('原始CSI数据', fontsize=20, pad=12, fontweight='normal')
-    ax_before.set_xlabel('时间 (采样点)', fontsize=20)
-    ax_before.set_ylabel('幅度', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_before, '未添加多径效应的CSI幅度图', 20)
+    ax_before.set_title(title_text, fontproperties=title_font, fontsize=20, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
+    ax_before.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_before.set_xlim(0, time_steps - 1)
@@ -526,6 +626,10 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     ax_before.locator_params(axis='y', nbins=6)
     ax_before.locator_params(axis='x', nbins=8)
     
+    # 确保刻度标签使用Times New Roman
+    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
+        label.set_fontproperties(en_font)
+    
     # 下图: 增强后 - 多径衰落
     ax_after = axes[1]
     ax_after.set_facecolor('white')
@@ -535,10 +639,11 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
         ax_after.plot(augmented_amplitude[antenna, 0, :].numpy(),
                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_after.set_title(f'多径衰落CSI数据 (多径数={num_paths}, Rician_K={rician_k_db}dB)', 
-                      fontsize=20, pad=12, fontweight='normal')
-    ax_after.set_xlabel('时间 (采样点)', fontsize=20)
-    ax_after.set_ylabel('幅度', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_after, 
+        f'添加多径衰落后的CSI幅度图 (多径数={num_paths}, Rician_K={rician_k_db}dB)', 20)
+    ax_after.set_title(title_text, fontproperties=title_font, fontsize=20, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
+    ax_after.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_after.set_xlim(0, time_steps - 1)
@@ -558,6 +663,10 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     # 优化刻度数量
     ax_after.locator_params(axis='y', nbins=6)
     ax_after.locator_params(axis='x', nbins=8)
+    
+    # 确保刻度标签使用Times New Roman
+    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     # 调整子图间距，增加留白
     plt.tight_layout(pad=1.5, h_pad=2.5)
@@ -589,11 +698,11 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
     
     # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
-    plt.rcParams['font.family'] = 'serif'
-    plt.rcParams['font.size'] = 20
+    plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial', 'DejaVu Sans']
+    plt.rcParams['font.serif'] = ['Times New Roman', 'SimSun', 'DejaVu Serif']
     plt.rcParams['axes.unicode_minus'] = False
-    plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
+    plt.rcParams['mathtext.fontset'] = 'custom'
+    plt.rcParams['mathtext.rm'] = 'Times New Roman'
     
     # 确保输出目录存在
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -634,9 +743,10 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
                       alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_before.set_title('原始CSI数据', fontsize=20, pad=12, fontweight='normal')
-    ax_before.set_xlabel('时间 (采样点)', fontsize=20)
-    ax_before.set_ylabel('幅度', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_before, '未添加噪声的CSI幅度图', 20)
+    ax_before.set_title(title_text, fontproperties=title_font, fontsize=20, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
+    ax_before.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_before.set_xlim(0, time_steps - 1)
@@ -657,6 +767,10 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     ax_before.locator_params(axis='y', nbins=6)
     ax_before.locator_params(axis='x', nbins=8)
     
+    # 确保刻度标签使用Times New Roman
+    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
+        label.set_fontproperties(en_font)
+    
     # 下图: 增强后 - 添加轻微噪声
     ax_after = axes[1]
     ax_after.set_facecolor('white')
@@ -665,10 +779,11 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
         ax_after.plot(augmented_amplitude[antenna, 0, :].numpy(),
                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_after.set_title(f'添加噪声后的CSI数据 (SNR={actual_snr:.1f}dB, 噪声缩放={noise_scale})', 
-                      fontsize=20, pad=12, fontweight='normal')
-    ax_after.set_xlabel('时间 (采样点)', fontsize=20)
-    ax_after.set_ylabel('幅度', fontsize=20)
+    title_text, title_font = create_mixed_text_with_fonts(ax_after, 
+        f'添加噪声后的CSI幅度图 (SNR={actual_snr:.1f}dB, 噪声缩放={noise_scale})', 20)
+    ax_after.set_title(title_text, fontproperties=title_font, fontsize=20, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontproperties=zh_font, fontsize=20)
+    ax_after.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_after.set_xlim(0, time_steps - 1)
@@ -688,6 +803,10 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     # 优化刻度数量
     ax_after.locator_params(axis='y', nbins=6)
     ax_after.locator_params(axis='x', nbins=8)
+    
+    # 确保刻度标签使用Times New Roman
+    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
+        label.set_fontproperties(en_font)
     
     # 调整子图间距，增加留白
     plt.tight_layout(pad=1.5, h_pad=2.5)
@@ -736,10 +855,14 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                     alpha=0.8,
                     linewidth=1.2,
                     color=colors[i])
-        ax.set_title(f'天线 {dim + 1}', fontsize=20, pad=10)
-        ax.set_xlabel('时间', fontsize=20)
-        ax.set_ylabel('幅度', fontsize=20)
+        title_text, title_font = create_mixed_text_with_fonts(ax, f'天线 {dim + 1}', 20)
+        ax.set_title(title_text, fontproperties=title_font, fontsize=20, pad=10)
+        ax.set_xlabel('时间', fontproperties=zh_font, fontsize=20)
+        ax.set_ylabel('幅度', fontproperties=zh_font, fontsize=20)
         ax.tick_params(axis='both', which='major', labelsize=20)
+        # 确保刻度标签使用Times New Roman
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(en_font)
 
     plt.tight_layout()
 
@@ -797,4 +920,3 @@ if __name__ == '__main__':
         save_path=os.path.join(output_dir, 'frequency_selective_fading_comparison.png')
     )
     print("✓ 频率选择性衰落对比图生成成功！")
-    # 最新
