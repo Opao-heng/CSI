@@ -534,7 +534,7 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
 
 
 def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data.pt',
-                                     sample_index=132, num_paths=5, rician_k_db=5.0,
+                                     sample_index=132, num_paths=3, rician_k_db=3.0,
                                      save_path='./preprocess/multipath_fading_comparison.png'):
     """
     绘制多径衰落增强前后的对比图（科研论文标准）
@@ -901,8 +901,8 @@ if __name__ == '__main__':
     plot_multipath_fading_comparison(
         data_path=data_path,
         sample_index=132,
-        num_paths=5,
-        rician_k_db=5.0,
+        num_paths=3,
+        rician_k_db=3.0,
         save_path=os.path.join(output_dir, 'multipath_fading_comparison.png')
     )
     print("✓ 多径衰落对比图生成成功！")
@@ -915,8 +915,8 @@ if __name__ == '__main__':
     plot_frequency_selective_fading_comparison(
         data_path=data_path,
         sample_index=132,
-        a=None,  # 随机采样
-        b=None,  # 随机采样
+        a=0.55,  # 基础衰减系数（中等强度）范围 [0.5, 1.0]
+        b=2.0e-5,  # 线性衰减斜率（中等偏大值）范围 [0.1×10^-5, 0.5×10^-5]
         save_path=os.path.join(output_dir, 'frequency_selective_fading_comparison.png')
     )
     print("✓ 频率选择性衰落对比图生成成功！")
