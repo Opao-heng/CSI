@@ -6,45 +6,12 @@ import os
 import matplotlib as mpl
 
 
-# 设置中文字体支持 - 更直接有效的方式
+# 设置中文字体支持 - 中英文分离字体配置
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
-
-# 直接设置支持中文的字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
-print("已设置中文字体: SimHei, Microsoft YaHei")
-
-
-# 创建特定的中文字体属性对象的工厂函数
-def create_zh_font(size=12):
-    """
-    创建带有指定字体大小的中文字体属性对象
-
-    参数:
-    size (int): 字体大小
-
-    返回:
-    FontProperties: 配置好的字体属性对象
-    """
-    try:
-        # 尝试使用系统中的中文字体
-        available_fonts = [f.name for f in font_manager.fontManager.ttflist]
-        chinese_font_names = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'STHeiTi', 'STSong']
-
-        for font_name in chinese_font_names:
-            if font_name in available_fonts:
-                font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
-                return font_manager.FontProperties(fname=font_path, size=size)
-
-        # 如果找不到中文字体，使用默认字体
-        return font_manager.FontProperties(size=size)
-    except Exception as e:
-        print(f"字体加载异常: {e}")
-        return font_manager.FontProperties(size=size)
-
-
-# 创建默认大小的中文字体
-zh_font = create_zh_font(10.5)
-print(f"已配置中文字体，默认大小为10.5 (五号字)")
+plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']  # 中文宋体，英文Times New Roman
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.size'] = 20  # 全局字体大小设置为20
+print("已设置字体: 中文-宋体, 英文/数字-Times New Roman, 字体大小-20")
 
 def add_gaussian_white_noise(data, snr_db=None, snr_range=(20, 40), noise_scale=0.02):
     """
@@ -425,17 +392,13 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
     
     # 添加颜色条
     cbar1 = plt.colorbar(im1, ax=ax_before)
-    cbar1.set_label('功率 (dB)', fontproperties=create_zh_font(10))
+    cbar1.set_label('功率 (dB)', fontsize=20)
     
     # 设置标题和标签
-    ax_before.set_title('原始CSI时频图', fontsize=12, pad=10, fontproperties=create_zh_font(12))
-    ax_before.set_xlabel('时间', fontsize=10, fontproperties=create_zh_font(10))
-    ax_before.set_ylabel('频率分量 (Hz)', fontsize=10, fontproperties=create_zh_font(10))
-    ax_before.tick_params(axis='both', which='major', labelsize=8)
-    
-    # 为坐标轴刻度标签设置中文字体
-    for label in ax_before.get_xticklabels() + ax_before.get_yticklabels():
-        label.set_fontproperties(create_zh_font(8))
+    ax_before.set_title('原始CSI时频图', fontsize=20, pad=10)
+    ax_before.set_xlabel('时间', fontsize=20)
+    ax_before.set_ylabel('频率分量 (Hz)', fontsize=20)
+    ax_before.tick_params(axis='both', which='major', labelsize=20)
     
     # 下图: 增强后的时频图
     ax_after = axes[1]
@@ -447,20 +410,16 @@ def plot_frequency_selective_fading_comparison(data_path='../RawData/source_env0
                               vmin=vmin_aug,
                               vmax=vmax_aug)
     
-    # 添加颜色条 (五号字)
+    # 添加颜色条
     cbar2 = plt.colorbar(im2, ax=ax_after)
-    cbar2.set_label('功率 (dB)', fontproperties=create_zh_font(10.5))
+    cbar2.set_label('功率 (dB)', fontsize=20)
     
-    # 设置标题和标签 (五号字)
+    # 设置标题和标签
     ax_after.set_title(f'频率选择性衰落时频图 (a={aug_params["a"]:.4f}, b={aug_params["b"]:.2e})', 
-                      fontsize=10.5, pad=10, fontproperties=create_zh_font(10.5))
-    ax_after.set_xlabel('时间', fontsize=10.5, fontproperties=create_zh_font(10.5))
-    ax_after.set_ylabel('频率分量 (Hz)', fontsize=10.5, fontproperties=create_zh_font(10.5))
-    ax_after.tick_params(axis='both', which='major', labelsize=10)
-    
-    # 为坐标轴刻度标签设置中文字体
-    for label in ax_after.get_xticklabels() + ax_after.get_yticklabels():
-        label.set_fontproperties(create_zh_font(8))
+                      fontsize=20, pad=10)
+    ax_after.set_xlabel('时间', fontsize=20)
+    ax_after.set_ylabel('频率分量 (Hz)', fontsize=20)
+    ax_after.tick_params(axis='both', which='major', labelsize=20)
     
     plt.tight_layout()
     
@@ -494,7 +453,9 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
     
     # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.size'] = 20
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
     
@@ -542,16 +503,16 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
                       alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_before.set_title('原始CSI数据', fontsize=14, pad=12, fontweight='normal')
-    ax_before.set_xlabel('时间 (采样点)', fontsize=12)
-    ax_before.set_ylabel('幅度', fontsize=12)
+    ax_before.set_title('原始CSI数据', fontsize=20, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontsize=20)
+    ax_before.set_ylabel('幅度', fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_before.set_xlim(0, time_steps - 1)
     
     # 刻度设置
-    ax_before.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-    ax_before.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    ax_before.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax_before.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
     
     # 添加网格线（学术风格）
     ax_before.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -575,16 +536,16 @@ def plot_multipath_fading_comparison(data_path='../RawData/source_env0_env1_data
                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
     ax_after.set_title(f'多径衰落CSI数据 (多径数={num_paths}, Rician_K={rician_k_db}dB)', 
-                      fontsize=14, pad=12, fontweight='normal')
-    ax_after.set_xlabel('时间 (采样点)', fontsize=12)
-    ax_after.set_ylabel('幅度', fontsize=12)
+                      fontsize=20, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontsize=20)
+    ax_after.set_ylabel('幅度', fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_after.set_xlim(0, time_steps - 1)
     
     # 刻度设置
-    ax_after.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-    ax_after.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    ax_after.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax_after.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
     
     # 添加网格线（学术风格）
     ax_after.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -628,7 +589,9 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
     plt.style.use('seaborn-v0_8-paper')  # 使用学术风格
     
     # 设置中文字体（硕士论文标准）
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+    plt.rcParams['font.serif'] = ['SimSun', 'Times New Roman']
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.size'] = 20
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['mathtext.fontset'] = 'stix'  # 数学公式字体
     
@@ -671,16 +634,16 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
         ax_before.plot(amplitude_data[antenna, 0, :].numpy(),
                       alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
-    ax_before.set_title('原始CSI数据', fontsize=14, pad=12, fontweight='normal')
-    ax_before.set_xlabel('时间 (采样点)', fontsize=12)
-    ax_before.set_ylabel('幅度', fontsize=12)
+    ax_before.set_title('原始CSI数据', fontsize=20, pad=12, fontweight='normal')
+    ax_before.set_xlabel('时间 (采样点)', fontsize=20)
+    ax_before.set_ylabel('幅度', fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_before.set_xlim(0, time_steps - 1)
     
     # 刻度设置
-    ax_before.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-    ax_before.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    ax_before.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax_before.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
     
     # 添加网格线（学术风格）
     ax_before.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -703,16 +666,16 @@ def plot_noise_augmentation_comparison(data_path='../RawData/source_env0_env1_da
                      alpha=0.75, linewidth=1.0, color=colors[i], rasterized=True)
     
     ax_after.set_title(f'添加噪声后的CSI数据 (SNR={actual_snr:.1f}dB, 噪声缩放={noise_scale})', 
-                      fontsize=14, pad=12, fontweight='normal')
-    ax_after.set_xlabel('时间 (采样点)', fontsize=12)
-    ax_after.set_ylabel('幅度', fontsize=12)
+                      fontsize=20, pad=12, fontweight='normal')
+    ax_after.set_xlabel('时间 (采样点)', fontsize=20)
+    ax_after.set_ylabel('幅度', fontsize=20)
     
     # 设置x轴范围，不留空白
     ax_after.set_xlim(0, time_steps - 1)
     
     # 刻度设置
-    ax_after.tick_params(axis='both', which='major', labelsize=10, direction='in', length=4)
-    ax_after.tick_params(axis='both', which='minor', labelsize=8, direction='in', length=2)
+    ax_after.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax_after.tick_params(axis='both', which='minor', labelsize=20, direction='in', length=2)
     
     # 添加网格线（学术风格）
     ax_after.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, color='gray')
@@ -773,13 +736,10 @@ def plot_csi_amplitude(data_path='../RawData/source_env0_env1_data.pt', sample_i
                     alpha=0.8,
                     linewidth=1.2,
                     color=colors[i])
-        ax.set_title(f'天线 {dim + 1}', fontsize=10.5, pad=10, fontproperties=create_zh_font(10.5))
-        ax.set_xlabel('时间', fontsize=10.5, fontproperties=create_zh_font(10.5))
-        ax.set_ylabel('幅度', fontsize=10.5, fontproperties=create_zh_font(10.5))
-        ax.tick_params(axis='both', which='major', labelsize=10)
-        # 为坐标轴刻度标签也设置中文字体
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(create_zh_font(8))
+        ax.set_title(f'天线 {dim + 1}', fontsize=20, pad=10)
+        ax.set_xlabel('时间', fontsize=20)
+        ax.set_ylabel('幅度', fontsize=20)
+        ax.tick_params(axis='both', which='major', labelsize=20)
 
     plt.tight_layout()
 

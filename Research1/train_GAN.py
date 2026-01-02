@@ -351,8 +351,8 @@ if __name__ == "__main__":
     source_dataset = CustomDataset(source_data, source_labels)
     source_loader = DataLoader(source_dataset, batch_size=100, shuffle=True)
 
-    # 步骤3: 从目标域中均匀采样每个标签的样本
-    selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels, samples_per_label=10)
+    # 步骤3: 从目标域中均匀采样每个标签的20个样本
+    selected_target_data, selected_target_labels = select_samples_by_label(target_data, target_labels, samples_per_label=20)
 
     # 步骤4: 打印加载后的数据形状统计
     print(f"  源域数据: {source_data.shape}")
@@ -366,7 +366,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=200, lr_g=1e-4, lr_d=1e-4, num_samples=900)
+    synthetic_data, synthetic_labels = train_and_test(model_path='GAN/best_gan_model.pth', epochs=150, lr_g=1e-4, lr_d=1e-4, num_samples=900)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")

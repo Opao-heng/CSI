@@ -2,6 +2,8 @@
 # 忽略 RawData 目录
 RawData/
 
+WidarData/
+
 result/
 
 Research2/Data/
