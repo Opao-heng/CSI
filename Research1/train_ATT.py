@@ -183,7 +183,7 @@ def count_model_parameters(model):
     return total_params, trainable_params, non_trainable_params
 
 
-def save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention'):
+def save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='CAL'):
     """
     保存训练历史数据到JSON文件
     """
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 加载数据文件
-    print("加载 Attention 数据文件...")
+    print("加载 CAL 数据文件...")
     source_data = torch.load('Data/source_env0_env1_data.pt')
     source_labels = torch.load('Data/source_env0_env1_labels.pt')
     target_data = torch.load('Data/target_env2_gan_data.pt')
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     # 训练超参数设置
     num_epochs = 150  # 增加训练轮数
     best_accuracy = 0.0
-    best_model_path = "Attention/best_attention_model.pth"
+    best_model_path = "CAL/best_attention_model.pth"
     patience = 15  # 增加早停耐心值
     early_stop_counter = 0
 
@@ -348,4 +348,4 @@ if __name__ == "__main__":
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
     # 保存训练历史
-    save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention')
+    save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='CAL')

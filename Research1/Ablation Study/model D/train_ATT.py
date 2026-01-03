@@ -170,7 +170,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 加载数据文件（Model D消融实验：使用原始目标域数据，不使用GAN增强数据）
-    print("加载 Attention 数据文件（Model D: 无数据生成模块）...")
+    print("加载 CAL 数据文件（Model D: 无数据生成模块）...")
     source_data = torch.load('Data/source_env0_env1_data.pt')
     source_labels = torch.load('Data/source_env0_env1_labels.pt')
     

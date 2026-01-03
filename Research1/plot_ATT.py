@@ -370,7 +370,8 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     ax.set_axisbelow(True)  # 网格在图形下方
     
     # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=14, loc='lower right', 
+    legend_font = get_chinese_font_properties(size=18)
+    legend = ax.legend(prop=legend_font, loc='lower right', 
                       frameon=True, fancybox=False, shadow=False,
                       framealpha=0.9, edgecolor='black', facecolor='white')
     legend.get_frame().set_linewidth(1.0)
@@ -514,7 +515,7 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
     print(f"混淆矩阵已保存到 {save_path}")
 
 
-def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='Attention', device=None):
+def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='CAL', device=None):
     """
     从保存的模型加载并生成混淆矩阵
     
@@ -577,10 +578,10 @@ def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='At
 
 if __name__ == "__main__":
     # 默认路径配置
-    history_file_path = 'Attention/training_history.json'
-    model_path = 'Attention/best_attention_model.pth'
+    history_file_path = 'CAL/training_history.json'
+    model_path = 'CAL/best_attention_model.pth'
     data_dir = 'Data'
-    save_dir = 'Attention'
+    save_dir = 'CAL'
 
     # 1. 绘制训练损失曲线(包含所有损失组件)
     loss_curve_path = os.path.join(save_dir, 'attention_loss_curves.png')
