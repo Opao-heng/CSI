@@ -374,7 +374,7 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
     sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', 
                 xticklabels=range(num_classes),
                 yticklabels=range(num_classes),
-                cbar_kws={'shrink': 0.8},
+                cbar_kws={'shrink': 0.8, 'label': ''},
                 linewidths=0.5,
                 linecolor='gray',
                 ax=ax)
@@ -389,8 +389,8 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
                           fontproperties=en_font)
     
     # 设置标题和标签（中英文分离字体）
-    title_text, title_font = create_mixed_text_with_fonts(None, title, 20)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    #title_text, title_font = create_mixed_text_with_fonts(None, title, 20)
+    #ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
     
     xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '预测标签', 20)
     ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
@@ -409,6 +409,14 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
         label.set_fontsize(20)
+    
+    # 设置colorbar字体大小
+    cbar = ax.collections[0].colorbar
+    if cbar:
+        cbar.ax.tick_params(labelsize=20)
+        for label in cbar.ax.get_yticklabels():
+            label.set_fontproperties(en_font)
+            label.set_fontsize(20)
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
