@@ -106,6 +106,7 @@ def load_training_history(history_path):
 def plot_training_loss_curves(history_file_path, save_path):
     """
     绘制训练损失曲线图(总损失、源域损失、目标域损失、MMD损失)
+    优化版本：适用于论文发表
     """
 
     # 加载历史数据
@@ -123,59 +124,122 @@ def plot_training_loss_curves(history_file_path, save_path):
     
     epochs = range(1, len(train_losses) + 1)
     
-    plt.figure(figsize=(14, 8))
+    # 学术期刊标准配色方案（色盲友好）
+    colors = {
+        'total': '#2E86AB',      # 深蓝色
+        'source': '#A23B72',     # 深紫红
+        'target': '#F18F01',     # 橙色
+        'mmd': '#06A77D'         # 青绿色
+    }
     
-    # 绘制总损失曲线
-    plt.plot(epochs, train_losses, 'b-', label='总损失', linewidth=2.5, marker='o', markersize=4)
+    # 创建图形，使用论文标准尺寸（单栏）
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # 绘制各项损失曲线（支持新旧两种格式）
+    # 提取损失数据
     source_losses = [comp['source'] for comp in loss_components_history]
     target_losses = [comp['target'] for comp in loss_components_history]
+    
+    # 降低标记点密度（每10个点标记一次）
+    marker_interval = max(1, len(epochs) // 15)
+    markevery = marker_interval
+    
+    # 绘制总损失曲线
+    ax.plot(epochs, train_losses, color=colors['total'], 
+            label='总损失', linewidth=2.0, 
+            marker='o', markersize=5, markevery=markevery,
+            alpha=0.9, zorder=4)
     
     # 兼容旧格式（cross_feature, consistency）和新格式（mmd）
     if 'mmd' in loss_components_history[0]:
         mmd_losses = [comp['mmd'] for comp in loss_components_history]
-        plt.plot(epochs, source_losses, label='源域损失', linewidth=2.5, marker='s', markersize=4)
-        plt.plot(epochs, target_losses, label='目标域损失', linewidth=2.5, marker='^', markersize=4)
-        plt.plot(epochs, mmd_losses, label='MMD损失', linewidth=2.5, marker='d', markersize=4)
+        
+        ax.plot(epochs, source_losses, color=colors['source'],
+                label='源域损失', linewidth=2.0, 
+                marker='s', markersize=5, markevery=markevery,
+                alpha=0.85, zorder=3)
+        
+        ax.plot(epochs, target_losses, color=colors['target'],
+                label='目标域损失', linewidth=2.0, 
+                marker='^', markersize=5, markevery=markevery,
+                alpha=0.85, zorder=2)
+        
+        ax.plot(epochs, mmd_losses, color=colors['mmd'],
+                label='MMD损失', linewidth=2.0, 
+                marker='d', markersize=5, markevery=markevery,
+                alpha=0.85, zorder=1)
     else:
         # 旧格式兼容
         cross_feature_losses = [comp.get('cross_feature', 0) for comp in loss_components_history]
         consistency_losses = [comp.get('consistency', 0) for comp in loss_components_history]
-        plt.plot(epochs, source_losses, label='源域损失', linewidth=2.5, marker='s', markersize=4)
-        plt.plot(epochs, target_losses, label='目标域损失', linewidth=2.5, marker='^', markersize=4)
+        
+        ax.plot(epochs, source_losses, color=colors['source'],
+                label='源域损失', linewidth=2.0, 
+                marker='s', markersize=5, markevery=markevery,
+                alpha=0.85)
+        
+        ax.plot(epochs, target_losses, color=colors['target'],
+                label='目标域损失', linewidth=2.0, 
+                marker='^', markersize=5, markevery=markevery,
+                alpha=0.85)
+        
         if any(cross_feature_losses):
-            plt.plot(epochs, cross_feature_losses, label='跨域特征损失', linewidth=2.5, marker='d', markersize=4)
+            ax.plot(epochs, cross_feature_losses, color=colors['mmd'],
+                    label='跨域特征损失', linewidth=2.0, 
+                    marker='d', markersize=5, markevery=markevery,
+                    alpha=0.85)
         if any(consistency_losses):
-            plt.plot(epochs, consistency_losses, label='一致性损失', linewidth=2.5, marker='*', markersize=6)
+            ax.plot(epochs, consistency_losses, color='#C73E1D',
+                    label='一致性损失', linewidth=2.0, 
+                    marker='*', markersize=7, markevery=markevery,
+                    alpha=0.85)
     
     # 设置标题和标签（中英文分离字体）
-    title_text, title_font = create_mixed_text_with_fonts(None, '交叉注意力模型训练损失变化曲线', 20)
-    plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    #title_text, title_font = create_mixed_text_with_fonts(None, '交叉注意力模型训练损失变化曲线', 16)
+    #ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
     
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 20)
-    plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 14)
+    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=8)
     
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 20)
-    plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 14)
+    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=8)
     
-    plt.grid(True, alpha=0.3)
-    plt.legend(prop=zh_font, fontsize=20, loc='upper right')
-    plt.tight_layout()
+    # 优化网格样式
+    ax.grid(True, alpha=0.25, linestyle='--', linewidth=0.8, color='gray')
+    ax.set_axisbelow(True)
+    
+    # 优化图例样式
+    legend = ax.legend(prop=zh_font, fontsize=8,
+                      loc='upper right',
+                      frameon=True, 
+                      fancybox=False,
+                      edgecolor='#666666',
+                      framealpha=0.95,
+                      ncol=1)
+    legend.get_frame().set_linewidth(1.0)
     
     # 美化坐标轴
-    ax = plt.gca()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
+    ax.spines['left'].set_linewidth(1.5)
+    ax.spines['bottom'].set_linewidth(1.5)
+    
+    # 优化刻度样式
+    ax.tick_params(axis='both', which='major', labelsize=14, width=1.5, length=6)
+    ax.tick_params(axis='both', which='minor', width=1.0, length=3)
     
     # 设置刻度标签字体为Times New Roman
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
-        label.set_fontsize(20)
+        label.set_fontsize(14)
     
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    # 自动调整y轴范围，留出适当边距
+    y_min = min([min(train_losses), min(source_losses), min(target_losses)])
+    y_max = max([max(train_losses), max(source_losses), max(target_losses)])
+    y_margin = (y_max - y_min) * 0.1
+    ax.set_ylim([max(0, y_min - y_margin), y_max + y_margin])
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"训练损失曲线已保存到 {save_path}")
 
@@ -244,6 +308,7 @@ def plot_accuracy_curves(history_file_path, save_path):
 def plot_test_accuracy_curves(history_file_path, save_path):
     """
     绘制测试准确率曲线图(源域测试准确率、目标域测试准确率)
+    优化版：更适合科研论文发表
     """
     # 加载历史数据
     history = load_training_history(history_file_path)
@@ -271,42 +336,65 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     epochs = range(1, len(src_test_accuracies) + 1 if src_test_accuracies else 
                   len(tgt_test_accuracies) + 1)
     
-    plt.figure(figsize=(12, 8))
+    # 创建图形，使用更适合论文的尺寸比例
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # 绘制源域和目标域测试准确率曲线(带标记点)
+    # 定义科研论文常用的配色方案（红色和紫色，高对比度）
+    colors = {
+        'source': '#d62728',     # 红色
+        'target': '#9467bd'      # 紫色
+    }
+    
+    # 绘制源域和目标域测试准确率曲线 - 移除标记点，优化线型
     if src_test_accuracies:
-        plt.plot(epochs, src_test_accuracies, 'r-', label='源域测试准确率', linewidth=2.5, marker='^', markersize=4)
+        ax.plot(epochs, src_test_accuracies, color=colors['source'], 
+                label='源域测试准确率', linewidth=2.5, linestyle='-', alpha=0.9)
     if tgt_test_accuracies:
-        plt.plot(epochs, tgt_test_accuracies, 'm-', label='目标域测试准确率', linewidth=2.5, marker='d', markersize=4)
+        ax.plot(epochs, tgt_test_accuracies, color=colors['target'], 
+                label='目标域测试准确率', linewidth=2.5, linestyle='-', alpha=0.9)
     
     # 设置标题和标签（中英文分离字体）
-    title_text, title_font = create_mixed_text_with_fonts(None, '源域与目标域测试准确率变化曲线', 20)
-    plt.title(title_text, fontproperties=title_font, fontweight='bold', pad=20)
+    title_text, title_font = create_mixed_text_with_fonts(None, '源域与目标域测试准确率变化曲线', 18)
+    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
     
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 20)
-    plt.xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold')
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 16)
+    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
     
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率 (%)', 20)
-    plt.ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold')
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率 (%)', 16)
+    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
     
-    plt.grid(True, alpha=0.3)
-    plt.legend(prop=zh_font, fontsize=20, loc='lower right')
-    plt.tight_layout()
+    # 优化网格样式 - 更细腻的网格
+    ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.4, color='gray')
+    ax.set_axisbelow(True)  # 网格在图形下方
     
-    # 美化坐标轴
-    ax = plt.gca()
+    # 优化图例样式
+    legend = ax.legend(prop=zh_font, fontsize=14, loc='lower right', 
+                      frameon=True, fancybox=False, shadow=False,
+                      framealpha=0.9, edgecolor='black', facecolor='white')
+    legend.get_frame().set_linewidth(1.0)
+    
+    # 美化坐标轴 - 只保留左侧和底部边框
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    ax.set_ylim([0, 100])  # 设置y轴范围为0-100%
+    ax.spines['left'].set_linewidth(1.5)
+    ax.spines['bottom'].set_linewidth(1.5)
+    
+    # 设置y轴范围为0-100%，并设置主次刻度
+    ax.set_ylim([0, 105])  # 稍微超出100，留出边距
+    ax.set_yticks(np.arange(0, 101, 20))  # 主刻度：0, 20, 40, 60, 80, 100
+    ax.set_yticks(np.arange(0, 101, 10), minor=True)  # 次刻度：每10
+    
+    # 优化刻度样式
+    ax.tick_params(axis='both', which='major', labelsize=14, width=1.5, length=6)
+    ax.tick_params(axis='both', which='minor', width=1.0, length=3)
     
     # 设置刻度标签字体为Times New Roman
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
-        label.set_fontsize(20)
+        label.set_fontsize(14)
     
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"源域与目标域测试准确率曲线已保存到 {save_path}")
 
