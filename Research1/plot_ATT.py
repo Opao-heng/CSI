@@ -197,10 +197,10 @@ def plot_training_loss_curves(history_file_path, save_path):
     #title_text, title_font = create_mixed_text_with_fonts(None, '交叉注意力模型训练损失变化曲线', 16)
     #ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
     
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 14)
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 18)
     ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=8)
     
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 14)
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 18)
     ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=8)
     
     # 优化网格样式
@@ -208,7 +208,9 @@ def plot_training_loss_curves(history_file_path, save_path):
     ax.set_axisbelow(True)
     
     # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=8,
+    # 为图例创建单独的小号字体属性
+    legend_font = get_chinese_font_properties(size=18)
+    legend = ax.legend(prop=legend_font,
                       loc='upper right',
                       frameon=True, 
                       fancybox=False,
@@ -354,13 +356,13 @@ def plot_test_accuracy_curves(history_file_path, save_path):
                 label='目标域测试准确率', linewidth=2.5, linestyle='-', alpha=0.9)
     
     # 设置标题和标签（中英文分离字体）
-    title_text, title_font = create_mixed_text_with_fonts(None, '源域与目标域测试准确率变化曲线', 18)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
+    #title_text, title_font = create_mixed_text_with_fonts(None, '源域与目标域测试准确率变化曲线', 18)
+    #ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
     
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 16)
+    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 18)
     ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
     
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率 (%)', 16)
+    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率 (%)', 18)
     ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
     
     # 优化网格样式 - 更细腻的网格
@@ -391,7 +393,7 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     # 设置刻度标签字体为Times New Roman
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
-        label.set_fontsize(14)
+        label.set_fontsize(16)
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
