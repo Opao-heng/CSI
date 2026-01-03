@@ -120,49 +120,6 @@ def validate_on_domain(model, dataloader, device, domain_type='target'):
     return accuracy
 
 
-def get_predictions_and_labels(model, dataloader, device, domain_type='target'):
-    """
-    获取模型在指定域上的所有预测标签和真实标签，用于生成混淆矩阵。
-    
-    参数:
-        model: 待评估的模型
-        dataloader: 数据加载器
-        device: 计算设备
-        domain_type: 域类型('source' 或 'target')
-    
-    返回:
-        all_predictions: 所有预测标签列表
-        all_labels: 所有真实标签列表
-    """
-    
-    model.eval()
-    all_predictions = []
-    all_labels = []
-    
-    with torch.no_grad():
-        for batch in dataloader:
-            data, labels = batch
-            data, labels = data.to(device), labels.to(device)
-            
-            # 根据域类型选择不同的前向传播方式
-            if domain_type == 'target':
-                # 目标域：源域输入为零张量
-                _, pred, _, _, _ = model(torch.zeros_like(data).to(device), data)
-            else:
-                # 源域：目标域输入为零张量
-                pred, _, _, _, _ = model(data, torch.zeros_like(data).to(device))
-            
-            # 获取预测标签
-            _, predicted = torch.max(pred, 1)
-            all_predictions.extend(predicted.cpu().numpy().tolist())
-            all_labels.extend(labels.cpu().numpy().tolist())
-    
-    return all_predictions, all_labels
-
-
-
-
-
 def test_model(model, dataloader_source, dataloader_target, criterion):
     """
     在测试集上评估模型
@@ -392,24 +349,3 @@ if __name__ == "__main__":
     
     # 保存训练历史
     save_training_history(train_losses, val_accuracies, loss_components_history, test_results_history, save_dir='Attention')
-    
-    # 训练结果可视化
-    from plot_ATT import plot_all_training_results, plot_confusion_matrix
-    plot_all_training_results('Attention/training_history.json', save_dir='Attention')
-    
-    # 生成混淆矩阵
-    print("\n=== 生成混淆矩阵 ===")
-    
-    # 获取源域预测标签和真实标签
-    print("生成源域混淆矩阵...")
-    src_predictions, src_labels_list = get_predictions_and_labels(model, source_loader, device, domain_type='source')
-    src_confusion_matrix_path = 'Attention/source_confusion_matrix.png'
-    plot_confusion_matrix(src_labels_list, src_predictions, 10, src_confusion_matrix_path, 
-                         title='源域混淆矩阵')
-    
-    # 获取目标域预测标签和真实标签
-    print("生成目标域混淆矩阵...")
-    tgt_predictions, tgt_labels_list = get_predictions_and_labels(model, target_loader, device, domain_type='target')
-    tgt_confusion_matrix_path = 'Attention/target_confusion_matrix.png'
-    plot_confusion_matrix(tgt_labels_list, tgt_predictions, 10, tgt_confusion_matrix_path,
-                         title='目标域混淆矩阵')

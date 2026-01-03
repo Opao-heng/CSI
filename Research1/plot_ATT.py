@@ -311,6 +311,47 @@ def plot_test_accuracy_curves(history_file_path, save_path):
     print(f"源域与目标域测试准确率曲线已保存到 {save_path}")
 
 
+def get_predictions_and_labels(model, dataloader, device, domain_type='target'):
+    """
+    获取模型在指定域上的所有预测标签和真实标签，用于生成混淆矩阵。
+    
+    参数:
+        model: 待评估的模型
+        dataloader: 数据加载器
+        device: 计算设备
+        domain_type: 域类型('source' 或 'target')
+    
+    返回:
+        all_predictions: 所有预测标签列表
+        all_labels: 所有真实标签列表
+    """
+    import torch
+    
+    model.eval()
+    all_predictions = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data, labels = batch
+            data, labels = data.to(device), labels.to(device)
+            
+            # 根据域类型选择不同的前向传播方式
+            if domain_type == 'target':
+                # 目标域：源域输入为零张量
+                _, pred, _, _, _ = model(torch.zeros_like(data).to(device), data)
+            else:
+                # 源域：目标域输入为零张量
+                pred, _, _, _, _ = model(data, torch.zeros_like(data).to(device))
+            
+            # 获取预测标签
+            _, predicted = torch.max(pred, 1)
+            all_predictions.extend(predicted.cpu().numpy().tolist())
+            all_labels.extend(labels.cpu().numpy().tolist())
+    
+    return all_predictions, all_labels
+
+
 def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆矩阵'):
     """
     绘制混淆矩阵
@@ -375,47 +416,87 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
     print(f"混淆矩阵已保存到 {save_path}")
 
 
-def plot_all_training_results(history_file_path, save_dir='Attention'):
+def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='Attention', device=None):
     """
-     一次性绘制所有训练结果图表
+    从保存的模型加载并生成混淆矩阵
+    
+    参数:
+        model_path: 模型权重文件路径
+        data_dir: 数据文件目录
+        save_dir: 图表保存目录
+        device: 计算设备
     """
-
+    import torch
+    from torch.utils.data import DataLoader
+    from model_ATT import CrossAttentionModel
+    from Research1.DataProcess.dataloder_ATT import CustomDataset
+    
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    print("\n=== 开始生成混淆矩阵 ===")
+    
+    # 加载模型
+    print(f"加载模型: {model_path}")
+    model = CrossAttentionModel(num_classes=10).to(device)
+    checkpoint = torch.load(model_path, map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+    
+    # 加载数据
+    print("加载数据文件...")
+    source_data = torch.load(os.path.join(data_dir, 'source_env0_env1_data.pt'))
+    source_labels = torch.load(os.path.join(data_dir, 'source_env0_env1_labels.pt'))
+    target_data = torch.load(os.path.join(data_dir, 'target_env2_gan_data.pt'))
+    target_labels = torch.load(os.path.join(data_dir, 'target_env2_gan_labels.pt'))
+    
+    # 创建数据加载器
+    source_dataset = CustomDataset(source_data, source_labels)
+    target_dataset = CustomDataset(target_data, target_labels)
+    source_loader = DataLoader(source_dataset, batch_size=32, shuffle=False)
+    target_loader = DataLoader(target_dataset, batch_size=32, shuffle=False)
+    
     # 创建保存目录
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
-    print("\n=== 开始生成所有训练可视化图表 ===")
+    # 生成源域混淆矩阵
+    print("生成源域混淆矩阵...")
+    src_predictions, src_labels_list = get_predictions_and_labels(model, source_loader, device, domain_type='source')
+    src_confusion_matrix_path = os.path.join(save_dir, 'source_confusion_matrix.png')
+    plot_confusion_matrix(src_labels_list, src_predictions, 10, src_confusion_matrix_path, 
+                         title='源域混淆矩阵')
     
-    # 1. 绘制训练损失曲线(包含所有损失组件)
-    loss_curve_path = os.path.join(save_dir, 'attention_loss_curves.png')
-    plot_training_loss_curves(history_file_path, loss_curve_path)
+    # 生成目标域混淆矩阵
+    print("生成目标域混淆矩阵...")
+    tgt_predictions, tgt_labels_list = get_predictions_and_labels(model, target_loader, device, domain_type='target')
+    tgt_confusion_matrix_path = os.path.join(save_dir, 'target_confusion_matrix.png')
+    plot_confusion_matrix(tgt_labels_list, tgt_predictions, 10, tgt_confusion_matrix_path,
+                         title='目标域混淆矩阵')
     
-    # 2. 绘制训练与验证准确率曲线
-    accuracy_curve_path = os.path.join(save_dir, 'attention_train_val_accuracy_curves.png')
-    plot_accuracy_curves(history_file_path, accuracy_curve_path)
-    
-    # 3. 绘制源域与目标域测试准确率曲线
-    test_accuracy_curve_path = os.path.join(save_dir, 'attention_test_accuracy_curves.png')
-    plot_test_accuracy_curves(history_file_path, test_accuracy_curve_path)
-    
-    print("=== 所有训练可视化图表生成完成 ===")
+    print("=== 混淆矩阵生成完成 ===")
 
 
 if __name__ == "__main__":
-    import sys
+    # 默认路径配置
+    history_file_path = 'Attention/training_history.json'
+    model_path = 'Attention/best_attention_model.pth'
+    data_dir = 'Data'
+    save_dir = 'Attention'
+
+    # 1. 绘制训练损失曲线(包含所有损失组件)
+    loss_curve_path = os.path.join(save_dir, 'attention_loss_curves.png')
+    plot_training_loss_curves(history_file_path, loss_curve_path)
+
+    # 2. 绘制训练与验证准确率曲线
+    accuracy_curve_path = os.path.join(save_dir, 'attention_train_val_accuracy_curves.png')
+    plot_accuracy_curves(history_file_path, accuracy_curve_path)
+
+    # 3. 绘制源域与目标域测试准确率曲线
+    test_accuracy_curve_path = os.path.join(save_dir, 'attention_test_accuracy_curves.png')
+    plot_test_accuracy_curves(history_file_path, test_accuracy_curve_path)
+
+    # 4. 绘制混淆矩阵
+    plot_confusion_matrices_from_model(model_path, data_dir=data_dir, save_dir=save_dir)
     
-    # 检查是否提供了训练历史文件路径
-    if len(sys.argv) > 1:
-        history_file_path = sys.argv[1]
-    else:
-        history_file_path = 'Attention/training_history.json'
-    
-    # 检查文件是否存在
-    if not os.path.exists(history_file_path):
-        print(f"错误: 训练历史文件不存在 - {history_file_path}")
-        print("请先运行训练脚本 train_CNN.py 生成训练历史数据")
-        sys.exit(1)
-    
-    # 绘制所有训练结果
-    plot_all_training_results(history_file_path, save_dir='Attention')
-    print("\n交叉注意力模型可视化完成,所有图表已生成!")
+    print("\n=== 交叉注意力模型可视化完成,所有图表已生成! ===")
