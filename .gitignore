@@ -4,10 +4,15 @@ RawData/
 
 WidarData/
 
-result/
+Research1/Data/
+
+Research1/Attention
+Research1/TFGAN
+Research1/Feature
+Research1/Parameter
+
 
 Research2/Data/
 
-Research1/Data/
-
-Research1/Baseline1/CVAE/CVAE/
+Research2/Identify
+Research2/Intruder
