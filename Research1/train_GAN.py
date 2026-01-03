@@ -365,7 +365,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='TFGAN/best_gan_model.pth', epochs=150, lr_g=1e-4, lr_d=1e-4, num_samples=800)
+    synthetic_data, synthetic_labels = train_and_test(model_path='TFGAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=800)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")

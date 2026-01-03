@@ -477,5 +477,5 @@ def evaluate_gan_comprehensive(E, G, source_loader, target_loader, device='cuda'
 if __name__ == "__main__":
     # 加载模型并生成图表
     model_path = r"/Research1/TFGAN\best_gan_model.pth"
-    json_file_path = r"/Research1/TFGAN\gan_evaluation_results.json"
+    json_file_path = r"C:\Users\USER\Desktop\liuheng\Research1\TFGAN\keep\gan_evaluation_results.json"
     plot_training_metrics_from_json(json_file_path)
