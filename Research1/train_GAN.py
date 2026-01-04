@@ -107,7 +107,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
 
     # 步骤10: 绘制训练指标
     print(f"  正在绘制训练指标...")
-    plot_training_metrics(train_loss_history, output_dir='TFGAN')
+    plot_training_metrics(train_loss_history, output_dir='R_TFGAN')
 
     # 步骤11: 执行全面的GAN质量评估（四项指标）
     print(f"  正在执行GAN质量综合评估（四项指标）...")
@@ -122,7 +122,7 @@ def train_and_test(model_path='model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num
     print("="*70 + "\n")
 
     # 步骤12: 保存全面评估结果
-    save_evaluation_results(comprehensive_metrics, train_loss_history, 'TFGAN')
+    save_evaluation_results(comprehensive_metrics, train_loss_history, 'R_TFGAN')
     return synthetic_data, synthetic_labels
 
 
@@ -365,7 +365,7 @@ if __name__ == "__main__":
 
     # 步骤6: 执行主训练流程
     print("步骤3: 开始GAN训练...")
-    synthetic_data, synthetic_labels = train_and_test(model_path='TFGAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=800)
+    synthetic_data, synthetic_labels = train_and_test(model_path='R_TFGAN/best_gan_model.pth', epochs=100, lr_g=1e-4, lr_d=1e-4, num_samples=800)
 
     # 步骤7: 合并生成的样本与原始目标域数据
     print("步骤4: 正在合并并保存合成数据...")

@@ -106,7 +106,7 @@ def load_training_history(history_path):
 def plot_training_loss_curves(history_file_path, save_path):
     """
     绘制训练损失曲线图(总损失、源域损失、目标域损失、MMD损失)
-    优化版本：适用于论文发表
+    优化版本：适用于论文发表，采用四个子图布局
     """
 
     # 加载历史数据
@@ -124,7 +124,11 @@ def plot_training_loss_curves(history_file_path, save_path):
     
     epochs = range(1, len(train_losses) + 1)
     
-    # 学术期刊标准配色方案（色盲友好）
+    # 提取各项损失数据
+    source_losses = [comp['source'] for comp in loss_components_history]
+    target_losses = [comp['target'] for comp in loss_components_history]
+    
+    # 学术期刊标准配色方案
     colors = {
         'total': '#2E86AB',      # 深蓝色
         'source': '#A23B72',     # 深紫红
@@ -132,116 +136,71 @@ def plot_training_loss_curves(history_file_path, save_path):
         'mmd': '#06A77D'         # 青绿色
     }
     
-    # 创建图形，使用论文标准尺寸（单栏）
-    fig, ax = plt.subplots(figsize=(10, 6))
+    print(f"开始绘制训练指标，共 {len(train_losses)} 个epoch")
+    print(f"总损失范围: [{min(train_losses):.4f}, {max(train_losses):.4f}]")
+    print(f"源域损失范围: [{min(source_losses):.4f}, {max(source_losses):.4f}]")
+    print(f"目标域损失范围: [{min(target_losses):.4f}, {max(target_losses):.4f}]")
     
-    # 提取损失数据
-    source_losses = [comp['source'] for comp in loss_components_history]
-    target_losses = [comp['target'] for comp in loss_components_history]
+    # 创建大型图表，包含4个子图
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10), facecolor='white')
+    fig.patch.set_facecolor('white')
     
-    # 降低标记点密度（每10个点标记一次）
-    marker_interval = max(1, len(epochs) // 15)
-    markevery = marker_interval
+    # 子图1: 总损失
+    axes[0, 0].plot(epochs, train_losses, color=colors['total'], linewidth=2, label='总损失')
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[0, 0].get_xticklabels() + axes[0, 0].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[0, 0], '(a) 总损失', 20)
+    axes[0, 0].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
-    # 绘制总损失曲线
-    ax.plot(epochs, train_losses, color=colors['total'], 
-            label='总损失', linewidth=2.0, 
-            marker='o', markersize=5, markevery=markevery,
-            alpha=0.9, zorder=4)
+    # 子图2: 源域损失
+    axes[0, 1].plot(epochs, source_losses, color=colors['source'], linewidth=2, label='源域损失')
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[0, 1].get_xticklabels() + axes[0, 1].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[0, 1], '(b) 源域损失', 20)
+    axes[0, 1].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
-    # 兼容旧格式（cross_feature, consistency）和新格式（mmd）
+    # 子图3: 目标域损失
+    axes[1, 0].plot(epochs, target_losses, color=colors['target'], linewidth=2, label='目标域损失')
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[1, 0].get_xticklabels() + axes[1, 0].get_yticklabels():
+        label.set_fontproperties(en_font)
+    title_text, title_font = create_mixed_text_with_fonts(axes[1, 0], '(c) 目标域损失', 20)
+    axes[1, 0].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
+    
+    # 子图4: MMD损失（兼容旧格式）
     if 'mmd' in loss_components_history[0]:
         mmd_losses = [comp['mmd'] for comp in loss_components_history]
-        
-        ax.plot(epochs, source_losses, color=colors['source'],
-                label='源域损失', linewidth=2.0, 
-                marker='s', markersize=5, markevery=markevery,
-                alpha=0.85, zorder=3)
-        
-        ax.plot(epochs, target_losses, color=colors['target'],
-                label='目标域损失', linewidth=2.0, 
-                marker='^', markersize=5, markevery=markevery,
-                alpha=0.85, zorder=2)
-        
-        ax.plot(epochs, mmd_losses, color=colors['mmd'],
-                label='MMD损失', linewidth=2.0, 
-                marker='d', markersize=5, markevery=markevery,
-                alpha=0.85, zorder=1)
+        print(f"MMD损失范围: [{min(mmd_losses):.4f}, {max(mmd_losses):.4f}]")
+        axes[1, 1].plot(epochs, mmd_losses, color=colors['mmd'], linewidth=2, label='MMD损失')
+        title_text, title_font = create_mixed_text_with_fonts(axes[1, 1], '(d) MMD损失', 20)
     else:
-        # 旧格式兼容
+        # 旧格式兼容：显示跨域特征损失或一致性损失
         cross_feature_losses = [comp.get('cross_feature', 0) for comp in loss_components_history]
         consistency_losses = [comp.get('consistency', 0) for comp in loss_components_history]
         
-        ax.plot(epochs, source_losses, color=colors['source'],
-                label='源域损失', linewidth=2.0, 
-                marker='s', markersize=5, markevery=markevery,
-                alpha=0.85)
-        
-        ax.plot(epochs, target_losses, color=colors['target'],
-                label='目标域损失', linewidth=2.0, 
-                marker='^', markersize=5, markevery=markevery,
-                alpha=0.85)
-        
         if any(cross_feature_losses):
-            ax.plot(epochs, cross_feature_losses, color=colors['mmd'],
-                    label='跨域特征损失', linewidth=2.0, 
-                    marker='d', markersize=5, markevery=markevery,
-                    alpha=0.85)
-        if any(consistency_losses):
-            ax.plot(epochs, consistency_losses, color='#C73E1D',
-                    label='一致性损失', linewidth=2.0, 
-                    marker='*', markersize=7, markevery=markevery,
-                    alpha=0.85)
+            axes[1, 1].plot(epochs, cross_feature_losses, color=colors['mmd'], linewidth=2, label='跨域特征损失')
+            title_text, title_font = create_mixed_text_with_fonts(axes[1, 1], '(d) 跨域特征损失', 20)
+        elif any(consistency_losses):
+            axes[1, 1].plot(epochs, consistency_losses, color='#C73E1D', linewidth=2, label='一致性损失')
+            title_text, title_font = create_mixed_text_with_fonts(axes[1, 1], '(d) 一致性损失', 20)
+        else:
+            title_text, title_font = create_mixed_text_with_fonts(axes[1, 1], '(d) 其他损失', 20)
     
-    # 设置标题和标签（中英文分离字体）
-    #title_text, title_font = create_mixed_text_with_fonts(None, '交叉注意力模型训练损失变化曲线', 16)
-    #ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
-    
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数', 18)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=8)
-    
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值', 18)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=8)
-    
-    # 优化网格样式
-    ax.grid(True, alpha=0.25, linestyle='--', linewidth=0.8, color='gray')
-    ax.set_axisbelow(True)
-    
-    # 优化图例样式
-    # 为图例创建单独的小号字体属性
-    legend_font = get_chinese_font_properties(size=18)
-    legend = ax.legend(prop=legend_font,
-                      loc='upper right',
-                      frameon=True, 
-                      fancybox=False,
-                      edgecolor='#666666',
-                      framealpha=0.95,
-                      ncol=1)
-    legend.get_frame().set_linewidth(1.0)
-    
-    # 美化坐标轴
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.5)
-    ax.spines['bottom'].set_linewidth(1.5)
-    
-    # 优化刻度样式
-    ax.tick_params(axis='both', which='major', labelsize=14, width=1.5, length=6)
-    ax.tick_params(axis='both', which='minor', width=1.0, length=3)
-    
-    # 设置刻度标签字体为Times New Roman
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].tick_params(axis='both', which='major', labelsize=20)
+    for label in axes[1, 1].get_xticklabels() + axes[1, 1].get_yticklabels():
         label.set_fontproperties(en_font)
-        label.set_fontsize(14)
+    axes[1, 1].set_xlabel(title_text, fontproperties=title_font, fontsize=20)
     
-    # 自动调整y轴范围，留出适当边距
-    y_min = min([min(train_losses), min(source_losses), min(target_losses)])
-    y_max = max([max(train_losses), max(source_losses), max(target_losses)])
-    y_margin = (y_max - y_min) * 0.1
-    ax.set_ylim([max(0, y_min - y_margin), y_max + y_margin])
-    
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+    # 调整布局并保存图形
+    plt.tight_layout(pad=1.5)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
     plt.close()
     print(f"训练损失曲线已保存到 {save_path}")
 
@@ -515,7 +474,7 @@ def plot_confusion_matrix(y_true, y_pred, num_classes, save_path, title='混淆�
     print(f"混淆矩阵已保存到 {save_path}")
 
 
-def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='CAL', device=None):
+def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='R_CAL', device=None):
     """
     从保存的模型加载并生成混淆矩阵
     
@@ -578,10 +537,10 @@ def plot_confusion_matrices_from_model(model_path, data_dir='Data', save_dir='CA
 
 if __name__ == "__main__":
     # 默认路径配置
-    history_file_path = 'CAL/training_history.json'
-    model_path = 'CAL/best_attention_model.pth'
+    history_file_path = 'R_CAL/training_history.json'
+    model_path = 'R_CAL/best_attention_model.pth'
     data_dir = 'Data'
-    save_dir = 'CAL'
+    save_dir = 'R_CAL'
 
     # 1. 绘制训练损失曲线(包含所有损失组件)
     loss_curve_path = os.path.join(save_dir, 'attention_loss_curves.png')
