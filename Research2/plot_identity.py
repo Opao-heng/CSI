@@ -297,11 +297,11 @@ def visualize_identity_features(device):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     # 创建保存目录
-    picture_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Identify')
+    picture_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'R_Identify')
     os.makedirs(picture_dir, exist_ok=True)
     
     # 绘制准确率变化曲线（如果存在训练历史文件）
-    identity_history_path = os.path.join(current_dir, "Identify", "training_history.json")
+    identity_history_path = os.path.join(current_dir, "R_Identify", "training_history.json")
     if os.path.exists(identity_history_path):
         # 绘制训练与验证准确率曲线
         save_path_train_val_accuracy = os.path.join(picture_dir, 'identity_train_val_accuracy_curves.png')
@@ -325,7 +325,7 @@ def plot_identity_confusion_matrix(device, save_path_source, save_path_target):
     model.eval()
     
     # 加载模型权重（如果存在）
-    identity_model_path = os.path.join(current_dir, "Identify", "best_identify_model.pth")
+    identity_model_path = os.path.join(current_dir, "R_Identify", "best_identify_model.pth")
     if not os.path.exists(identity_model_path):
         print(f"未找到身份识别模型: {identity_model_path}")
         return
@@ -477,7 +477,7 @@ def main():
     print(f"使用设备: {device}")
     
     # 创建图片保存目录
-    picture_dir = 'Identify'
+    picture_dir = 'R_Identify'
     os.makedirs(picture_dir, exist_ok=True)
     
     # 可视化身份识别模型特征（包括准确率曲线等）
@@ -489,7 +489,7 @@ def main():
     plot_identity_confusion_matrix(device, confusion_matrix_source_path, confusion_matrix_target_path)
     
     # 绘制训练损失曲线
-    identity_history_path = 'Identify/training_history.json'
+    identity_history_path = 'R_Identify/training_history.json'
     if os.path.exists(identity_history_path):
         loss_curve_path = os.path.join(picture_dir, 'identity_loss_curves.png')
         plot_training_loss_curves(identity_history_path, loss_curve_path)

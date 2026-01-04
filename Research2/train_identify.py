@@ -155,7 +155,7 @@ def main():
     test_accuracies = []
 
     # 确保保存模型的目录存在
-    os.makedirs('Identify', exist_ok=True)
+    os.makedirs('R_Identify', exist_ok=True)
     
     print("开始训练循环...")
     for epoch in range(num_epochs):
@@ -200,7 +200,7 @@ def main():
                 'scheduler_state_dict': scheduler.state_dict(),
                 'accuracy': val_accuracy,
                 'loss_components': loss_components
-            }, 'Identify/best_identify_model.pth')
+            }, 'R_Identify/best_identify_model.pth')
             print(f'  保存最佳模型 (准确率: {best_accuracy:.2f}%)')
         else:
             early_stop_counter += 1
@@ -220,7 +220,7 @@ def main():
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     
     # 保存训练历史
-    history_file_path = 'Identify/training_history.json'
+    history_file_path = 'R_Identify/training_history.json'
     save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, history_file_path)
 
 

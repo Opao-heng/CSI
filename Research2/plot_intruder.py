@@ -403,7 +403,7 @@ def extract_scores_and_labels(device):
     
     # 初始化身份识别模型
     print("加载身份识别模型...")
-    identity_model_path = os.path.join(current_dir, "Identify", "best_identify_model.pth")
+    identity_model_path = os.path.join(current_dir, "R_Identify", "best_identify_model.pth")
     if not os.path.exists(identity_model_path):
         print(f"未找到身份识别模型: {identity_model_path}")
         return None, None
@@ -416,7 +416,7 @@ def extract_scores_and_labels(device):
     
     # 初始化入侵者检测模型
     print("加载入侵者检测模型...")
-    intruder_model_path = os.path.join(current_dir, "Intruder", "best_intruder_detector.pth")
+    intruder_model_path = os.path.join(current_dir, "R_Intruder", "best_intruder_detector.pth")
     if not os.path.exists(intruder_model_path):
         print(f"未找到入侵者检测模型: {intruder_model_path}")
         return None, None
@@ -611,11 +611,11 @@ def main():
     print(f"使用设备: {device}")
 
     # 创建图片保存目录
-    picture_dir = 'Intruder'
+    picture_dir = 'R_Intruder'
     os.makedirs(picture_dir, exist_ok=True)
 
     # 绘制训练曲线（如果存在训练历史文件）
-    intruder_history_path = 'Intruder/training_history.json'
+    intruder_history_path = 'R_Intruder/training_history.json'
     if os.path.exists(intruder_history_path):
         plot_all_training_curves(intruder_history_path, picture_dir)
 

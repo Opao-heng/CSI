@@ -150,7 +150,7 @@ def main(num_epochs: int = 50, threshold_percentile: float = 95.0):
     print("加载身份识别模型...")
     identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
 
-    ckpt_path = os.path.join(PROJECT_ROOT, "Research2", "Identify", "best_identify_model.pth")
+    ckpt_path = os.path.join(PROJECT_ROOT, "Research2", "R_Identify", "best_identify_model.pth")
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"未找到身份识别模型权重文件: {ckpt_path}")
 
