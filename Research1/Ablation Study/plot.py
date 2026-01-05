@@ -36,10 +36,10 @@ def plot_ablation_study():
     models = ['Model F', 'Model E', 'Model C', 'Model B', 'Model D', 'Model A']
     
     # 源域识别准确率
-    source_accuracy = [97.36, 93.34, 92.89, 90.85, 94.82, 88.79]
+    source_accuracy = [96.66, 93.34, 92.89, 90.85, 94.82, 88.79]
     
     # 跨域识别准确率
-    cross_accuracy = [99.00, 54.89, 72.78, 68.90, 64.39, 79.24]
+    cross_accuracy = [97.30, 54.89, 72.78, 68.90, 64.39, 79.24]
     
     # FID分数（越低越好）
     fid_scores = [89.72, np.nan, 105.34, 128.45, np.nan, 114.89]
