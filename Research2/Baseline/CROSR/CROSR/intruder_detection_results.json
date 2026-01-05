@@ -1,8 +1,0 @@
-{
-  "method": "CROSR (Classification-Reconstruction OSR)",
-  "num_epochs": 50,
-  "threshold_percentile": 95.0,
-  "accuracy": 0.940387481371088,
-  "auroc": 0.9666094512685727,
-  "f1_score": 0.9375
-}

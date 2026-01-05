@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model_identify import IdentifyDetectionSystem
 from model_intruder import LearnableComprehensiveIntruderDetector
-from Research2.Process.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
+from Research2.DataProcess.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
 
 # 设置中文字体支持 - 中文宋体,英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题
