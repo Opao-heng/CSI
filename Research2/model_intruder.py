@@ -116,48 +116,54 @@ class TraditionalOpenMax:
             scores[i] = max_tail_prob
             
             # 阈值判断：如果尾部概率低于某个阈值，则认为是入侵者
-            predictions[i] = 0 if max_tail_prob > 0.25 else 1  # 0:合法用户, 1:入侵者，降低阈值提高灵敏度
+            predictions[i] = 0 if max_tail_prob > 0.3 else 1  # 0:合法用户, 1:入侵者，降低阈值
             
         return predictions, scores
 
 class LearnableThresholdDetector(nn.Module):
     """
-    入侵者检测器 - 基于32维流形空间的深度异常检测模型（优化版）
+    入侵者检测器 - 基于32维流形空间的深度异常检测模型（增强版）
     
-    优化策略：
-    1. 减少网络复杂度，避免过拟合
-    2. 加强特征表达能力
-    3. 稳定的残差连接
+    优化策略（面向90%准确率）：
+    1. 增加网络深度和宽度，提升表达能力
+    2. 使用残差连接，缓解梯度消失
+    3. 多尺度特征融合，捕获不同层次的异常模式
     """
     
     def __init__(self, feature_dim=32):
         super(LearnableThresholdDetector, self).__init__()
         self.feature_dim = feature_dim
         
-        # 简化但更高效的网络结构
-        # 32 -> 64 -> 32 -> 16 -> 1
+        # 增强的异常度估计器 - 多层深度网络
+        # 32 -> 64 -> 48 -> 32 -> 16 -> 1
         self.layer1 = nn.Sequential(
             nn.Linear(feature_dim, 64),
-            nn.LayerNorm(64),  # LayerNorm替代BatchNorm，更稳定
+            nn.BatchNorm1d(64),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2)
+            nn.Dropout(0.1)
         )
         
         self.layer2 = nn.Sequential(
-            nn.Linear(64, 32),
-            nn.LayerNorm(32),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.15)
-        )
-        
-        # 残差投影层
-        self.residual_proj = nn.Linear(feature_dim, 32)
-        
-        self.layer3 = nn.Sequential(
-            nn.Linear(32, 16),
-            nn.LayerNorm(16),
+            nn.Linear(64, 48),
+            nn.BatchNorm1d(48),
             nn.ReLU(inplace=True),
             nn.Dropout(0.1)
+        )
+        
+        self.layer3 = nn.Sequential(
+            nn.Linear(48, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True)
+        )
+        
+        # 残差投影
+        self.residual_proj = nn.Linear(feature_dim, 32)
+        
+        self.layer4 = nn.Sequential(
+            nn.Linear(32, 16),
+            nn.BatchNorm1d(16),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.05)
         )
         
         self.output_layer = nn.Linear(16, 1)
@@ -181,12 +187,13 @@ class LearnableThresholdDetector(nn.Module):
         # 深度特征提取
         x = self.layer1(features)
         x = self.layer2(x)
+        x = self.layer3(x)
         
         # 残差连接
         residual = self.residual_proj(features)
         x = x + residual
         
-        x = self.layer3(x)
+        x = self.layer4(x)
         logits = self.output_layer(x).squeeze(-1)
         
         # 转换为概率
@@ -226,18 +233,21 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化可学习阈值检测器（32维流形空间）
         self.learnable_threshold_detector = LearnableThresholdDetector(feature_dim)
         
-        # 优化的融合层 - 简化结构，避免过拟合
+        # 增强的融合层 - 多层深度网络，提升融合能力
         # 输入：openmax_prob + learnable_prob + |diff| + mean = 4维
         self.fusion_layer = nn.Sequential(
-            nn.Linear(4, 16),
-            nn.LayerNorm(16),  # LayerNorm替代BatchNorm，更稳定
+            nn.Linear(4, 24),
+            nn.BatchNorm1d(24),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
+            nn.Dropout(0.15),
             
-            nn.Linear(16, 8),
+            nn.Linear(24, 16),
+            nn.BatchNorm1d(16),
             nn.ReLU(inplace=True),
             nn.Dropout(0.1),
             
+            nn.Linear(16, 8),
+            nn.ReLU(inplace=True),
             nn.Linear(8, 1)
         )
         
