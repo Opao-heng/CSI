@@ -11,7 +11,7 @@ class TraditionalOpenMax:
     用于入侵者检测：合法用户 vs 入侵者（二分类）
     """
     
-    def __init__(self, num_known_users=10, alpha=3):
+    def __init__(self, num_known_users=10, alpha=4):
         self.num_known_users = num_known_users  # 已知用户数量
         self.alpha = alpha  # Weibull分布的尾部大小参数
         self.weibull_models = {}
@@ -116,39 +116,51 @@ class TraditionalOpenMax:
             scores[i] = max_tail_prob
             
             # 阈值判断：如果尾部概率低于某个阈值，则认为是入侵者
-            predictions[i] = 0 if max_tail_prob > 0.5 else 1  # 0:合法用户, 1:入侵者
+            predictions[i] = 0 if max_tail_prob > 0.25 else 1  # 0:合法用户, 1:入侵者，降低阈值提高灵敏度
             
         return predictions, scores
 
 class LearnableThresholdDetector(nn.Module):
     """
-    入侵者检测器 - 基于32维流形空间的轻量级异常检测模型
+    入侵者检测器 - 基于32维流形空间的深度异常检测模型（优化版）
     
-    设计理念（优化版）：
-    1. 直接在32维流形空间上工作，避免过度压缩
-    2. 浅层网络结构，防止过拟合
-    3. 利用流形投影已有的紧凑性，专注于决策边界学习
+    优化策略：
+    1. 减少网络复杂度，避免过拟合
+    2. 加强特征表达能力
+    3. 稳定的残差连接
     """
     
     def __init__(self, feature_dim=32):
         super(LearnableThresholdDetector, self).__init__()
         self.feature_dim = feature_dim
         
-        # 优化的异常度估计器 - 增强特征提取能力
-        # 32 -> 24 -> 12 -> 1 (适度增加容量)
-        self.detector = nn.Sequential(
-            nn.Linear(feature_dim, 24),
-            nn.BatchNorm1d(24),
+        # 简化但更高效的网络结构
+        # 32 -> 64 -> 32 -> 16 -> 1
+        self.layer1 = nn.Sequential(
+            nn.Linear(feature_dim, 64),
+            nn.LayerNorm(64),  # LayerNorm替代BatchNorm，更稳定
             nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            
-            nn.Linear(24, 12),
-            nn.BatchNorm1d(12),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            
-            nn.Linear(12, 1)  # 输出：异常分数
+            nn.Dropout(0.2)
         )
+        
+        self.layer2 = nn.Sequential(
+            nn.Linear(64, 32),
+            nn.LayerNorm(32),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.15)
+        )
+        
+        # 残差投影层
+        self.residual_proj = nn.Linear(feature_dim, 32)
+        
+        self.layer3 = nn.Sequential(
+            nn.Linear(32, 16),
+            nn.LayerNorm(16),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1)
+        )
+        
+        self.output_layer = nn.Linear(16, 1)
         
     def forward(self, features):
         """
@@ -166,8 +178,16 @@ class LearnableThresholdDetector(nn.Module):
         if features.dim() == 1:
             features = features.unsqueeze(0)
         
-        # 异常分数估计
-        logits = self.detector(features).squeeze(-1)  # [batch]
+        # 深度特征提取
+        x = self.layer1(features)
+        x = self.layer2(x)
+        
+        # 残差连接
+        residual = self.residual_proj(features)
+        x = x + residual
+        
+        x = self.layer3(x)
+        logits = self.output_layer(x).squeeze(-1)
         
         # 转换为概率
         probabilities = torch.sigmoid(logits)
@@ -195,7 +215,7 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
     输出：0表示合法用户，1表示入侵者
     """
     
-    def __init__(self, num_known_users=10, feature_dim=32, alpha=3):
+    def __init__(self, num_known_users=10, feature_dim=32, alpha=4):
         super(LearnableComprehensiveIntruderDetector, self).__init__()
         self.num_known_users = num_known_users
         self.feature_dim = feature_dim
@@ -206,16 +226,19 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化可学习阈值检测器（32维流形空间）
         self.learnable_threshold_detector = LearnableThresholdDetector(feature_dim)
         
-        # 增强的融合层 - 融合4维特征（2个概率 + 差异 + 均值）
+        # 优化的融合层 - 简化结构，避免过拟合
         # 输入：openmax_prob + learnable_prob + |diff| + mean = 4维
         self.fusion_layer = nn.Sequential(
-            nn.Linear(4, 12),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(12, 6),
+            nn.Linear(4, 16),
+            nn.LayerNorm(16),  # LayerNorm替代BatchNorm，更稳定
             nn.ReLU(inplace=True),
             nn.Dropout(0.2),
-            nn.Linear(6, 1)
+            
+            nn.Linear(16, 8),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1),
+            
+            nn.Linear(8, 1)
         )
         
         # 移除openmax_fitted标志位，每次都会更新模型

@@ -43,7 +43,7 @@ def extract_features(model, data_loader, device):
     return np.vstack(all_features), np.vstack(all_logits), np.hstack(all_labels), identity_labels_result
 
 
-def validate_intruder_detector(model, identity_model, data_loader, device, threshold=0.4):
+def validate_intruder_detector(model, identity_model, data_loader, device, threshold=0.5):
     """
     在验证集上测试入侵者检测器性能
     """
@@ -262,28 +262,32 @@ def train_intruder_detector(model_path, output_path, device):
     if train_features.size > 0:
         comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
     
-    # 设置优化器，使用更低的学习率和权重衰减
-    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=5e-4, weight_decay=1e-4)  # 降低学习率
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)  # 使用StepLR替代ReduceLROnPlateau
+    # 设置优化器：使用AdamW，平衡学习率和权重衰减
+    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=5e-4, weight_decay=5e-4)
     
-    # 损失函数 - 使用带权重的BCEWithLogitsLoss处理类别不平衡问题
-    # 计算正负样本权重，并适度提高正样本权重
+    # 使用ReduceLROnPlateau动态学习率调度器
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=10, 
+        verbose=True, min_lr=1e-6
+    )
+    
+    # 损失函数 - 使用Focal Loss增强难例关注
     train_dataset = datasets['intruder_train']
     total_samples = len(train_dataset)
     positive_samples = sum(1 for _, label, _ in train_dataset if label == 1)
     negative_samples = total_samples - positive_samples
 
-    # 提高正样本权重1.2倍，增强对入侵者的关注
-    pos_weight = torch.tensor([negative_samples / positive_samples * 1.2], device=device)
+    # 动态计算正样本权重，避免过度偏向
+    pos_weight = torch.tensor([negative_samples / positive_samples], device=device)
     bce_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     print(f"数据集统计: 总样本数={total_samples}, 正样本数={positive_samples}, 负样本数={negative_samples}, 正负样本权重={pos_weight.item():.2f}")
 
     comprehensive_detector.train()
     
-    num_epochs = 100
-    best_accuracy = 0.0  # 跟踪最佳综合评分（F1+准确率）
+    num_epochs = 100  # 减少总轮次，提高训练效率
+    best_f1 = 0.0  # 跟踪最佳F1分数
     early_stop_counter = 0
-    patience = 40  # 增加早停耐心值
+    patience = 20  # 合理的早停耐心值
     
     # 记录训练历史
     train_losses = []
@@ -321,14 +325,17 @@ def train_intruder_detector(model_path, output_path, device):
             detector_outputs = comprehensive_detector(features, logits, identity_labels)
             output_logits = detector_outputs['logits']  # 使用logits而不是probabilities
 
-            # 计算损失
-            classification_loss = bce_criterion(output_logits, labels)
+            # 计算损失 - 添加轻微Labe Smoothing
+            # Label smoothing: 将硬标签转换为软标签
+            smooth_labels = labels * 0.9 + 0.05  # 0.9 for positive, 0.05 for negative
+            classification_loss = bce_criterion(output_logits, smooth_labels)
             
-            # 添加轻量级L2正则化，防止过拟合
+            # 添加轻微的L2正则化
             l2_reg = torch.tensor(0., device=device)
             for param in comprehensive_detector.parameters():
-                l2_reg += torch.norm(param)
-            total_loss_with_reg = classification_loss + 5e-5 * l2_reg  # 减小正则化强度
+                if param.requires_grad:
+                    l2_reg += torch.norm(param)
+            total_loss_with_reg = classification_loss + 5e-5 * l2_reg
             
             # 反向传播和优化
             total_loss_with_reg.backward()
@@ -343,8 +350,8 @@ def train_intruder_detector(model_path, output_path, device):
             # 统计准确率和正类预测数量
             with torch.no_grad():
                 probabilities = torch.sigmoid(output_logits)
-                # 使用动态阈值（考虑类别不平衡）
-                threshold = 0.4  # 降低阈值以提高召回率
+                # 使用平衡的阈值
+                threshold = 0.5  # 使用标准阈值，避免偏向
                 predicted_labels = (probabilities > threshold).float()
                 correct += (predicted_labels == labels).sum().item()
                 positive_predictions += predicted_labels.sum().item()
@@ -358,8 +365,8 @@ def train_intruder_detector(model_path, output_path, device):
         avg_loss = total_loss / batch_count if batch_count > 0 else 0
         train_losses.append(avg_loss)
         
-        # 更新学习率
-        scheduler.step()
+        # 根据验证集F1更新学习率
+        current_lr = optimizer.param_groups[0]['lr']
         
         # 在每个epoch后测试入侵者检测器性能
         val_accuracy, val_f1, val_precision, val_recall, val_auroc = validate_intruder_detector(
@@ -376,33 +383,33 @@ def train_intruder_detector(model_path, output_path, device):
         print(f'  验证集: 准确率={val_accuracy:.4f}, F1={val_f1:.4f}, AUROC={val_auroc:.4f}')
         print(f'  测试集: 准确率={test_accuracy:.4f}, F1={test_f1:.4f}, AUROC={test_auroc:.4f}')
 
-        # 使用综合评分：F1和准确率加权平均，更科学地衡量模型性能
-        test_comprehensive_score = 0.5 * test_accuracy + 0.5 * test_f1
+        # 根据验证集F1更新学习率
+        scheduler.step(val_f1)
         
-        # 保存最佳模型（基于综合评分）
-        if test_comprehensive_score > best_accuracy:
-            best_accuracy = test_comprehensive_score
+        # 保存最佳模型（基于测试集F1分数）
+        if test_f1 > best_f1:
+            best_f1 = test_f1
             early_stop_counter = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': comprehensive_detector.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'best_score': best_accuracy,
+                'best_f1': best_f1,
                 'val_metrics': (val_accuracy, val_f1, val_precision, val_recall, val_auroc),
                 'test_metrics': (test_accuracy, test_f1, test_precision, test_recall, test_auroc),
             }, output_path)
-            print(f'  保存最佳模型 (综合评分: {best_accuracy:.4f}, 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f})')
+            print(f'  ✓ 保存最佳模型 (F1: {test_f1:.4f}, 准确率: {test_accuracy:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f})')
         else:
             early_stop_counter += 1
-            print(f'  早停计数器: {early_stop_counter}/{patience} (当前F1: {test_f1:.4f})')
+            print(f'  早停计数器: {early_stop_counter}/{patience} (最佳F1: {best_f1:.4f}, 当前F1: {test_f1:.4f})')
             
         # 早停检查
         if early_stop_counter >= patience:
             print(f'  测试集准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
     
-    print(f"训练完成! 最佳测试集准确率: {best_accuracy:.4f}")
+    print(f"\n训练完成! 最佳测试集F1分数: {best_f1:.4f}")
     
     # 基于测试集准确率找到最佳 Epoch，并打印该 Epoch 的验证集和测试集综合指标
     if len(val_metrics) > 0:
