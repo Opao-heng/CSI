@@ -13,7 +13,7 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
     """
     model.train()
     total_loss = 0.0
-    loss_components = {'identity': 0.0, 'manifold': 0.0}
+    loss_components = {'identity': 0.0, 'manifold': 0.0, 'center': 0.0}
     batch_count = 0
     
     # 使用zip循环处理源域和目标域数据
@@ -34,6 +34,18 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
 
         # 计算损失
         loss, loss_dict = criterion(outputs, src_labels, tgt_labels)
+        
+        # 添加center-aware损失 (第四章新增)
+        # 需要从modelmod中获取class_centers
+        class_centers = model.manifold_projection.class_centers
+        center_loss_src = criterion.center_aware_loss(
+            outputs['proj_source'], src_labels, class_centers)
+        center_loss_tgt = criterion.center_aware_loss(
+            outputs['proj_target'], tgt_labels, class_centers)
+        center_loss_total = (center_loss_src + center_loss_tgt) / 2
+        
+        # 加入总损失
+        loss = loss + criterion.beta * center_loss_total
 
         # 反向传播和优化
         loss.backward()
@@ -47,6 +59,7 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
         total_loss += loss.item()
         loss_components['identity'] += loss_dict.get('identity_loss', 0.0)
         loss_components['manifold'] += loss_dict.get('manifold_loss', 0.0)
+        loss_components['center'] += center_loss_total.item()
         batch_count += 1
 
     # 计算平均损失
@@ -154,8 +167,6 @@ def main():
             model.load_state_dict(model_dict)
             
             print(f"✅ 成功加载预训练权重: {len(pretrained_dict_filtered)} 个参数")
-            print(f"   - feature_extractor: {sum(1 for k in pretrained_dict_filtered if k.startswith('feature_extractor'))} 个参数")
-            print(f"   - cross_attention: {sum(1 for k in pretrained_dict_filtered if k.startswith('cross_attention'))} 个参数")
             print(f"   - manifold_projection 和 identity_classifier 将从头训练")
         except Exception as e:
             print(f"⚠️  加载预训练权重失败: {e}")
@@ -165,9 +176,9 @@ def main():
         print(f"   将从头开始训练所有参数")
     
     # 初始化损失函数(基于预训练模型)
-    # 第三章已学会跨域对齐,第四章只关注: 身份分类 + 流形紧凑性
+    # 第三章已学会跨域对齐,第四章关注: 身份分类 + 流形紧凑性 + Center-aware
     print("\n初始化损失函数和优化器...")
-    criterion = IdentifyDetectionLoss(alpha=1.0, delta=0.15)
+    criterion = IdentifyDetectionLoss(alpha=1.0, delta=0.15, beta=0.08)
     
     # 初始化优化器 - 使用较小学习率微调预训练的特征提取器
     # 对新增的manifold_projection和identity_classifier使用正常学习率
@@ -221,7 +232,8 @@ def main():
         # 打印epoch结果
         print(f'  训练损失: {train_loss:.4f} '
               f'(身份: {loss_components["identity"]:.4f}, '
-              f'流形: {loss_components["manifold"]:.4f})')
+              f'流形: {loss_components["manifold"]:.4f}, '
+              f'Center: {loss_components["center"]:.4f})')
         print(f'  验证准确率: {val_accuracy:.2f}%')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         
@@ -252,13 +264,15 @@ def main():
             print(f'  验证准确率在 {patience} 个epoch内未提升，提前停止训练')
             break
             
-        # 动态调整流形紧凑性权重 - 逐渐增强流形约束
+        # 动态调整流形约束权重 - 逐渐增强Center-aware约束
         if epoch == 20:
             criterion.delta = 0.2
-            print(f'  [Epoch 20] 增强流形约束: delta={criterion.delta:.4f}')
+            criterion.beta = 0.12
+            print(f'  [Epoch 20] 增强流形约束: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}')
         elif epoch == 40:
             criterion.delta = 0.25
-            print(f'  [Epoch 40] 继续增强流形约束: delta={criterion.delta:.4f}')
+            criterion.beta = 0.15
+            print(f'  [Epoch 40] 继续增强流形约束: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}')
     
     print(f"\n训练完成! 最佳验证准确率: {best_accuracy:.2f}%")
     

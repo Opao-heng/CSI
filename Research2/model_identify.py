@@ -198,37 +198,83 @@ class CrossAttentionModule(nn.Module):
         return F_s, F_t, F_c
 
 
-class ManifoldProjectionHead(nn.Module):
-    """流形投影头 (第四章新增) - 将交叉注意力特征压缩到32维流形空间
-    设计目标：为入侵检测提供紧凑、判别性强的特征表示
+class AnomalyOrientedProjection(nn.Module):
+    """面向异常检测的流形投影 (第四章核心创新)
+    
+    设计动机:
+    - 第三章: 512维特征针对分类任务优化(类间分离)
+    - 第四章: 32维特征针对异常检测优化(类内紧凑+距离度量)
+    
+    技术创新:
+    1. Center-aware投影: 显式建模每个身份的类中心原型
+    2. 度量学习优化: 针对欧式距离优化(OpenMax需要)
+    3. 紧凑性约束: 特征向最近类中心靠拢
+    
     输入: F_s或F_t (512维交叉注意力特征)
-    输出: 32维流形空间特征
+    输出: 32维紧凑特征 + 到类中心的距离信息
     """
     
-    def __init__(self, input_dim=512, projection_dim=32):
-        super(ManifoldProjectionHead, self).__init__()
+    def __init__(self, input_dim=512, projection_dim=32, num_classes=10):
+        super(AnomalyOrientedProjection, self).__init__()
         
-        # 三层渐进式降维投影
-        self.projection = nn.Sequential(
-            # 第一层: 512 -> 256
+        # 主投影网络: 512 -> 32
+        self.projector = nn.Sequential(
             nn.Linear(input_dim, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(inplace=True),
             nn.Dropout(0.2),
             
-            # 第二层: 256 -> 96
             nn.Linear(256, 96),
             nn.BatchNorm1d(96),
             nn.ReLU(inplace=True),
             nn.Dropout(0.15),
             
-            # 第三层: 96 -> 32 (流形空间)
             nn.Linear(96, projection_dim)
         )
         
-    def forward(self, x):
-        # 投影到32维流形空间
-        return self.projection(x)
+        # 可学习的类中心原型 (为OpenMax距离计算准备)
+        # 每个身份一个32维原型向量
+        self.class_centers = nn.Parameter(
+            torch.randn(num_classes, projection_dim) * 0.1
+        )
+        
+        # Center-aware调整层: 让特征主动靠近其类中心
+        self.center_aware_adjustment = nn.Sequential(
+            nn.Linear(projection_dim * 2, projection_dim),  # 拼接[投影特征, 最近中心]
+            nn.BatchNorm1d(projection_dim),
+            nn.Tanh()  # 限制输出范围,增强紧凑性
+        )
+        
+    def forward(self, x, return_distances=False):
+        """
+        Args:
+            x: [B, 512] - 第三章的交叉注意力特征
+            return_distances: 是否返回距离信息(训练时需要)
+        
+        Returns:
+            proj_adjusted: [B, 32] - 面向异常检测的紧凑特征
+            min_distances: [B] - 到最近类中心的距离(可选)
+            nearest_centers: [B] - 最近的类中心索引(可选)
+        """
+        # 1. 基础投影: 512 -> 32
+        proj = self.projector(x)  # [B, 32]
+        
+        # 2. 计算到所有类中心的距离
+        # proj: [B, 32], class_centers: [10, 32]
+        distances = torch.cdist(proj, self.class_centers)  # [B, 10]
+        
+        # 3. 找到最近的类中心
+        min_distances, nearest_centers = torch.min(distances, dim=1)  # [B]
+        nearest_center_vectors = self.class_centers[nearest_centers]  # [B, 32]
+        
+        # 4. Center-aware调整: 引导特征向其最近中心靠拢
+        combined = torch.cat([proj, nearest_center_vectors], dim=1)  # [B, 64]
+        proj_adjusted = self.center_aware_adjustment(combined)  # [B, 32]
+        
+        if return_distances:
+            return proj_adjusted, min_distances, nearest_centers
+        else:
+            return proj_adjusted
 
 
 class IdentityClassifier(nn.Module):
@@ -262,12 +308,15 @@ class IdentifyDetectionSystem(nn.Module):
     - 交叉注意力模块 (CrossAttentionModule): 完全继承自第三章
     
     新增组件:
-    - 流形投影头 (ManifoldProjectionHead): 将F_s和F_t压缩到32维流形空间,为入侵检测准备
+    - 面向异常检测的流形投影 (AnomalyOrientedProjection): 
+      将512维特征压缩到32维,并显式建模类中心,为OpenMax入侵检测准备
     - 身份分类器 (IdentityClassifier): 基于F_s和F_t进行身份识别
     
     设计意图:
-    第三章解决跨域身份识别,第四章在此基础上增加流形投影,
-    将学到的跨域对齐特征压缩到低维流形空间,为后续入侵检测提供紧凑、判别性强的特征表示
+    第三章解决跨域身份识别(分类任务),第四章针对入侵检测(异常检测任务)优化特征空间:
+    - 降维: 512维→32维,降低OpenMax计算复杂度,缓解维度灾难
+    - 度量优化: 显式建模类中心,优化欧式距离度量
+    - 紧凑性: Center-aware机制引导特征向类中心靠拢,增强正常样本聚集
     """
     
     def __init__(self, num_classes=10, feature_dim=512, projection_dim=32):
@@ -278,7 +327,7 @@ class IdentifyDetectionSystem(nn.Module):
         self.cross_attention = CrossAttentionModule(dim=feature_dim, num_heads=8)
         
         # 第四章新增组件
-        self.manifold_projection = ManifoldProjectionHead(feature_dim, projection_dim)
+        self.manifold_projection = AnomalyOrientedProjection(feature_dim, projection_dim, num_classes)
         self.identity_classifier = IdentityClassifier(feature_dim, num_classes)
         
     def forward(self, x_source, x_target=None):
@@ -295,9 +344,15 @@ class IdentifyDetectionSystem(nn.Module):
             # F_t: 目标域自注意力特征 [batch, 512]
             # F_c: 跨域交叉注意力特征 [batch, 512]
             
-            # 3. 流形投影 (第四章新增) - 为入侵检测准备
-            proj_source = self.manifold_projection(F_s)  # [batch, 32]
-            proj_target = self.manifold_projection(F_t)  # [batch, 32]
+            # 3. 流形投影 (第四章新增) - 面向异常检测优化
+            # 返回32维紧凑特征 + 距离信息(用于center-aware损失)
+            if self.training:
+                proj_source, dist_s, center_s = self.manifold_projection(F_s, return_distances=True)
+                proj_target, dist_t, center_t = self.manifold_projection(F_t, return_distances=True)
+            else:
+                proj_source = self.manifold_projection(F_s)  # [batch, 32]
+                proj_target = self.manifold_projection(F_t)  # [batch, 32]
+                dist_s = dist_t = center_s = center_t = None
             
             # 4. 身份分类
             logits_source = self.identity_classifier(F_s)  # [batch, num_classes]
@@ -306,10 +361,15 @@ class IdentifyDetectionSystem(nn.Module):
             return {
                 'features_source': F_s,      # 源域交叉注意力特征,用于对比学习
                 'features_target': F_t,      # 目标域交叉注意力特征,用于对比学习
-                'proj_source': proj_source,  # 源域流形投影,用于入侵检测
-                'proj_target': proj_target,  # 目标域流形投影,用于入侵检测
+                'proj_source': proj_source,  # 源域32维投影,用于入侵检测
+                'proj_target': proj_target,  # 目标域32维投影,用于入侵检测
                 'logits_source': logits_source,  # 源域身份预测
-                'logits_target': logits_target   # 目标域身份预测
+                'logits_target': logits_target,   # 目标域身份预测
+                # 训练时返回距离信息(用于center-aware损失)
+                'dist_source': dist_s if self.training else None,
+                'dist_target': dist_t if self.training else None,
+                'center_source': center_s if self.training else None,
+                'center_target': center_t if self.training else None
             }
         else:
             # 推理模式：仅处理源域数据
