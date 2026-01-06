@@ -100,7 +100,7 @@ def load_training_history(history_path):
 
 def plot_training_loss_curves(history_file_path, save_path):
     """
-    从历史文件中读取数据并绘制训练损失曲线图（总损失、身份损失、对比损失）
+    从历史文件中读取数据并绘制训练损失曲线图（总损失、身份损失、对比损失、流形紧凑性损失）
     """
     # 加载历史数据
     history = load_training_history(history_file_path)
@@ -122,12 +122,19 @@ def plot_training_loss_curves(history_file_path, save_path):
     # 绘制总损失曲线
     plt.plot(epochs, train_losses, 'b-', label='总损失', linewidth=2.5, marker='o', markersize=4)
     
-    # 绘制各项损失曲线
-    identity_losses = [comp['identity'] for comp in loss_components_history]
-    contrastive_losses = [comp['contrastive'] for comp in loss_components_history]
+    # 绘制各项损失曲线（兼容旧键名和新键名）
+    identity_losses = [comp.get('identity', comp.get('identity_loss', 0.0)) for comp in loss_components_history]
+    contrastive_losses = [comp.get('contrastive', comp.get('contrastive_loss', 0.0)) for comp in loss_components_history]
+    center_losses = [comp.get('center', comp.get('center_loss', None)) for comp in loss_components_history]
     
     plt.plot(epochs, identity_losses, label='身份损失', linewidth=2.5, marker='s', markersize=4)
     plt.plot(epochs, contrastive_losses, label='对比损失', linewidth=2.5, marker='^', markersize=4)
+    
+    # 如果存在流形紧凑性损失，则额外绘制
+    if any(cl is not None for cl in center_losses):
+        # 将 None 替换为 0 以便绘图
+        center_losses_plot = [0.0 if cl is None else cl for cl in center_losses]
+        plt.plot(epochs, center_losses_plot, label='流形紧凑性损失', linewidth=2.5, marker='v', markersize=4)
     
     # 设置标题和标签 - 中文用宋体，英文数字用Times New Roman
     title_text, title_font = create_mixed_text_with_fonts(None, '训练损失变化曲线', 20)
@@ -220,7 +227,8 @@ def plot_accuracy_curves(history_file_path, save_path):
 
 def plot_test_accuracy_curves(history_file_path, save_path):
     """
-    从历史文件中读取数据并绘制测试准确率曲线图（源域测试准确率、目标域测试准确率）
+    从历史文件中读取数据并绘制测试准确率曲线图，重点关注目标域身份识别测试准确率
+    （源域测试准确率用于辅助分析域间差距）
     """
     # 加载历史数据
     history = load_training_history(history_file_path)

@@ -302,18 +302,7 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 将torch tensor转换为numpy array以供TraditionalOpenMax使用
         features_np = features.detach().cpu().numpy()
         
-        # 生成正确的二分类标签
-        # 确保identity_labels是numpy数组
-        if torch.is_tensor(identity_labels):
-            identity_labels_np = identity_labels.detach().cpu().numpy()
-        else:
-            identity_labels_np = identity_labels
-            
-        binary_labels = np.where(identity_labels_np == -1, 1, 0)
-        
-        # 拟合TraditionalOpenMax模型（每次前向传播都更新）
-        self.fit_traditional_openmax(features_np, binary_labels, identity_labels_np)
-            
+        # 使用预先拟合好的 TraditionalOpenMax 进行打分
         _, openmax_scores = self.traditional_openmax.predict(features_np)
         # 将分数转换为tensor并调整范围到[0,1]，其中0表示入侵者，1表示合法用户
         openmax_probs = torch.from_numpy(1 - openmax_scores).float().to(features.device)  # 转换为入侵者概率

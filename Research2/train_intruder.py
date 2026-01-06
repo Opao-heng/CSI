@@ -22,12 +22,13 @@ def extract_features(model, data_loader, device):
 
             # 移动到设备
             data = data.to(device)
-            labels = labels.numpy()
-            identity_labels = identity_labels.numpy()
+            labels = labels.cpu().numpy()
+            identity_labels = identity_labels.cpu().numpy()
 
-            # 提取特征和预测
+            # 提取特征和预测（优先使用投影空间特征）
             outputs = model(data)
-            features = outputs['features'].cpu().numpy()
+            proj = outputs.get('proj', outputs['features'])
+            features = proj.cpu().numpy()
             logits = outputs['logits'].cpu().numpy()
 
             all_features.append(features)
@@ -63,7 +64,7 @@ def validate_intruder_detector(model, identity_model, data_loader, device):
 
             # 使用身份识别模型提取特征
             identity_outputs = identity_model(data)
-            features = identity_outputs['features']
+            features = identity_outputs.get('proj', identity_outputs['features'])
             logits = identity_outputs['logits']
 
             # 检查特征和logits的维度，确保至少是2D
@@ -250,8 +251,13 @@ def train_intruder_detector(model_path, output_path, device):
     datasets = load_intruder_data()
     data_loaders = create_intruder_data_loaders(datasets, batch_size=32)
 
-    # 初始化综合入侵者检测器（二分类模型）
-    comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=128).to(device)
+    # 初始化综合入侵者检测器（二分类模型），在流形投影空间（32维）上工作
+    comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=32).to(device)
+
+    # 使用训练集特征在投影空间上预先拟合 TraditionalOpenMax
+    train_features, _, train_labels, train_identity_labels = extract_features(identity_model, data_loaders['intruder_train'], device)
+    if train_features.size > 0:
+        comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
     
     # 设置优化器，使用更稳定的学习率和权重衰减
     optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=1e-3, weight_decay=1e-4)  # 调整学习率和权重衰减
@@ -304,7 +310,7 @@ def train_intruder_detector(model_path, output_path, device):
             # 使用身份识别模型提取特征
             with torch.no_grad():
                 identity_outputs = identity_model(data)
-                features = identity_outputs['features']
+                features = identity_outputs.get('proj', identity_outputs['features'])
                 logits = identity_outputs['logits']
 
             # 使用综合入侵者检测器进行检测

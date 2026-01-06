@@ -1,135 +1,134 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 
 class IdentifyDetectionLoss(nn.Module):
-    def __init__(self, alpha=1.0, gamma=0.1):
+    def __init__(self, alpha=1.0, delta=0.1):
         """
-        初始化损失函数
+        简化的损失函数 - 基于第三章预训练模型
+        第三章已学会跨域对齐,第四章只需关注:
+        1. 身份分类 (identity_loss)
+        2. 流形紧凑性 (manifold_compactness_loss)
+        
         Args:
             alpha: 身份分类损失权重
-            gamma: 对比损失权重
+            delta: 流形紧凑性损失权重
         """
         super(IdentifyDetectionLoss, self).__init__()
         self.alpha = alpha
-        self.gamma = gamma
+        self.delta = delta
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1)
         
     def identity_classification_loss(self, logits, labels):
-        """身份分类损失"""
-        # 添加数值稳定性检查
+        """身份分类损失 - 确保跨域身份识别准确性"""
         if torch.isnan(logits).any() or torch.isinf(logits).any():
             logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
         return self.ce_loss(logits, labels)
     
-    def contrastive_loss(self, features_source, features_target, labels_source, labels_target, temperature=0.1):
+    def manifold_compactness_loss(self, proj_embeddings, labels):
         """
-        对比损失 - 改进的InfoNCE损失，提高数值稳定性
+        流形紧凑性损失 - 约束32维流形空间中同一身份的特征更紧凑
+        这是为后续入侵检测准备的关键步骤
         """
-        batch_size = features_source.size(0)
-        
-        # 添加数值稳定性检查
-        if torch.isnan(features_source).any() or torch.isinf(features_source).any():
-            features_source = torch.nan_to_num(features_source, nan=0.0, posinf=1e6, neginf=-1e6)
-        if torch.isnan(features_target).any() or torch.isinf(features_target).any():
-            features_target = torch.nan_to_num(features_target, nan=0.0, posinf=1e6, neginf=-1e6)
-        
-        # 对特征进行L2归一化以提高数值稳定性
-        features_source = F.normalize(features_source, p=2, dim=1)
-        features_target = F.normalize(features_target, p=2, dim=1)
-        
-        # 计算所有源域和目标域特征之间的相似度 (cosine similarity)
-        similarity_matrix = torch.matmul(features_source, features_target.t()) / temperature
-        
-        # 创建正样本标签矩阵
-        labels_source_expanded = labels_source.unsqueeze(1)
-        labels_target_expanded = labels_target.unsqueeze(0)
-        positive_mask = (labels_source_expanded == labels_target_expanded).float()
-        
-        # 数值稳定性的InfoNCE损失实现
-        eps = 1e-8
-        logits = similarity_matrix - torch.max(similarity_matrix, dim=1, keepdim=True)[0]
-        logsumexp_logits = torch.logsumexp(logits, dim=1, keepdim=True)
-        log_probs = logits - logsumexp_logits
-        
-        # 只考虑正样本的对数概率
-        positive_log_probs = log_probs * positive_mask
-        positive_counts = positive_mask.sum(dim=1) + eps
-        
-        avg_positive_log_probs = positive_log_probs.sum(dim=1) / positive_counts
-        loss = -torch.mean(avg_positive_log_probs)
-        
-        # 处理NaN和inf值
-        if torch.isnan(loss) or torch.isinf(loss):
-            return torch.tensor(0.0, device=features_source.device)
-        
-        # 限制损失范围
-        loss = torch.clamp(loss, min=0.0, max=10.0)
-        
-        return loss
+        if proj_embeddings is None or labels is None:
+            return torch.tensor(0.0, device=proj_embeddings.device if proj_embeddings is not None else None)
+
+        # 数值稳定性处理
+        if torch.isnan(proj_embeddings).any() or torch.isinf(proj_embeddings).any():
+            proj_embeddings = torch.nan_to_num(proj_embeddings, nan=0.0, posinf=1e6, neginf=-1e6)
+
+        unique_labels = torch.unique(labels)
+        if unique_labels.numel() == 0:
+            return torch.tensor(0.0, device=proj_embeddings.device)
+
+        total_loss = torch.tensor(0.0, device=proj_embeddings.device)
+        valid_classes = 0
+
+        for c in unique_labels:
+            mask = (labels == c)
+            class_embeddings = proj_embeddings[mask]
+            if class_embeddings.size(0) < 2:
+                continue
+            
+            # 计算类中心
+            center = class_embeddings.mean(dim=0, keepdim=True)
+            # L2距离
+            class_loss = ((class_embeddings - center) ** 2).sum(dim=1).mean()
+            
+            if torch.isnan(class_loss) or torch.isinf(class_loss):
+                continue
+            total_loss = total_loss + class_loss
+            valid_classes += 1
+
+        if valid_classes == 0:
+            return torch.tensor(0.0, device=proj_embeddings.device)
+
+        total_loss = total_loss / valid_classes
+        total_loss = torch.clamp(total_loss, min=0.0, max=10.0)
+
+        return total_loss
     
     def forward(self, outputs, labels_source, labels_target=None):
         """
-        计算总损失
+        计算总损失 - 简化版(基于预训练模型)
+        
         Args:
             outputs: 模型输出字典
             labels_source: 源域标签
-            labels_target: 目标域标签（可选）
+            labels_target: 目标域标签(可选)
         """
         # 检查必要输出是否存在
         if 'logits_source' not in outputs:
             return torch.tensor(0.0, device=labels_source.device), {
                 'identity_loss': 0.0,
-                'contrastive_loss': 0.0,
+                'manifold_loss': 0.0,
                 'total_loss': 0.0
             }
         
-        # 身份分类损失
-        identity_loss = self.identity_classification_loss(
+        # 1. 身份分类损失 (源域)
+        identity_loss_src = self.identity_classification_loss(
             outputs['logits_source'], labels_source)
         
-        # 初始化对比损失
-        contrastive_loss = torch.tensor(0.0, device=identity_loss.device)
+        # 2. 目标域身份分类损失 (如果有)
+        identity_loss_tgt = torch.tensor(0.0, device=identity_loss_src.device)
+        if labels_target is not None and 'logits_target' in outputs:
+            identity_loss_tgt = self.identity_classification_loss(
+                outputs['logits_target'], labels_target)
         
-        # 检查是否有NaN或inf值并处理
+        # 平均身份损失
+        identity_loss = (identity_loss_src + identity_loss_tgt) / 2 if labels_target is not None else identity_loss_src
+        
+        # 3. 流形紧凑性损失 (32维投影空间)
+        manifold_loss = torch.tensor(0.0, device=identity_loss.device)
+        
+        # 源域流形紧凑性
+        if 'proj_source' in outputs and outputs['proj_source'] is not None:
+            manifold_loss = manifold_loss + self.manifold_compactness_loss(
+                outputs['proj_source'], labels_source)
+        
+        # 目标域流形紧凑性
+        if (labels_target is not None and 
+            'proj_target' in outputs and 
+            outputs['proj_target'] is not None):
+            manifold_loss = manifold_loss + self.manifold_compactness_loss(
+                outputs['proj_target'], labels_target)
+            manifold_loss = manifold_loss / 2  # 平均
+        
+        # 数值稳定性检查
         if torch.isnan(identity_loss) or torch.isinf(identity_loss):
             identity_loss = torch.tensor(0.0, device=identity_loss.device)
+        if torch.isnan(manifold_loss) or torch.isinf(manifold_loss):
+            manifold_loss = torch.tensor(0.0, device=manifold_loss.device)
         
-        total_loss = self.alpha * identity_loss
+        # 总损失 = 身份分类 + 流形紧凑性
+        total_loss = self.alpha * identity_loss + self.delta * manifold_loss
         
-        # 如果提供了目标域数据，则计算对比损失
-        if (labels_target is not None and 
-            'features_source' in outputs and 
-            'features_target' in outputs and
-            outputs['features_source'] is not None and
-            outputs['features_target'] is not None):
-            
-            # 确保特征维度匹配
-            if (outputs['features_source'].size(0) == labels_source.size(0) and
-                outputs['features_target'].size(0) == labels_target.size(0)):
-                
-                # 对比损失
-                contrastive_loss = self.contrastive_loss(
-                    outputs['features_source'], outputs['features_target'],
-                    labels_source, labels_target)
-            
-        # 检查是否有NaN或inf值并处理
-        if torch.isnan(contrastive_loss) or torch.isinf(contrastive_loss):
-            contrastive_loss = torch.tensor(0.0, device=contrastive_loss.device)
-        
-        total_loss += self.gamma * contrastive_loss
-        
-        # 确保总损失不是NaN或inf
-        if torch.isnan(total_loss) or torch.isinf(total_loss):
-            total_loss = torch.tensor(0.0, device=total_loss.device)
-            
-        # 限制总损失范围以防止梯度爆炸
+        # 限制损失范围
         total_loss = torch.clamp(total_loss, min=0.0, max=100.0)
             
         return total_loss, {
             'identity_loss': identity_loss.item() if not (torch.isnan(identity_loss) or torch.isinf(identity_loss)) else 0.0,
-            'contrastive_loss': contrastive_loss.item() if not (torch.isnan(contrastive_loss) or torch.isinf(contrastive_loss)) else 0.0,
+            'manifold_loss': manifold_loss.item() if not (torch.isnan(manifold_loss) or torch.isinf(manifold_loss)) else 0.0,
             'total_loss': total_loss.item() if not (torch.isnan(total_loss) or torch.isinf(total_loss)) else 0.0
         }
