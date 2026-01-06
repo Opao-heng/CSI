@@ -4,7 +4,7 @@ import torch.optim as optim
 import json
 from model_identify import IdentifyDetectionSystem
 from loss_identify import ManifoldLoss
-from Research2.DataProcess.dataloader_identify import load_identify_data, create_data_loaders
+from DataProcess.dataloader_identify import load_identify_data, create_data_loaders
 
 
 def train_epoch(model, source_loader, target_loader, optimizer, loss_fn, device):
@@ -59,7 +59,6 @@ def train_epoch(model, source_loader, target_loader, optimizer, loss_fn, device)
         loss_details[key] /= batch_count if batch_count > 0 else 1.0
     
     return avg_loss, loss_details
-
 
 
 def compute_manifold_metrics(model, data_loader, device, domain_type='source'):
@@ -181,26 +180,29 @@ def main():
     else:
         print(f"⚠️  未找到预训练权重")
 
-    # 初始化损失函数
+    # 初始化损失函数 - 优化权重配比
     print("\n" + "="*60)
     print("初始化损失函数...")
-    loss_fn = ManifoldLoss(intra_weight=1.0, inter_weight=0.3)
+    loss_fn = ManifoldLoss(intra_weight=1.0, inter_weight=0.5)  # 提升类间权重
     print(f"损失函数配置: 类内权重={loss_fn.intra_weight}, 类间权重={loss_fn.inter_weight}")
     
     # 只优化流形投影层
     optimizer = optim.Adam(
         model.manifold_projection.parameters(),
-        lr=0.001,
-        weight_decay=1e-5
+        lr=0.002,  # 提升初始学习率
+        weight_decay=1e-4  # 增强正则化
     )
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+    # 使用余弦退火调度器，更平滑的学习率衰减
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=15, T_mult=2, eta_min=1e-5
+    )
     
-    print(f"优化器配置: lr=0.001, 每20轮衰减0.5倍")
+    print(f"优化器配置: lr=0.002 (余弦退火), weight_decay=1e-4")
     print(f"冻结层: feature_extractor, cross_attention, identity_classifier")
     print(f"训练层: manifold_projection")
     
     # 训练参数
-    num_epochs = 50
+    num_epochs = 80  # 增加训练轮数，利用余弦退火的重启机制
     print(f"训练轮数: {num_epochs}")
     
     # 训练历史记录
@@ -208,9 +210,11 @@ def main():
         'config': {
             'num_epochs': num_epochs,
             'batch_size': 8,
-            'learning_rate': 0.001,
+            'learning_rate': 0.002,
             'projection_dim': 32,
-            'loss_weights': {'intra': 1.0, 'inter': 0.3}
+            'loss_weights': {'intra': 1.0, 'inter': 0.5},
+            'scheduler': 'CosineAnnealingWarmRestarts',
+            'weight_decay': 1e-4
         },
         'epochs': []
     }
@@ -259,8 +263,10 @@ def main():
                 
                 epoch_data['metrics'] = metrics
                 
-                # 保存最佳模型
-                if metrics['separation_ratio'] > best_ratio:
+                # 保存最佳模型 - 综合评估类内距离和分离比率
+                combined_score = metrics['separation_ratio'] - 0.5 * metrics['intra_distance']
+                if epoch == 0 or combined_score > history.get('best_combined_score', 0):
+                    history['best_combined_score'] = combined_score
                     best_ratio = metrics['separation_ratio']
                     torch.save({
                         'epoch': epoch,
@@ -268,13 +274,14 @@ def main():
                         'optimizer_state_dict': optimizer.state_dict(),
                         'metrics': metrics,
                         'train_loss': train_loss,
+                        'combined_score': combined_score,
                         'loss_config': {
                             'intra_weight': loss_fn.intra_weight,
                             'inter_weight': loss_fn.inter_weight
                         },
                         'training_config': history['config']
                     }, 'R_Identify/best_identify_model.pth')
-                    print(f"  💾 保存最佳模型 (分离比率: {best_ratio:.4f})")
+                    print(f"  💾 保存最佳模型 (分离比率: {best_ratio:.4f}, 综合分数: {combined_score:.4f})")
         
         history['epochs'].append(epoch_data)
     

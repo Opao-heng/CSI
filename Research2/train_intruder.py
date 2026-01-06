@@ -259,23 +259,29 @@ def train_intruder_detector(model_path, output_path, device):
     # 初始化综合入侵者检测器（二分类模型），在流形投影空间（32维）上工作
     comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=32).to(device)
 
-    # 使用训练集特征在投影空间上预先拟合 TraditionalOpenMax
+    # 初次拟合 TraditionalOpenMax（后续会定期更新）
+    print("初始化 TraditionalOpenMax...")
     train_features, _, train_labels, train_identity_labels = extract_features(identity_model, data_loaders['intruder_train'], device)
     if train_features.size > 0:
         comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
+        print(f"TraditionalOpenMax初始化完成 (训练样本数: {len(train_features)})")
     
-    # 设置优化器：使用AdamW且更高的学习率和权重衰减
-    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=1e-3, weight_decay=1e-3)  # 提高学习率和权重衰减
+    # 设置优化器：使用AdamW，提高学习率
+    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=2e-3, weight_decay=5e-4)
     
     # 使用Warmup + 余弦退火学习率调度器
-    warmup_epochs = 10
+    warmup_epochs = 15
     def warmup_lambda(epoch):
         if epoch < warmup_epochs:
             return (epoch + 1) / warmup_epochs
         return 1.0
     
     warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=140, eta_min=1e-6)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=135, eta_min=1e-6)
+    
+    # OpenMax更新配置
+    openmax_update_interval = 5  # 每5个epoch更新一次OpenMax
+    use_openmax_after_epoch = 10  # 前10个epoch不使用OpenMax，让深度学习检测器先学习
     
     # 损失函数 - 使用Focal Loss增强难例关注
     train_dataset = datasets['intruder_train']
@@ -290,10 +296,10 @@ def train_intruder_detector(model_path, output_path, device):
 
     comprehensive_detector.train()
     
-    num_epochs = 150  # 增加训练轮次
-    best_accuracy = 0.0  # 跟踪最佳综合评分（F1+准确率）
+    num_epochs = 150
+    best_score = 0.0  # 跟踪最佳综合评分
     early_stop_counter = 0
-    patience = 50  # 增加早停耐心值
+    patience = 40  # 早停耐心值
     
     # 记录训练历史
     train_losses = []
@@ -301,24 +307,33 @@ def train_intruder_detector(model_path, output_path, device):
     test_metrics = []  # (accuracy, f1, precision, recall, auroc)
 
     for epoch in range(num_epochs):
+        # 定期更新 TraditionalOpenMax
+        if epoch > 0 and epoch % openmax_update_interval == 0:
+            print(f"\n[Epoch {epoch+1}] 更新 TraditionalOpenMax...")
+            train_features, _, train_labels, train_identity_labels = extract_features(
+                identity_model, data_loaders['intruder_train'], device)
+            if train_features.size > 0:
+                comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
+                print(f"TraditionalOpenMax 更新完成\n")
+        
+        # 判断是否使用OpenMax
+        use_openmax = (epoch >= use_openmax_after_epoch)
+        
         total_loss = 0.0
         correct = 0
         total = 0
-        positive_predictions = 0  # 记录正类预测数量
-        positive_labels = 0  # 记录实际正类数量
+        positive_predictions = 0
+        positive_labels = 0
         
         batch_count = 0
         
         # 训练循环
         for batch_idx, batch in enumerate(data_loaders['intruder_train']):
-            # 处理不同格式的batch数据
             data, labels, identity_labels = batch
             
-            # 移动到设备
             data = data.to(device)
-            labels = labels.to(device).float()  # 转换为float用于BCE损失
+            labels = labels.to(device).float()
             
-            # 前向传播
             optimizer.zero_grad()
             
             # 使用身份识别模型提取特征
@@ -327,8 +342,8 @@ def train_intruder_detector(model_path, output_path, device):
                 features = identity_outputs.get('proj', identity_outputs['features'])
                 logits = identity_outputs['logits']
 
-            # 使用综合入侵者检测器进行检测
-            detector_outputs = comprehensive_detector(features, logits, identity_labels)
+            # 使用综合入侵者检测器进行检测（动态控制是否使用OpenMax）
+            detector_outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
             output_logits = detector_outputs['logits']  # 使用logits而不是probabilities
 
             # 计算损失 - 添加Label Smoothing
@@ -387,17 +402,19 @@ def train_intruder_detector(model_path, output_path, device):
         val_metrics.append((val_accuracy, val_f1, val_precision, val_recall, val_auroc))
         test_metrics.append((test_accuracy, test_f1, test_precision, test_recall, test_auroc))
 
-        # 简化输出信息，显示损失、学习率、验证集和测试集的关键指标
-        print(f'Epoch [{epoch+1}/{num_epochs}], 损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
+        # 输出训练信息
+        openmax_status = "启用" if use_openmax else "禁用"
+        print(f'Epoch [{epoch+1}/{num_epochs}] [OpenMax: {openmax_status}]')
+        print(f'  损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
         print(f'  验证集: 准确率={val_accuracy:.4f}, F1={val_f1:.4f}, AUROC={val_auroc:.4f}')
         print(f'  测试集: 准确率={test_accuracy:.4f}, F1={test_f1:.4f}, AUROC={test_auroc:.4f}')
 
-        # 使用综合评分：准确率30% + F1分70%，更重视F1
-        test_comprehensive_score = 0.3 * test_accuracy + 0.7 * test_f1
+        # 综合评分：准确率20% + F1分80%
+        test_comprehensive_score = 0.2 * test_accuracy + 0.8 * test_f1
         
-        # 保存最佳模型（基于综合评分）
-        if test_comprehensive_score > best_accuracy:
-            best_accuracy = test_comprehensive_score
+        # 保存最佳模型
+        if test_comprehensive_score > best_score:
+            best_score = test_comprehensive_score
             early_stop_counter = 0
             torch.save({
                 'epoch': epoch,
@@ -405,21 +422,21 @@ def train_intruder_detector(model_path, output_path, device):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'warmup_scheduler_state_dict': warmup_scheduler.state_dict(),
                 'cosine_scheduler_state_dict': cosine_scheduler.state_dict(),
-                'best_score': best_accuracy,
+                'best_score': best_score,
                 'val_metrics': (val_accuracy, val_f1, val_precision, val_recall, val_auroc),
                 'test_metrics': (test_accuracy, test_f1, test_precision, test_recall, test_auroc),
             }, output_path)
-            print(f'  保存最佳模型 (综合评分: {best_accuracy:.4f}, 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f})')
+            print(f'  ✓ 保存最佳模型 (综合评分: {best_score:.4f})')
         else:
             early_stop_counter += 1
-            print(f'  早停计数器: {early_stop_counter}/{patience} (当前F1: {test_f1:.4f})')
+            print(f'  早停计数: {early_stop_counter}/{patience}')
             
         # 早停检查
         if early_stop_counter >= patience:
-            print(f'  测试集准确率在 {patience} 个epoch内未提升，提前停止训练')
+            print(f'\n提前停止: 综合评分在 {patience} 个epoch内未提升')
             break
     
-    print(f"训练完成! 最佳测试集准确率: {best_accuracy:.4f}")
+    print(f"\n训练完成! 最佳综合评分: {best_score:.4f}")
     
     # 基于测试集准确率找到最佳 Epoch，并打印该 Epoch 的验证集和测试集综合指标
     if len(val_metrics) > 0:

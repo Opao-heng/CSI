@@ -218,7 +218,7 @@ class LearnableThresholdDetector(nn.Module):
 class LearnableComprehensiveIntruderDetector(nn.Module):
     """
     可学习的综合入侵者检测模型 - 专门用于二分类任务（合法用户 vs 入侵者）
-    核心创新：OpenMax（传统统计） + 深度学习检测器 + 自适应融合
+    核心创新：OpenMax（传统统计） + 深度学习检测器 + 动态注意力融合
     输出：0表示合法用户，1表示入侵者
     """
     
@@ -233,22 +233,29 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化可学习阈值检测器（32维流形空间）
         self.learnable_threshold_detector = LearnableThresholdDetector(feature_dim)
         
-        # 增强的融合层 - 多层深度网络，提升融合能力
-        # 输入：openmax_prob + learnable_prob + |diff| + mean = 4维
+        # 注意力机制：动态调整两个检测器的权重
+        self.attention_layer = nn.Sequential(
+            nn.Linear(4, 16),
+            nn.ReLU(inplace=True),
+            nn.Linear(16, 2),
+            nn.Softmax(dim=-1)  # 输出两个权重，和为1
+        )
+        
+        # 增强的融合层 - 更深的网络，更强的表达能力
         self.fusion_layer = nn.Sequential(
-            nn.Linear(4, 24),
+            nn.Linear(4, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.2),
+            
+            nn.Linear(32, 24),
             nn.BatchNorm1d(24),
             nn.ReLU(inplace=True),
             nn.Dropout(0.15),
             
-            nn.Linear(24, 16),
-            nn.BatchNorm1d(16),
+            nn.Linear(24, 12),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.1),
-            
-            nn.Linear(16, 8),
-            nn.ReLU(inplace=True),
-            nn.Linear(8, 1)
+            nn.Linear(12, 1)
         )
         
         # 移除openmax_fitted标志位，每次都会更新模型
@@ -259,13 +266,14 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         """
         self.traditional_openmax.fit(features, labels, identity_labels)
     
-    def forward(self, features, logits, identity_labels):
+    def forward(self, features, logits, identity_labels, use_openmax=True):
         """
         前向传播
         Args:
             features: 32维流形投影特征 (batch_size, 32)
             logits: 身份识别模型的输出logits (batch_size, num_known_users)
             identity_labels: 身份标签 (用于OpenMax)
+            use_openmax: 是否使用OpenMax（训练初期可以禁用以加速训练）
         Returns:
             predictions: 入侵者检测预测结果 (0:合法用户, 1:入侵者)
             probabilities: 检测概率
@@ -280,11 +288,15 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         learnable_result = self.learnable_threshold_detector(features)
         learnable_probs = learnable_result['probabilities']
 
-        # 2. 使用预先拟合好的 TraditionalOpenMax 进行打分
-        features_np = features.detach().cpu().numpy()
-        _, openmax_scores = self.traditional_openmax.predict(features_np)
-        # 转换为入侵者概率（OpenMax分数越低越可能是入侵者）
-        openmax_probs = torch.from_numpy(1 - openmax_scores).float().to(features.device)
+        # 2. 使用预先拟合好的 TraditionalOpenMax 进行打分（可选）
+        if use_openmax:
+            features_np = features.detach().cpu().numpy()
+            _, openmax_scores = self.traditional_openmax.predict(features_np)
+            # 转换为入侵者概率（OpenMax分数越低越可能是入侵者）
+            openmax_probs = torch.from_numpy(1 - openmax_scores).float().to(features.device)
+        else:
+            # 训练初期不使用OpenMax，使用learnable_probs的副本
+            openmax_probs = learnable_probs.clone().detach()
 
         # 确保所有张量维度一致
         if openmax_probs.dim() == 0:
@@ -299,9 +311,9 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         if learnable_probs.size(0) != batch_size:
             learnable_probs = learnable_probs[:batch_size]
 
-        # 3. 增强融合：融合两个概率值和置信度差异
-        prob_diff = torch.abs(learnable_probs - openmax_probs).unsqueeze(1)  # 差异信息
-        prob_mean = ((learnable_probs + openmax_probs) / 2).unsqueeze(1)  # 平均置信度
+        # 3. 动态注意力融合：自适应调整两个检测器的权重
+        prob_diff = torch.abs(learnable_probs - openmax_probs).unsqueeze(1)
+        prob_mean = ((learnable_probs + openmax_probs) / 2).unsqueeze(1)
         combined_input = torch.cat([
             learnable_probs.unsqueeze(1), 
             openmax_probs.unsqueeze(1),
@@ -309,8 +321,19 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
             prob_mean
         ], dim=1)  # [batch, 4]
         
-        # 通过融合层得到最终的logits
-        final_logits = self.fusion_layer(combined_input).squeeze(-1)
+        # 计算注意力权重
+        attention_weights = self.attention_layer(combined_input)  # [batch, 2]
+        
+        # 加权融合两个概率
+        weighted_prob = (attention_weights[:, 0:1] * learnable_probs.unsqueeze(1) + 
+                        attention_weights[:, 1:2] * openmax_probs.unsqueeze(1)).squeeze(1)
+        
+        # 通过融合层得到最终的logits（使用原始特征和加权概率）
+        enhanced_input = torch.cat([
+            combined_input,
+        ], dim=1)  # [batch, 4]
+        
+        final_logits = self.fusion_layer(enhanced_input).squeeze(-1)
         final_probabilities = torch.sigmoid(final_logits)
 
         # 确保输出维度正确
