@@ -13,7 +13,7 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
     """
     model.train()
     total_loss = 0.0
-    loss_components = {'identity': 0.0, 'manifold': 0.0, 'center': 0.0}
+    loss_components = {'identity_src': 0.0, 'identity_tgt': 0.0, 'manifold': 0.0, 'center': 0.0}
     batch_count = 0
     
     # 使用zip循环处理源域和目标域数据
@@ -57,7 +57,8 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
 
         # 累计损失
         total_loss += loss.item()
-        loss_components['identity'] += loss_dict.get('identity_loss', 0.0)
+        loss_components['identity_src'] += loss_dict.get('identity_loss_src', 0.0)
+        loss_components['identity_tgt'] += loss_dict.get('identity_loss_tgt', 0.0)
         loss_components['manifold'] += loss_dict.get('manifold_loss', 0.0)
         loss_components['center'] += center_loss_total.item()
         batch_count += 1
@@ -230,10 +231,11 @@ def main():
         loss_components_history.append(loss_components)
         
         # 打印epoch结果
-        print(f'  训练损失: {train_loss:.4f} '
-              f'(身份: {loss_components["identity"]:.4f}, '
-              f'流形: {loss_components["manifold"]:.4f}, '
-              f'Center: {loss_components["center"]:.4f})')
+        print(f'  训练损失: {train_loss:.4f} ')
+        print(f'    - 源域身份: {loss_components["identity_src"]:.4f}')
+        print(f'    - 目标域身份: {loss_components["identity_tgt"]:.4f}')
+        print(f'    - 流形紧凑性: {loss_components["manifold"]:.4f}')
+        print(f'    - Center-aware: {loss_components["center"]:.4f}')
         print(f'  验证准确率: {val_accuracy:.2f}%')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         

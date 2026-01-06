@@ -8,14 +8,14 @@ class IdentifyDetectionLoss(nn.Module):
         """
         简化的损失函数 - 基于第三章预训练模型
         第三章已学会跨域对齐,第四章关注:
-        1. 身份分类 (identity_loss)
+        1. 身份分类 (identity_loss)（源域和目标域）
         2. 流形紧凑性 (manifold_compactness_loss)
-        3. Center-aware约束 (center_aware_loss) - 新增
+        3. Center-aware约束 (center_aware_loss)
         
         Args:
             alpha: 身份分类损失权重
             delta: 流形紧凑性损失权重
-            beta: Center-aware损失权重 (新增)
+            beta: Center-aware损失权重
         """
         super(IdentifyDetectionLoss, self).__init__()
         self.alpha = alpha
@@ -107,76 +107,80 @@ class IdentifyDetectionLoss(nn.Module):
     
     def forward(self, outputs, labels_source, labels_target=None):
         """
-        计算总损失 - 简化版(基于预训练模型)
+        计算总损失 - 四个独立损失组件
         
         Args:
             outputs: 模型输出字典
             labels_source: 源域标签
-            labels_target: 目标域标签(可选)
+            labels_target: 目标域标签(必需)
+        
+        返回四个损失:
+        1. identity_loss_src: 源域身份分类损失
+        2. identity_loss_tgt: 目标域身份分类损失
+        3. manifold_loss: 流形紧凑性损失(源域+目标域)
+        4. center_loss: Center-aware损失(在train中单独计算)
         """
         # 检查必要输出是否存在
         if 'logits_source' not in outputs:
             return torch.tensor(0.0, device=labels_source.device), {
-                'identity_loss': 0.0,
+                'identity_loss_src': 0.0,
+                'identity_loss_tgt': 0.0,
                 'manifold_loss': 0.0,
+                'center_loss': 0.0,
                 'total_loss': 0.0
             }
         
-        # 1. 身份分类损失 (源域)
+        # 1. 源域身份分类损失
         identity_loss_src = self.identity_classification_loss(
             outputs['logits_source'], labels_source)
         
-        # 2. 目标域身份分类损失 (如果有)
+        # 2. 目标域身份分类损失
         identity_loss_tgt = torch.tensor(0.0, device=identity_loss_src.device)
         if labels_target is not None and 'logits_target' in outputs:
             identity_loss_tgt = self.identity_classification_loss(
                 outputs['logits_target'], labels_target)
         
-        # 平均身份损失
-        identity_loss = (identity_loss_src + identity_loss_tgt) / 2 if labels_target is not None else identity_loss_src
-        
-        # 3. 流形紧凑性损失 (32维投影空间)
-        manifold_loss = torch.tensor(0.0, device=identity_loss.device)
+        # 3. 流形紧凑性损失 (源域+目标域)
+        manifold_loss_src = torch.tensor(0.0, device=identity_loss_src.device)
+        manifold_loss_tgt = torch.tensor(0.0, device=identity_loss_src.device)
         
         # 源域流形紧凑性
         if 'proj_source' in outputs and outputs['proj_source'] is not None:
-            manifold_loss = manifold_loss + self.manifold_compactness_loss(
+            manifold_loss_src = self.manifold_compactness_loss(
                 outputs['proj_source'], labels_source)
         
         # 目标域流形紧凑性
         if (labels_target is not None and 
             'proj_target' in outputs and 
             outputs['proj_target'] is not None):
-            manifold_loss = manifold_loss + self.manifold_compactness_loss(
+            manifold_loss_tgt = self.manifold_compactness_loss(
                 outputs['proj_target'], labels_target)
-            manifold_loss = manifold_loss / 2  # 平均
         
-        # 4. Center-aware损失 (第四章新增)
-        center_loss = torch.tensor(0.0, device=identity_loss.device)
+        # 合并流形损失
+        manifold_loss = (manifold_loss_src + manifold_loss_tgt) / 2
         
-        # 需要类中心信息
-        if 'proj_source' in outputs and outputs['proj_source'] is not None:
-            # 从模型中获取类中心(只在训练时可用)
-            if hasattr(outputs, 'get') and 'center_source' in outputs:
-                # 注意: 这里需要从模型中传入class_centers
-                # 在forward中已经返回了center信息,但center-aware loss需要所有类中心
-                # 这里暂时跳过,在train_identify.py中单独计算
-                pass
+        # 4. Center-aware损失占位(在train_identify.py中单独计算)
+        center_loss = torch.tensor(0.0, device=identity_loss_src.device)
         
         # 数值稳定性检查
-        if torch.isnan(identity_loss) or torch.isinf(identity_loss):
-            identity_loss = torch.tensor(0.0, device=identity_loss.device)
+        if torch.isnan(identity_loss_src) or torch.isinf(identity_loss_src):
+            identity_loss_src = torch.tensor(0.0, device=identity_loss_src.device)
+        if torch.isnan(identity_loss_tgt) or torch.isinf(identity_loss_tgt):
+            identity_loss_tgt = torch.tensor(0.0, device=identity_loss_tgt.device)
         if torch.isnan(manifold_loss) or torch.isinf(manifold_loss):
             manifold_loss = torch.tensor(0.0, device=manifold_loss.device)
         
-        # 总损失 = 身份分类 + 流形紧凑性 + Center-aware
-        total_loss = self.alpha * identity_loss + self.delta * manifold_loss + self.beta * center_loss
+        # 总损失 = alpha*源域身份 + alpha*目标域身份 + delta*流形 + beta*center(后面加)
+        # 注意: 两个身份损失都使用alpha权重,保持对称性
+        total_loss = self.alpha * identity_loss_src + self.alpha * identity_loss_tgt + \
+                     self.delta * manifold_loss + self.beta * center_loss
         
         # 限制损失范围
         total_loss = torch.clamp(total_loss, min=0.0, max=100.0)
             
         return total_loss, {
-            'identity_loss': identity_loss.item() if not (torch.isnan(identity_loss) or torch.isinf(identity_loss)) else 0.0,
+            'identity_loss_src': identity_loss_src.item() if not (torch.isnan(identity_loss_src) or torch.isinf(identity_loss_src)) else 0.0,
+            'identity_loss_tgt': identity_loss_tgt.item() if not (torch.isnan(identity_loss_tgt) or torch.isinf(identity_loss_tgt)) else 0.0,
             'manifold_loss': manifold_loss.item() if not (torch.isnan(manifold_loss) or torch.isinf(manifold_loss)) else 0.0,
             'center_loss': center_loss.item() if not (torch.isnan(center_loss) or torch.isinf(center_loss)) else 0.0,
             'total_loss': total_loss.item() if not (torch.isnan(total_loss) or torch.isinf(total_loss)) else 0.0
