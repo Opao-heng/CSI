@@ -122,70 +122,30 @@ class TraditionalOpenMax:
 
 class LearnableThresholdDetector(nn.Module):
     """
-    入侵者检测器 - 基于深度学习的异常检测模型
-    核心思想：学习已知用户特征的紧凑表示和决策边界，识别偏离该边界的入侵者
+    入侵者检测器 - 基于32维流形空间的轻量级异常检测模型
     
-    设计理念：
-    1. 特征压缩：将128维特征压缩到更紧凑的空间，放大正常/异常的差异
-    2. 非线性变换：通过深层网络学习复杂的决策边界
-    3. 距离度量：学习特征空间中的距离度量，判断样本是否属于已知用户分布
+    设计理念（优化版）：
+    1. 直接在32维流形空间上工作，避免过度压缩
+    2. 浅层网络结构，防止过拟合
+    3. 利用流形投影已有的紧凑性，专注于决策边界学习
     """
     
-    def __init__(self, feature_dim=128):
+    def __init__(self, feature_dim=32):
         super(LearnableThresholdDetector, self).__init__()
         self.feature_dim = feature_dim
         
-        # 编码器：将特征映射到紧凑的判别空间
-        # 128 -> 96 -> 64 -> 48 -> 32
-        self.encoder = nn.Sequential(
-            nn.Linear(feature_dim, 96),
-            nn.BatchNorm1d(96),
-            nn.LeakyReLU(0.2),
+        # 优化的异常度估计器 - 增强特征提取能力
+        # 32 -> 24 -> 12 -> 1 (适度增加容量)
+        self.detector = nn.Sequential(
+            nn.Linear(feature_dim, 24),
+            nn.BatchNorm1d(24),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.3),
             
-            nn.Linear(96, 64),
-            nn.BatchNorm1d(64),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.25),
-            
-            nn.Linear(64, 48),
-            nn.BatchNorm1d(48),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.2),
-            
-            nn.Linear(48, 32),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.2)
-        )
-        
-        # 异常度估计器：估计样本的异常程度
-        # 使用bottleneck结构强制学习紧凑表示
-        self.anomaly_estimator = nn.Sequential(
-            nn.Linear(32, 16),  # bottleneck
-            nn.BatchNorm1d(16),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.2),
-            
-            nn.Linear(16, 24),  # 扩展
-            nn.BatchNorm1d(24),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.15),
-            
-            nn.Linear(24, 16),
-            nn.LeakyReLU(0.2)
-        )
-        
-        # 决策层：输出异常分数
-        # 多路径融合：同时使用编码特征和异常度估计
-        self.decision_head = nn.Sequential(
-            nn.Linear(32 + 16, 24),  # 拼接编码特征(32) + 异常度特征(16)
-            nn.BatchNorm1d(24),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.2),
-            
             nn.Linear(24, 12),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.1),
+            nn.BatchNorm1d(12),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.2),
             
             nn.Linear(12, 1)  # 输出：异常分数
         )
@@ -194,7 +154,7 @@ class LearnableThresholdDetector(nn.Module):
         """
         前向传播
         Args:
-            features: 身份识别模型提取的特征 (batch_size, 128)
+            features: 32维流形投影特征 (batch_size, 32)
         Returns:
             dict: {
                 'predictions': 二分类预测 (0:合法用户, 1:入侵者),
@@ -206,17 +166,10 @@ class LearnableThresholdDetector(nn.Module):
         if features.dim() == 1:
             features = features.unsqueeze(0)
         
-        # 1. 特征编码到紧凑空间
-        encoded = self.encoder(features)  # [batch, 32]
+        # 异常分数估计
+        logits = self.detector(features).squeeze(-1)  # [batch]
         
-        # 2. 异常度估计
-        anomaly_score = self.anomaly_estimator(encoded)  # [batch, 16]
-        
-        # 3. 融合编码特征和异常度，做最终决策
-        combined = torch.cat([encoded, anomaly_score], dim=1)  # [batch, 48]
-        logits = self.decision_head(combined).squeeze()  # [batch]
-        
-        # 4. 转换为概率
+        # 转换为概率
         probabilities = torch.sigmoid(logits)
         
         # 确保输出维度正确
@@ -238,11 +191,11 @@ class LearnableThresholdDetector(nn.Module):
 class LearnableComprehensiveIntruderDetector(nn.Module):
     """
     可学习的综合入侵者检测模型 - 专门用于二分类任务（合法用户 vs 入侵者）
-    结合 TraditionalOpenMax 和 LearnableThresholdDetector进行综合检测
+    核心创新：OpenMax（传统统计） + 深度学习检测器 + 自适应融合
     输出：0表示合法用户，1表示入侵者
     """
     
-    def __init__(self, num_known_users=10, feature_dim=128, alpha=3):
+    def __init__(self, num_known_users=10, feature_dim=32, alpha=3):
         super(LearnableComprehensiveIntruderDetector, self).__init__()
         self.num_known_users = num_known_users
         self.feature_dim = feature_dim
@@ -250,24 +203,19 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化TraditionalOpenMax组件
         self.traditional_openmax = TraditionalOpenMax(num_known_users, alpha)
         
-        # 初始化可学习阈值检测器
+        # 初始化可学习阈值检测器（32维流形空间）
         self.learnable_threshold_detector = LearnableThresholdDetector(feature_dim)
         
-        # 改进的融合层 - 使用更丰富的特征信息
-        # 输入维度：learnable_probs + openmax_probs + features + logits
-        fusion_input_dim = 2 + feature_dim + 10  # 2个概率 + 128维特征 + 10维logits
+        # 增强的融合层 - 融合4维特征（2个概率 + 差异 + 均值）
+        # 输入：openmax_prob + learnable_prob + |diff| + mean = 4维
         self.fusion_layer = nn.Sequential(
-            nn.Linear(fusion_input_dim, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
+            nn.Linear(4, 12),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.3),
-            nn.Linear(64, 32),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
+            nn.Linear(12, 6),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.2),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1)
+            nn.Linear(6, 1)
         )
         
         # 移除openmax_fitted标志位，每次都会更新模型
@@ -282,8 +230,9 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         """
         前向传播
         Args:
-            features: 身份识别模型提取的特征 (batch_size, feature_dim)
+            features: 32维流形投影特征 (batch_size, 32)
             logits: 身份识别模型的输出logits (batch_size, num_known_users)
+            identity_labels: 身份标签 (用于OpenMax)
         Returns:
             predictions: 入侵者检测预测结果 (0:合法用户, 1:入侵者)
             probabilities: 检测概率
@@ -294,18 +243,15 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         if logits.dim() == 1:
             logits = logits.unsqueeze(0)
 
-        # 获取可学习阈值检测器的结果
+        # 1. 获取可学习阈值检测器的结果（直接在32维流形空间判别）
         learnable_result = self.learnable_threshold_detector(features)
-        learnable_logits = learnable_result['logits']  # 获取logits
         learnable_probs = learnable_result['probabilities']
 
-        # 将torch tensor转换为numpy array以供TraditionalOpenMax使用
+        # 2. 使用预先拟合好的 TraditionalOpenMax 进行打分
         features_np = features.detach().cpu().numpy()
-        
-        # 使用预先拟合好的 TraditionalOpenMax 进行打分
         _, openmax_scores = self.traditional_openmax.predict(features_np)
-        # 将分数转换为tensor并调整范围到[0,1]，其中0表示入侵者，1表示合法用户
-        openmax_probs = torch.from_numpy(1 - openmax_scores).float().to(features.device)  # 转换为入侵者概率
+        # 转换为入侵者概率（OpenMax分数越低越可能是入侵者）
+        openmax_probs = torch.from_numpy(1 - openmax_scores).float().to(features.device)
 
         # 确保所有张量维度一致
         if openmax_probs.dim() == 0:
@@ -313,25 +259,25 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         if learnable_probs.dim() == 0:
             learnable_probs = learnable_probs.unsqueeze(0)
             
-        # 确保所有张量的batch维度一致
+        # 确保batch维度一致
         batch_size = features.size(0)
         if openmax_probs.size(0) != batch_size:
             openmax_probs = openmax_probs[:batch_size]
         if learnable_probs.size(0) != batch_size:
             learnable_probs = learnable_probs[:batch_size]
-        if logits.size(0) != batch_size:
-            logits = logits[:batch_size]
 
-        # 使用更丰富的特征信息进行融合
-        # 将特征、logits和两个概率值拼接
-        combined_input = torch.cat([learnable_probs.unsqueeze(1), 
-                                   openmax_probs.unsqueeze(1), 
-                                   features, 
-                                   logits], dim=1)
+        # 3. 增强融合：融合两个概率值和置信度差异
+        prob_diff = torch.abs(learnable_probs - openmax_probs).unsqueeze(1)  # 差异信息
+        prob_mean = ((learnable_probs + openmax_probs) / 2).unsqueeze(1)  # 平均置信度
+        combined_input = torch.cat([
+            learnable_probs.unsqueeze(1), 
+            openmax_probs.unsqueeze(1),
+            prob_diff,
+            prob_mean
+        ], dim=1)  # [batch, 4]
         
         # 通过融合层得到最终的logits
-        final_logits = self.fusion_layer(combined_input).squeeze()
-        # 应用sigmoid函数得到概率
+        final_logits = self.fusion_layer(combined_input).squeeze(-1)
         final_probabilities = torch.sigmoid(final_logits)
 
         # 确保输出维度正确
