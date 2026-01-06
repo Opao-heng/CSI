@@ -1,7 +1,9 @@
-# model_identify.py - 基于Research1的CrossAttentionModel增强的身份识别模型
-# 设计逻辑：继承第三章的特征提取器和交叉注意力机制，增加流形投影头用于入侵检测
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+# model_identify.py - 基于Research1的CrossAttentionModel增强的身份识别模型
+# 设计逻辑：继承第三章的特征提取器和交叉注意力机制，增加流形投影头用于入侵检测
 
 
 class FeatureExtractor(nn.Module):
@@ -199,16 +201,16 @@ class CrossAttentionModule(nn.Module):
 
 
 class AnomalyOrientedProjection(nn.Module):
-    """面向异常检测的流形投影 (第四章核心创新)
+    """面向异常检测的流形投影 (第四章核心创新) - 增强版
     
     设计动机:
     - 第三章: 512维特征针对分类任务优化(类间分离)
     - 第四章: 32维特征针对异常检测优化(类内紧凑+距离度量)
     
-    技术创新:
-    1. Center-aware投影: 显式建模每个身份的类中心原型
-    2. 度量学习优化: 针对欧式距离优化(OpenMax需要)
-    3. 紧凑性约束: 特征向最近类中心靠拢
+    技术创新 (v2.0 - 网络结构优化):
+    1. 深层投影网络: 更平滑的维度压缩 + 残差连接
+    2. 软分配Center机制: 多中心加权融合,提升流形质量
+    3. 强归一化: LayerNorm + BatchNorm,增强训练稳定性
     
     输入: F_s或F_t (512维交叉注意力特征)
     输出: 32维紧凑特征 + 到类中心的距离信息
@@ -217,32 +219,59 @@ class AnomalyOrientedProjection(nn.Module):
     def __init__(self, input_dim=512, projection_dim=32, num_classes=10):
         super(AnomalyOrientedProjection, self).__init__()
         
-        # 主投影网络: 512 -> 32
-        self.projector = nn.Sequential(
+        # 更深的投影网络: 512 -> 256 -> 128 -> 64 -> 32 (更平滑的压缩)
+        # 使用残差连接缓解梯度消失
+        self.proj_stage1 = nn.Sequential(
             nn.Linear(input_dim, 256),
-            nn.BatchNorm1d(256),
+            nn.LayerNorm(256),  # LayerNorm更适合小batch
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            
-            nn.Linear(256, 96),
-            nn.BatchNorm1d(96),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.15),
-            
-            nn.Linear(96, projection_dim)
+            nn.Dropout(0.15)
         )
+        
+        self.proj_stage2 = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1)
+        )
+        
+        self.proj_stage3 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.LayerNorm(64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.08)
+        )
+        
+        # 最终投影到32维
+        self.proj_final = nn.Linear(64, projection_dim)
         
         # 可学习的类中心原型 (为OpenMax距离计算准备)
-        # 每个身份一个32维原型向量
+        # 使用Xavier初始化,更稳定
         self.class_centers = nn.Parameter(
-            torch.randn(num_classes, projection_dim) * 0.1
+            torch.randn(num_classes, projection_dim) * (2.0 / (num_classes + projection_dim)) ** 0.5
         )
         
-        # Center-aware调整层: 让特征主动靠近其类中心
-        self.center_aware_adjustment = nn.Sequential(
-            nn.Linear(projection_dim * 2, projection_dim),  # 拼接[投影特征, 最近中心]
-            nn.BatchNorm1d(projection_dim),
-            nn.Tanh()  # 限制输出范围,增强紧凑性
+        # 软分配机制: 计算样本到所有中心的权重
+        self.soft_assignment = nn.Sequential(
+            nn.Linear(projection_dim, num_classes),
+            nn.Softmax(dim=1)  # 输出[B, num_classes],表示对每个中心的权重
+        )
+        
+        # Center-aware调整层 (增强版): 多中心加权融合
+        self.center_fusion = nn.Sequential(
+            nn.Linear(projection_dim * 2, 128),  # 拼接[投影特征, 加权中心]
+            nn.LayerNorm(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1),
+            
+            nn.Linear(128, projection_dim),
+            nn.LayerNorm(projection_dim)
+        )
+        
+        # 残差门控: 自动学习是否需要Center调整
+        self.residual_gate = nn.Sequential(
+            nn.Linear(projection_dim, projection_dim),
+            nn.Sigmoid()  # 门控权重[0, 1]
         )
         
     def forward(self, x, return_distances=False):
@@ -256,22 +285,41 @@ class AnomalyOrientedProjection(nn.Module):
             min_distances: [B] - 到最近类中心的距离(可选)
             nearest_centers: [B] - 最近的类中心索引(可选)
         """
-        # 1. 基础投影: 512 -> 32
-        proj = self.projector(x)  # [B, 32]
+        # 1. 深层投影: 512 -> 256 -> 128 -> 64 -> 32 (更平滑的压缩)
+        h1 = self.proj_stage1(x)  # [B, 256]
+        h2 = self.proj_stage2(h1)  # [B, 128]
+        h3 = self.proj_stage3(h2)  # [B, 64]
+        proj = self.proj_final(h3)  # [B, 32]
+        
+        # L2归一化: 统一特征尺度,提升距离度量质量
+        proj = F.normalize(proj, p=2, dim=1)
         
         # 2. 计算到所有类中心的距离
         # proj: [B, 32], class_centers: [10, 32]
-        distances = torch.cdist(proj, self.class_centers)  # [B, 10]
+        # 同样归一化类中心
+        centers_normalized = F.normalize(self.class_centers, p=2, dim=1)
+        distances = torch.cdist(proj, centers_normalized)  # [B, 10]
         
-        # 3. 找到最近的类中心
-        min_distances, nearest_centers = torch.min(distances, dim=1)  # [B]
-        nearest_center_vectors = self.class_centers[nearest_centers]  # [B, 32]
+        # 3. 软分配: 计算样本对每个中心的权重
+        assignment_weights = self.soft_assignment(proj)  # [B, 10]
         
-        # 4. Center-aware调整: 引导特征向其最近中心靠拢
-        combined = torch.cat([proj, nearest_center_vectors], dim=1)  # [B, 64]
-        proj_adjusted = self.center_aware_adjustment(combined)  # [B, 32]
+        # 4. 加权融合中心: 不只用最近的,而是加权组合多个中心
+        weighted_center = torch.matmul(assignment_weights, centers_normalized)  # [B, 32]
+        
+        # 5. Center-aware调整: 融合原始投影和加权中心
+        combined = torch.cat([proj, weighted_center], dim=1)  # [B, 64]
+        center_adjusted = self.center_fusion(combined)  # [B, 32]
+        
+        # 6. 残差门控: 自适应地混合原始投影和center调整
+        gate = self.residual_gate(proj)  # [B, 32]
+        proj_adjusted = gate * proj + (1 - gate) * center_adjusted  # [B, 32]
+        
+        # 7. 最终L2归一化
+        proj_adjusted = F.normalize(proj_adjusted, p=2, dim=1)
         
         if return_distances:
+            # 返回到最近中心的距离(用于损失计算)
+            min_distances, nearest_centers = torch.min(distances, dim=1)  # [B]
             return proj_adjusted, min_distances, nearest_centers
         else:
             return proj_adjusted

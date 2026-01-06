@@ -63,8 +63,8 @@ def load_intruder_data():
 
     # 加载目标域已知用户数据（env2 中 10 名已知用户）
     print("加载目标域已知用户数据...")
-    target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_data.pt')
-    target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_labels.pt')
+    target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_data.pt')
+    target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_labels.pt')
 
     print(f"目标域已知用户数据形状: {target_legal_data.shape}")
     print(f"目标域已知用户标签形状: {target_legal_labels.shape}")

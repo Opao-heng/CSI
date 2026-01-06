@@ -7,13 +7,23 @@ from loss_identify import IdentifyDetectionLoss
 from Research2.DataProcess.dataloader_identify import load_identify_data, create_data_loaders
 
 
-def train_epoch(model, source_loader, target_loader, criterion, optimizer, device, epoch):
+def train_epoch(model, source_loader, target_loader, optimizer, device, epoch):
     """
-    训练一个epoch
+    训练一个epoch - 纯流形投影优化版
+    第三章预训练已学会身份识别，第四章只需优化32维流形投影质量
     """
     model.train()
+    
+    # 冻结预训练部分（feature_extractor + cross_attention）
+    # 只训练manifold_projection，加速收敛且避免破坏预训练权重
+    for param in model.feature_extractor.parameters():
+        param.requires_grad = False
+    for param in model.cross_attention.parameters():
+        param.requires_grad = False
+    for param in model.identity_classifier.parameters():
+        param.requires_grad = False  # 分类器也冻结，不需要了
+    
     total_loss = 0.0
-    loss_components = {'identity_src': 0.0, 'identity_tgt': 0.0, 'manifold': 0.0, 'center': 0.0}
     batch_count = 0
     
     # 使用zip循环处理源域和目标域数据
@@ -32,101 +42,90 @@ def train_epoch(model, source_loader, target_loader, criterion, optimizer, devic
         optimizer.zero_grad()
         outputs = model(src_data, tgt_data)
 
-        # 计算损失
-        loss, loss_dict = criterion(outputs, src_labels, tgt_labels)
+        # 计算流形质量损失（自监督方式）
+        # 策略：让网络学习紧凑的流形，不依赖外部损失
+        # 这里只做前向传播，让梯度通过软分配机制自然优化
+        proj_source = outputs['proj_source']
+        proj_target = outputs['proj_target']
         
-        # 添加center-aware损失 (第四章新增)
-        # 需要从modelmod中获取class_centers
-        class_centers = model.manifold_projection.class_centers
-        center_loss_src = criterion.center_aware_loss(
-            outputs['proj_source'], src_labels, class_centers)
-        center_loss_tgt = criterion.center_aware_loss(
-            outputs['proj_target'], tgt_labels, class_centers)
-        center_loss_total = (center_loss_src + center_loss_tgt) / 2
+        # 计算流形紧凑性（类内聚集）
+        manifold_loss = compute_manifold_loss(proj_source, src_labels, proj_target, tgt_labels)
         
-        # 加入总损失
-        loss = loss + criterion.beta * center_loss_total
+        # 反向传播（只更新manifold_projection）
+        manifold_loss.backward()
 
-        # 反向传播和优化
-        loss.backward()
-
-        # 梯度裁剪，防止梯度爆炸
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # 梯度裁剪
+        torch.nn.utils.clip_grad_norm_(model.manifold_projection.parameters(), max_norm=1.0)
         
         optimizer.step()
 
         # 累计损失
-        total_loss += loss.item()
-        loss_components['identity_src'] += loss_dict.get('identity_loss_src', 0.0)
-        loss_components['identity_tgt'] += loss_dict.get('identity_loss_tgt', 0.0)
-        loss_components['manifold'] += loss_dict.get('manifold_loss', 0.0)
-        loss_components['center'] += center_loss_total.item()
+        total_loss += manifold_loss.item()
         batch_count += 1
 
     # 计算平均损失
     avg_loss = total_loss / batch_count if batch_count > 0 else 0.0
-    for key in loss_components:
-        loss_components[key] = loss_components[key] / batch_count if batch_count > 0 else 0.0
 
-    return avg_loss, loss_components
+    return avg_loss
 
 
-def validate(model, val_loader, device, domain_type='mixed'):
+def compute_manifold_loss(proj_source, labels_source, proj_target, labels_target):
     """
-    在验证集上评估模型
-    domain_type: 'source', 'target', 或 'mixed' (源域和目标域混合数据)
+    流形质量自监督损失
+    目标：类内紧凑 + 特征归一化
     """
-    model.eval()
-    correct = 0
-    total = 0
+    device = proj_source.device
     
-    with torch.no_grad():
-        for batch_idx, (data, labels) in enumerate(val_loader):
-            # 移动到设备
-            data = data.to(device)
-            labels = labels.to(device)
-
-            # 前向传播 - 与Research1保持一致的逻辑
-            if domain_type == 'target':
-                # 目标域：源域输入为零张量
-                outputs = model(torch.zeros_like(data).to(device), data)
-                logits = outputs['logits_target']
-            elif domain_type == 'source':
-                # 源域：目标域输入为零张量
-                outputs = model(data, torch.zeros_like(data).to(device))
-                logits = outputs['logits_source']
-            else:
-                # 混合验证集：源域和目标域数据混合，随机选择一个作为主域
-                # 为了简化，这里使用源域逻辑
-                outputs = model(data, torch.zeros_like(data).to(device))
-                logits = outputs['logits_source']
-
-            # 计算准确率
-            _, predicted = torch.max(logits.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    accuracy = 100 * correct / total if total > 0 else 0.0
-    return accuracy
+    # 1. 类内紧凑性（源域）
+    intra_loss_src = 0.0
+    unique_labels = torch.unique(labels_source)
+    for c in unique_labels:
+        mask = (labels_source == c)
+        if mask.sum() > 1:
+            class_features = proj_source[mask]
+            # 计算类内方差（越小越紧凑）
+            center = class_features.mean(dim=0, keepdim=True)
+            intra_loss_src += ((class_features - center) ** 2).sum() / mask.sum()
+    intra_loss_src = intra_loss_src / len(unique_labels) if len(unique_labels) > 0 else 0.0
+    
+    # 2. 类内紧凑性（目标域）
+    intra_loss_tgt = 0.0
+    unique_labels = torch.unique(labels_target)
+    for c in unique_labels:
+        mask = (labels_target == c)
+        if mask.sum() > 1:
+            class_features = proj_target[mask]
+            center = class_features.mean(dim=0, keepdim=True)
+            intra_loss_tgt += ((class_features - center) ** 2).sum() / mask.sum()
+    intra_loss_tgt = intra_loss_tgt / len(unique_labels) if len(unique_labels) > 0 else 0.0
+    
+    # 总损失：类内紧凑性
+    loss = (intra_loss_src + intra_loss_tgt) / 2.0
+    
+    return loss if not torch.isnan(loss) else torch.tensor(0.0, device=device)
 
 
 def compute_manifold_metrics(model, data_loader, device, domain_type='source'):
     """
-    计算流形投影质量指标 - 体现第四章核心创新
+    计算流形投影质量指标 - 面向 Train_intruder.py 入侵检测的特征优化评估
     
-    Returns:
-        - intra_class_distance: 类内平均距离（越小越好，体现紧凑性）
-        - inter_class_distance: 类间平均距离（越大越好，体现可分离性）
-        - silhouette_score: 轮廓系数（越接近1越好，体现整体流形质量）
-        - center_alignment: 类中心对齐度（越小越好，体现center-aware效果）
+    核心指标设计思路:
+    1. intra_class_distance: 类内紧凑度（越小越好） - OpenMax需要紧凑的正常类分布
+    2. inter_class_distance: 类间分离度（越大越好） - 避免不同身份混淆
+    3. silhouette_score: 流形整体质量（越接近1越好） - 评估聚类质量
+    4. center_alignment: 类中心对齐度（越小越好） - Center-aware机制效果
+    5. compactness_ratio: 类内密度比（新增，越大越好） - 类间距离/类内距离
+    6. davies_bouldin_index: DB指数（新增，越小越好） - 聚类分离度
+    7. calinski_harabasz_score: CH指数（新增，越大越好） - 聚类方差比
     """
-    from sklearn.metrics import silhouette_score
+    from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
     import numpy as np
     
     model.eval()
     all_proj_features = []  # 32维投影特征
     all_labels = []
     all_distances_to_center = []  # 到最近类中心的距离
+    all_distances_to_assigned_center = []  # 到所属类中心的距离
     
     with torch.no_grad():
         for batch in data_loader:
@@ -143,21 +142,28 @@ def compute_manifold_metrics(model, data_loader, device, domain_type='source'):
             
             # 计算到类中心的距离
             class_centers = model.manifold_projection.class_centers  # [10, 32]
-            distances = torch.cdist(proj, class_centers)  # [batch, 10]
+            class_centers_normalized = torch.nn.functional.normalize(class_centers, p=2, dim=1)
+            distances = torch.cdist(proj, class_centers_normalized)  # [batch, 10]
             min_distances, _ = torch.min(distances, dim=1)  # [batch]
+            
+            # 计算到所属类中心的距离
+            assigned_distances = distances[torch.arange(len(labels)), labels]
             
             all_proj_features.append(proj.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
             all_distances_to_center.append(min_distances.cpu().numpy())
+            all_distances_to_assigned_center.append(assigned_distances.cpu().numpy())
     
     # 合并所有batch
     all_proj_features = np.vstack(all_proj_features)  # [N, 32]
     all_labels = np.hstack(all_labels)  # [N]
     all_distances_to_center = np.hstack(all_distances_to_center)  # [N]
+    all_distances_to_assigned_center = np.hstack(all_distances_to_assigned_center)  # [N]
     
-    # 1. 类内平均距离（体现紧凑性）
+    # 1. 类内平均距离（体现紧凑性，越小越好）
     num_classes = len(np.unique(all_labels))
     intra_distances = []
+    intra_stds = []  # 类内标准差
     for c in range(num_classes):
         mask = all_labels == c
         if mask.sum() > 1:
@@ -165,9 +171,11 @@ def compute_manifold_metrics(model, data_loader, device, domain_type='source'):
             class_center = class_features.mean(axis=0)
             dists = np.linalg.norm(class_features - class_center, axis=1)
             intra_distances.append(dists.mean())
+            intra_stds.append(dists.std())
     intra_class_distance = np.mean(intra_distances) if intra_distances else 0.0
+    intra_class_std = np.mean(intra_stds) if intra_stds else 0.0
     
-    # 2. 类间平均距离（体现可分离性）
+    # 2. 类间平均距离（体现可分离性，越大越好）
     class_centers_np = np.array([all_proj_features[all_labels == c].mean(axis=0) 
                                   for c in range(num_classes)])
     inter_distances = []
@@ -177,94 +185,104 @@ def compute_manifold_metrics(model, data_loader, device, domain_type='source'):
             inter_distances.append(dist)
     inter_class_distance = np.mean(inter_distances) if inter_distances else 0.0
     
-    # 3. 轮廓系数（整体流形质量）
+    # 3. 轮廓系数（整体流形质量，-1到1，越接近1越好）
     if len(np.unique(all_labels)) > 1 and len(all_labels) > 1:
         silhouette = silhouette_score(all_proj_features, all_labels)
     else:
         silhouette = 0.0
     
-    # 4. Center-aware对齐度（到最近类中心的平均距离）
+    # 4. Center-aware对齐度（到最近类中心的平均距离，越小越好）
     center_alignment = all_distances_to_center.mean()
+    
+    # 5. 类内密度比（越大越好，体现紧凑度相对于分离度）
+    compactness_ratio = (inter_class_distance / (intra_class_distance + 1e-8)) if intra_class_distance > 0 else 0.0
+    
+    # 6. Davies-Bouldin指数（越小越好，评估聚类分离度）
+    if len(np.unique(all_labels)) > 1 and len(all_labels) > 1:
+        db_index = davies_bouldin_score(all_proj_features, all_labels)
+    else:
+        db_index = 0.0
+    
+    # 7. Calinski-Harabasz指数（越大越好，评估聚类方差比）
+    if len(np.unique(all_labels)) > 1 and len(all_labels) > 1:
+        ch_score = calinski_harabasz_score(all_proj_features, all_labels)
+    else:
+        ch_score = 0.0
+    
+    # 8. 到所属类中心的平均距离（越小越好，体现Center-aware的直接效果）
+    assigned_center_distance = all_distances_to_assigned_center.mean()
     
     return {
         'intra_class_distance': float(intra_class_distance),
+        'intra_class_std': float(intra_class_std),
         'inter_class_distance': float(inter_class_distance),
         'silhouette_score': float(silhouette),
-        'center_alignment': float(center_alignment)
+        'center_alignment': float(center_alignment),
+        'compactness_ratio': float(compactness_ratio),
+        'davies_bouldin_index': float(db_index),
+        'calinski_harabasz_score': float(ch_score),
+        'assigned_center_distance': float(assigned_center_distance)
     }
 
 
 def test_model(model, data_loaders, device):
     """
-    在测试集上评估模型 - 与Research1保持一致的测试逻辑
-    同时评估流形投影质量（第四章核心创新）
+    评估流形投影质量 - 专注于入侵检测特征优化（第四章核心）
+    不再关注身份识别准确率（已由第三章预训练模型保证）
     """
     model.eval()
     test_results = {}
     
-    # 测试源域身份识别测试集
-    if 'src_identity_test' in data_loaders:
-        src_identity_test_accuracy = validate(model, data_loaders['src_identity_test'], device, domain_type='source')
-        test_results['src_identity_test'] = src_identity_test_accuracy
-        print(f'    源域身份识别测试准确率: {src_identity_test_accuracy:.2f}%')
-    
-    # 测试目标域身份识别测试集
-    if 'tgt_identity_test' in data_loaders:
-        tgt_identity_test_accuracy = validate(model, data_loaders['tgt_identity_test'], device, domain_type='target')
-        test_results['tgt_identity_test'] = tgt_identity_test_accuracy
-        print(f'    目标域身份识别测试准确率: {tgt_identity_test_accuracy:.2f}%')
-    
     # ===== 第四章核心指标：流形投影质量评估 =====
-    print(f'  【流形投影质量评估】')
+    print(f'  【流形投影质量评估 - 入侵检测特征优化】')
     
     # 源域流形质量
     if 'src_identity_test' in data_loaders:
         src_manifold_metrics = compute_manifold_metrics(model, data_loaders['src_identity_test'], device, domain_type='source')
         test_results['src_manifold_metrics'] = src_manifold_metrics
-        print(f'    源域流形指标:')
-        print(f'      - 类内距离: {src_manifold_metrics["intra_class_distance"]:.4f} (↓越小越紧凑)')
-        print(f'      - 类间距离: {src_manifold_metrics["inter_class_distance"]:.4f} (↑越大越可分)')
-        print(f'      - 轮廓系数: {src_manifold_metrics["silhouette_score"]:.4f} (↑越接近1越好)')
-        print(f'      - Center对齐度: {src_manifold_metrics["center_alignment"]:.4f} (↓越小Center-aware越有效)')
+        print(f'    源域32维流形空间:')
+        print(f'      - 类内紧凑度: {src_manifold_metrics["intra_class_distance"]:.4f} (↓越小越好，利于OpenMax建模)')
+        print(f'      - 类间分离度: {src_manifold_metrics["inter_class_distance"]:.4f} (↑越大越好，减少误判)')
+        print(f'      - 整体流形质量: {src_manifold_metrics["silhouette_score"]:.4f} (↑越接近1越好)')
+        print(f'      - 类中心对齐: {src_manifold_metrics["center_alignment"]:.4f} (↓越小越好，Center-aware生效)')
+        print(f'      - 类内密度比: {src_manifold_metrics.get("compactness_ratio", 0):.4f} (↑越大越紧凑)')
     
     # 目标域流形质量
     if 'tgt_identity_test' in data_loaders:
         tgt_manifold_metrics = compute_manifold_metrics(model, data_loaders['tgt_identity_test'], device, domain_type='target')
         test_results['tgt_manifold_metrics'] = tgt_manifold_metrics
-        print(f'    目标域流形指标:')
-        print(f'      - 类内距离: {tgt_manifold_metrics["intra_class_distance"]:.4f} (↓越小越紧凑)')
-        print(f'      - 类间距离: {tgt_manifold_metrics["inter_class_distance"]:.4f} (↑越大越可分)')
-        print(f'      - 轮廓系数: {tgt_manifold_metrics["silhouette_score"]:.4f} (↑越接近1越好)')
-        print(f'      - Center对齐度: {tgt_manifold_metrics["center_alignment"]:.4f} (↓越小Center-aware越有效)')
+        print(f'    目标域32维流形空间:')
+        print(f'      - 类内紧凑度: {tgt_manifold_metrics["intra_class_distance"]:.4f} (↓越小越好，利于OpenMax建模)')
+        print(f'      - 类间分离度: {tgt_manifold_metrics["inter_class_distance"]:.4f} (↑越大越好，减少误判)')
+        print(f'      - 整体流形质量: {tgt_manifold_metrics["silhouette_score"]:.4f} (↑越接近1越好)')
+        print(f'      - 类中心对齐: {tgt_manifold_metrics["center_alignment"]:.4f} (↓越小越好，Center-aware生效)')
+        print(f'      - 类内密度比: {tgt_manifold_metrics.get("compactness_ratio", 0):.4f} (↑越大越紧凑)')
     
     return test_results
 
 
-def save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, file_path):
+def save_training_history(train_losses, manifold_metrics_history, manifold_scores_history, file_path):
     """
-    保存训练历史数据到JSON文件
-    包含流形质量指标历史
+    保存训练历史数据到JSON文件（面向入侵检测的流形优化记录）
     """
-    # 提取流形指标历史（如果存在）
-    manifold_metrics_history = []
-    for test_result in test_accuracies:
-        if 'src_manifold_metrics' in test_result and 'tgt_manifold_metrics' in test_result:
-            manifold_metrics_history.append({
-                'src': test_result['src_manifold_metrics'],
-                'tgt': test_result['tgt_manifold_metrics']
-            })
-    
     history = {
         'train_losses': train_losses,
-        'val_accuracies': val_accuracies,
-        'loss_components_history': loss_components_history,
-        'test_accuracies': test_accuracies,
-        'manifold_metrics_history': manifold_metrics_history,  # 新增：流形质量演化
-        'train_accuracies': [100 - loss * 10 for loss in train_losses]  # 简单估算训练准确率
+        'manifold_metrics_history': manifold_metrics_history,
+        'manifold_scores_history': manifold_scores_history,  # 新增综合评分历史
+        'training_purpose': '32维流形投影优化，面向OpenMax入侵检测',
+        'key_metrics': {
+            'intra_class_distance': '类内紧凑度（越小越好）',
+            'inter_class_distance': '类间分离度（越大越好）',
+            'silhouette_score': '轮廓系数（越接近1越好）',
+            'center_alignment': 'Center对齐度（越小越好）',
+            'compactness_ratio': '紧凑度比（越大越好）',
+            'davies_bouldin_index': 'DB指数（越小越好）',
+            'calinski_harabasz_score': 'CH指数（越大越好）'
+        }
     }
     
-    with open(file_path, 'w') as f:
-        json.dump(history, f, indent=2)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
     print(f"训练历史已保存到 {file_path}")
 
 
@@ -306,41 +324,34 @@ def main():
     else:
         print(f"⚠️  未找到预训练权重: {pretrained_path}")
         print(f"   将从头开始训练所有参数")
+
+    # 第三章预训练已学会身份识别，第四章只需优化流形投影
+    print("\n初始化优化器...")
     
-    # 初始化损失函数(基于预训练模型)
-    # 第三章已学会跨域对齐,第四章关注: 身份分类 + 流形紧凑性 + Center-aware
-    # 策略: 先对齐后紧凑 - 初期使用极小的流形约束,避免破坏预训练权重
-    print("\n初始化损失函数和优化器...")
-    criterion = IdentifyDetectionLoss(alpha=1.0, delta=0.01, beta=0.005)  # 流形约束降低10倍
+    # 只优化manifold_projection，其他部分冻结
+    optimizer = optim.AdamW(
+        model.manifold_projection.parameters(),  # 只优化流形投影
+        lr=0.003,  # 更高的学习率，因为只优化一个小模块
+        weight_decay=1e-4
+    )
     
-    # 初始化优化器 - 使用更激进的差异化学习率策略
-    # 预训练部分: 极小学习率保护跨域对齐能力
-    # 新增部分: 正常学习率快速学习
-    optimizer = optim.AdamW([
-        {'params': model.feature_extractor.parameters(), 'lr': 0.00001},  # 降低10倍,保护预训练特征
-        {'params': model.cross_attention.parameters(), 'lr': 0.00001},    # 降低10倍,保护跨域对齐
-        {'params': model.manifold_projection.parameters(), 'lr': 0.001},  # 提高2倍,加速流形学习
-        {'params': model.identity_classifier.parameters(), 'lr': 0.001}   # 提高2倍,加速分类学习
-    ], weight_decay=1e-4)
+    # 使用余弦退火调度器
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=60, eta_min=1e-6)
+    print(f"  [训练策略]")
+    print(f"    - 冻结预训练部分: feature_extractor + cross_attention + identity_classifier")
+    print(f"    - 只训练: manifold_projection (lr=0.003)")
+    print(f"    - 损失函数: 自监督流形紧凑性损失（类内方差最小化）")
     
-    # 使用余弦退火调度器,更平滑的学习率衰减
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
-    print(f"  feature_extractor & cross_attention 学习率: 0.00001 (保护预训练权重)")
-    print(f"  manifold_projection & identity_classifier 学习率: 0.001 (快速学习)")
-    print(f"  流形约束初始权重: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}")
-    
-    # 训练参数 - 基于预训练权重,采用渐进式训练策略
-    num_epochs = 100  # 增加轮数,给流形约束逐步增强留出空间
-    best_accuracy = 0.0  # 最佳验证准确率（用于显示）
-    best_comprehensive_score = 0.0  # 最佳综合评分（准确率 + 流形质量）
+    # 训练参数
+    num_epochs = 60  # 减少轮数，流形投影收敛快
+    best_manifold_score = 0.0  # 最佳流形质量评分
     early_stop_counter = 0
-    patience = 20  # 增加耐心值,应对流形约束调整期的波动
+    patience = 12  # 降低耐心值
     
-    # 记录训练历史
+    # 记录训练历史（专注流形质量）
     train_losses = []
-    val_accuracies = []
-    loss_components_history = []
-    test_accuracies = []
+    manifold_metrics_history = []
+    manifold_scores_history = []  # 新增：记录综合评分
 
     # 确保保存模型的目录存在
     os.makedirs('R_Identify', exist_ok=True)
@@ -350,111 +361,118 @@ def main():
         print(f'\nEpoch [{epoch+1}/{num_epochs}]')
         
         # 训练一个epoch
-        train_loss, loss_components = train_epoch(
+        train_loss = train_epoch(
             model, data_loaders['identity_train'], data_loaders['target_aux'], 
-            criterion, optimizer, device, epoch)
-        
-        # 验证模型（使用身份识别验证集 - 混合源域和目标域）
-        val_accuracy = validate(model, data_loaders['identity_validation'], device, domain_type='mixed')
+            optimizer, device, epoch)
         
         # 更新学习率
         scheduler.step()
         
         # 记录历史
         train_losses.append(train_loss)
-        val_accuracies.append(val_accuracy)
-        loss_components_history.append(loss_components)
         
-        # 打印epoch结果
-        print(f'  训练损失: {train_loss:.4f} ')
-        print(f'    - 源域身份: {loss_components["identity_src"]:.4f}')
-        print(f'    - 目标域身份: {loss_components["identity_tgt"]:.4f}')
-        print(f'    - 流形紧凑性: {loss_components["manifold"]:.4f}')
-        print(f'    - Center-aware: {loss_components["center"]:.4f}')
-        print(f'  验证准确率: {val_accuracy:.2f}%')
+        # 打印epoch结果 - 聚焦流形质量
+        print(f'  流形紧凑性损失: {train_loss:.4f}')
         print(f'  当前学习率: {scheduler.get_last_lr()[0]:.6f}')
         
-        # 在每个epoch后测试模型（包含流形质量评估）
-        print(f'  测试效果:')
+        # 在每个epoch后测试流形质量
+        print(f'  【流形投影质量评估】')
         test_results = test_model(model, data_loaders, device)
-        test_accuracies.append(test_results)
         
-        # ===== 综合评分：准确率 + 流形质量 =====
-        # 计算综合评分（用于早停和模型保存）
-        # 权重设计：验证准确率50% + 流形质量50%
-        accuracy_score = val_accuracy / 100.0  # 归一化到[0, 1]
-        
-        # 流形质量评分（如果有流形指标）
-        manifold_score = 0.0
+        # 提取流形指标
         if 'tgt_manifold_metrics' in test_results:
             tgt_metrics = test_results['tgt_manifold_metrics']
-            # 归一化流形指标到[0, 1]范围
-            # 轮廓系数已经在[-1, 1]，映射到[0, 1]
-            silhouette_normalized = (tgt_metrics['silhouette_score'] + 1) / 2.0
-            # Center对齐度：越小越好，使用反比例归一化（假设最大值为10）
-            center_normalized = max(0, 1 - tgt_metrics['center_alignment'] / 10.0)
-            # 类内距离：越小越好，使用反比例归一化（假设最大值为5）
-            intra_normalized = max(0, 1 - tgt_metrics['intra_class_distance'] / 5.0)
+            manifold_metrics_history.append(tgt_metrics)
             
-            # 综合流形评分（三个指标平均）
-            manifold_score = (silhouette_normalized + center_normalized + intra_normalized) / 3.0
-        
-        # 综合评分：准确率60% + 流形质量40%
-        # 准确率更重要（确保分类能力），流形质量次之（为入侵检测准备）
-        comprehensive_score = 0.6 * accuracy_score + 0.4 * manifold_score
-        
-        print(f'  \n  【综合评分】')
-        print(f'    - 准确率评分: {accuracy_score:.4f}')
-        print(f'    - 流形质量评分: {manifold_score:.4f}')
-        print(f'    - 综合评分: {comprehensive_score:.4f} (准确率60% + 流形40%)')
-        
-        # 保存最佳模型（基于综合评分）
-        if comprehensive_score > best_comprehensive_score:
-            best_comprehensive_score = comprehensive_score
-            best_accuracy = val_accuracy  # 记录对应的准确率
-            early_stop_counter = 0
-            torch.save({
+            # 流形质量评分（面向OpenMax入侵检测优化）
+            # 1. 轮廓系数（-1到1）归一化到[0, 1]
+            silhouette_normalized = (tgt_metrics['silhouette_score'] + 1) / 2.0
+            
+            # 2. Center对齐度（越小越好）归一化到[0, 1]
+            center_normalized = max(0, 1 - tgt_metrics['center_alignment'] / 2.0)
+            
+            # 3. 类内紧凑度（越小越好）归一化到[0, 1]
+            intra_normalized = max(0, 1 - tgt_metrics['intra_class_distance'] / 0.5)
+            
+            # 4. 类间分离度（越大越好）归一化到[0, 1]
+            # 假设最大类间距离为4.0（根据32维L2归一化特征）
+            inter_normalized = min(1.0, tgt_metrics['inter_class_distance'] / 4.0)
+            
+            # 5. 紧凑度比（越大越好）归一化到[0, 1]
+            # 假设最大紧凑度比为10
+            compactness_normalized = min(1.0, tgt_metrics['compactness_ratio'] / 10.0)
+            
+            # 6. DB指数（越小越好）归一化到[0, 1]
+            # 假设最大DB指数为3.0
+            db_normalized = max(0, 1 - tgt_metrics['davies_bouldin_index'] / 3.0)
+            
+            # 7. CH指数（越大越好）归一化到[0, 1]
+            # 假设最大CH指数为1000
+            ch_normalized = min(1.0, tgt_metrics['calinski_harabasz_score'] / 1000.0)
+            
+            # ===== 综合流形评分（面向OpenMax优化的加权方案）=====
+            # 权重设计理念:
+            # - 类内紧凑性最重要（30%）: OpenMax需要紧凑的正常类分布
+            # - 轮廓系数次之（25%）: 整体流形质量
+            # - 紧凑度比重要（20%）: 类间分离度/类内距离
+            # - Center对齐（15%）: Center-aware机制效果
+            # - 类间分离度（10%）: 避免误判
+            manifold_score = (intra_normalized * 0.30 +       # 类内紧凑性
+                            silhouette_normalized * 0.25 +    # 整体流形质量
+                            compactness_normalized * 0.20 +   # 紧凑度比
+                            center_normalized * 0.15 +        # Center对齐
+                            inter_normalized * 0.10)          # 类间分离
+            
+            print(f'\n  【面向OpenMax的流形质量评分】')
+            print(f'    - 类内紧凑性(30%): {intra_normalized:.4f} (原始={tgt_metrics["intra_class_distance"]:.4f})')
+            print(f'    - 轮廓系数(25%): {silhouette_normalized:.4f} (原始={tgt_metrics["silhouette_score"]:.4f})')
+            print(f'    - 紧凑度比(20%): {compactness_normalized:.4f} (原始={tgt_metrics["compactness_ratio"]:.4f})')
+            print(f'    - Center对齐(15%): {center_normalized:.4f} (原始={tgt_metrics["center_alignment"]:.4f})')
+            print(f'    - 类间分离(10%): {inter_normalized:.4f} (原始={tgt_metrics["inter_class_distance"]:.4f})')
+            print(f'    - 综合流形评分: {manifold_score:.4f} ★核心指标★')
+            
+            # 保存最佳模型（基于流形质量）
+            if manifold_score > best_manifold_score:
+                best_manifold_score = manifold_score
+                early_stop_counter = 0
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'manifold_score': manifold_score,
+                    'test_results': test_results
+                }, 'R_Identify/best_identify_model.pth')
+                print(f'  ✅ 保存最佳模型 (流形评分: {manifold_score:.4f})')
+            else:
+                early_stop_counter += 1
+                print(f'  早停计数器: {early_stop_counter}/{patience}')
+            
+            # 记录综合评分
+            manifold_scores_history.append({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'accuracy': val_accuracy,
-                'comprehensive_score': comprehensive_score,
-                'loss_components': loss_components,
-                'test_results': test_results  # 保存完整测试结果
-            }, 'R_Identify/best_identify_model.pth')
-            print(f'  ✅ 保存最佳模型 (综合评分: {comprehensive_score:.4f}, 准确率: {best_accuracy:.2f}%)')
+                'manifold_score': float(manifold_score),
+                'components': {
+                    'intra_normalized': float(intra_normalized),
+                    'silhouette_normalized': float(silhouette_normalized),
+                    'compactness_normalized': float(compactness_normalized),
+                    'center_normalized': float(center_normalized),
+                    'inter_normalized': float(inter_normalized)
+                }
+            })
         else:
             early_stop_counter += 1
-            print(f'  早停计数器: {early_stop_counter}/{patience}')
             
         # 早停检查
         if early_stop_counter >= patience:
-            print(f'  综合评分在 {patience} 个epoch内未提升，提前停止训练')
+            print(f'  流形评分在 {patience} 个epoch内未提升，提前停止训练')
             break
-            
-        # 动态调整流形约束权重 - 渐进式增强策略(先对齐后紧凑)
-        # 阶段1 (Epoch 1-15): 极小约束,让新组件适应预训练特征
-        # 阶段2 (Epoch 15-30): 逐步增强流形紧凑性
-        # 阶段3 (Epoch 30+): 适度增强center-aware约束
-        if epoch == 15:
-            criterion.delta = 0.05
-            criterion.beta = 0.02
-            print(f'  [阶段2启动] 开始增强流形约束: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}')
-        elif epoch == 30:
-            criterion.delta = 0.10
-            criterion.beta = 0.04
-            print(f'  [阶段3启动] 适度增强约束: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}')
-        elif epoch == 50:
-            criterion.delta = 0.15
-            criterion.beta = 0.06
-            print(f'  [最终阶段] 达到目标约束强度: delta={criterion.delta:.4f}, beta={criterion.beta:.4f}')
     
-    print(f"\n训练完成! 最佳综合评分: {best_comprehensive_score:.4f}, 对应验证准确率: {best_accuracy:.2f}%")
+    print(f"\n训练完成! 最佳流形评分: {best_manifold_score:.4f}")
     
     # 保存训练历史
     history_file_path = 'R_Identify/training_history.json'
-    save_training_history(train_losses, val_accuracies, loss_components_history, test_accuracies, history_file_path)
+    save_training_history(train_losses, manifold_metrics_history, manifold_scores_history, history_file_path)
 
 
 if __name__ == "__main__":
