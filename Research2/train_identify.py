@@ -151,7 +151,7 @@ def main():
     model = IdentifyDetectionSystem(num_classes=10, feature_dim=512, projection_dim=32).to(device)
     
     # 加载Research1(第三章)预训练的特征提取器和交叉注意力权重
-    pretrained_path = os.path.join('Research1', 'R_CAL', 'best_attention_model.pth')
+    pretrained_path = os.path.join('C:\\Users\\USER\\Desktop\\liuheng\\Research1\\R_CAL', 'best_attention_model.pth')
     if os.path.exists(pretrained_path):
         print(f"\n 加载第三章预训练权重: {pretrained_path}")
         try:

@@ -38,7 +38,7 @@ class IntruderDataset(Dataset):
 def load_identify_data(save_datasets=True):
     """
     ○ 源域训练集：env0 和 env1 中 10 名已知用户的 CSI 数据
-    ○ 目标域训练集：env2 中 10 名已知用户的少量数据（用于域适应）
+    ○ 目标域训练集：env2 中 10 名 包含 TFGAN 生成的大量已知用户的数据
     ○ 验证集：源域和目标域训练集的部分合法用户数据
     ○ 测试集：剩余的源域和目标域训练集的部分合法用户数据
     """
@@ -55,8 +55,8 @@ def load_identify_data(save_datasets=True):
 
     # 加载目标域已知用户数据（env2 中 10 名已知用户）
     print("加载目标域已知用户数据...")
-    target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_data.pt')
-    target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_labels.pt')
+    target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_data.pt')
+    target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_labels.pt')
 
     print(f"目标域已知用户数据形状: {target_legal_data.shape}")
     print(f"目标域已知用户标签形状: {target_legal_labels.shape}")
