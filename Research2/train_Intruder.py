@@ -3,6 +3,7 @@ import numpy as np
 import json
 from model_Identify import IdentifyDetectionSystem
 from model_Intruder import LearnableComprehensiveIntruderDetector
+from loss_Intruder import WeightedIntruderLoss
 from DataProcess.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
 from sklearn.metrics import f1_score, precision_score, recall_score
 
@@ -224,14 +225,12 @@ def train_intruder_detector(model_path, output_path, device):
     """
 
     # 初始化身份识别模型
-    print("加载身份识别模型...")
+    print("加载身份识别-流行优化模型...")
     identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=512, projection_dim=32).to(device)
-
     # 加载模型权重
     checkpoint = torch.load(model_path, map_location=device)
     identity_model.load_state_dict(checkpoint['model_state_dict'])
     identity_model.eval()
-    print(f"身份识别模型加载完成")
 
     # 加载入侵者检测专用数据
     print("加载入侵者检测数据...")
@@ -253,16 +252,16 @@ def train_intruder_detector(model_path, output_path, device):
     negative_samples = total_samples - positive_samples
 
     pos_weight = torch.tensor([negative_samples / positive_samples], device=device)
-    bce_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = WeightedIntruderLoss(pos_weight=pos_weight, l2_weight=1e-4)
     print(
         f"数据集统计: 总样本数={total_samples}, 正样本数={positive_samples}, 负样本数={negative_samples}, 正负样本权重={pos_weight.item():.2f}")
 
     comprehensive_detector.train()
 
-    num_epochs = 100
+    num_epochs = 50
     best_avg_score = 0.0  # 基于4个指标的平均分数进行早停
     early_stop_counter = 0
-    patience = 40  # 增加早停耐心值
+    patience = 10  # 增加早停耐心值
 
     # 记录训练历史
     train_losses = []
@@ -303,22 +302,16 @@ def train_intruder_detector(model_path, output_path, device):
             output_logits = detector_outputs['logits']  # 使用logits而不是probabilities
 
             # 计算损失
-            classification_loss = bce_criterion(output_logits, labels)
-
-            # 添加L2正则化
-            l2_reg = torch.tensor(0., device=device)
-            for param in comprehensive_detector.parameters():
-                l2_reg += torch.norm(param)
-            total_loss_with_reg = classification_loss + 1e-4 * l2_reg  # 添加正则化项
-
+            loss = criterion(output_logits, labels, comprehensive_detector)
+            
             # 反向传播和优化
-            total_loss_with_reg.backward()
+            loss.backward()
 
             # 使用梯度裁剪
             torch.nn.utils.clip_grad_norm_(comprehensive_detector.parameters(), max_norm=1.0)
             optimizer.step()
 
-            total_loss += classification_loss.item()
+            total_loss += loss.item()
             batch_count += 1
 
             # 统计准确率和正类预测数量
@@ -414,7 +407,7 @@ def main():
         torch.backends.cudnn.enabled = True
 
     # 模型路径
-    model_path = "R_Identify/best_identify_model.pth"  # 身份识别训练好的模型
+    model_path = "R_Identify/best_identify_model.pth"  # 身份识别流行优化训练好的模型
     output_path = "R_Intruder/best_intruder_detector.pth"
 
     # 训练入侵者检测器

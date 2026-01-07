@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class ManifoldLoss:
     """
-    简化版流形优化损失 - 面向32维流形空间优化
+    流形优化损失 - 面向32维流形空间优化
     
     核心目标:
     1. 类内紧凑: 样本靠近类中心 (欧氏距离)
