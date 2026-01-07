@@ -8,6 +8,34 @@ from Research2.DataProcess.dataloader_intruder import load_intruder_data, create
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 
+def generate_pseudo_intruders(batch_size, feature_dim, device, noise_type='gaussian'):
+    """
+    生成伪入侵者样本（随机噪声）
+    
+    Args:
+        batch_size: 生成的样本数量
+        feature_dim: 特征维度（32维流形空间）
+        device: 设备
+        noise_type: 噪声类型，'gaussian' 或 'uniform'
+    
+    Returns:
+        pseudo_features: 伪入侵者特征 (batch_size, feature_dim)
+    """
+    if noise_type == 'gaussian':
+        # 高斯噪声：均值0，标准差1
+        pseudo_features = torch.randn(batch_size, feature_dim, device=device)
+    elif noise_type == 'uniform':
+        # 均匀分布噪声：[-1, 1]
+        pseudo_features = torch.rand(batch_size, feature_dim, device=device) * 2 - 1
+    else:
+        raise ValueError(f"Unknown noise_type: {noise_type}")
+    
+    # L2归一化，保持与真实特征相同的尺度
+    pseudo_features = torch.nn.functional.normalize(pseudo_features, p=2, dim=1)
+    
+    return pseudo_features
+
+
 def extract_features(model, data_loader, device):
     """
     从数据加载器中提取特征和标签
@@ -299,9 +327,11 @@ def train_intruder_detector(model_path, output_path, device):
     loss_fn = IntruderDetectionLoss()
     print("损失函数: IntruderDetectionLoss (合法用户目标异常分数=0)")
     
-    # 设置优化器：训练融合网络（将OneClass和OpenMax的结果融合）
-    optimizer = torch.optim.AdamW(comprehensive_detector.fusion_network.parameters(), 
-                                   lr=1e-4, weight_decay=1e-4)
+    # 设置优化器：训练融合网络和distance_to_score MLP
+    # 修复Bug: 必须同时优化distance_to_score,否则它一直是随机初始化状态
+    trainable_params = list(comprehensive_detector.fusion_network.parameters()) + \
+                       list(comprehensive_detector.one_class_detector.distance_to_score.parameters())
+    optimizer = torch.optim.AdamW(trainable_params, lr=1e-4, weight_decay=1e-4)
     
     # 使用余弦退火学习率调度器
     warmup_epochs = 3
@@ -355,7 +385,7 @@ def train_intruder_detector(model_path, output_path, device):
         total_loss = 0.0
         batch_count = 0
         
-        # ====== 开放集学习训练循环：只用合法用户训练 ======
+        # ====== 开放集学习训练循环：合法用户 + 伪入侵者 ======
         for batch_idx, batch in enumerate(data_loaders['intruder_train']):
             data, labels, identity_labels = batch
             
@@ -370,18 +400,44 @@ def train_intruder_detector(model_path, output_path, device):
                 features = identity_outputs.get('proj', identity_outputs['features'])  # 32维流形特征
                 logits = identity_outputs['logits']
 
-            # 使用综合入侵者检测器
-            detector_outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
+            # === 核心修改 1：生成伪入侵者 ===
+            # 动态生成一批随机噪声作为伪入侵者
+            batch_size = features.size(0)
+            pseudo_batch_size = batch_size // 2  # 伪入侵者数量为合法用户的一半
+            pseudo_features = generate_pseudo_intruders(
+                pseudo_batch_size, 
+                feature_dim=32,  # 32维流形空间
+                device=device,
+                noise_type='gaussian'
+            )
             
-            # ==== 简化损失：只训练距离到异常分数的映射 ====
-            # 使用封装好的损失函数
-            # 注意：综合检测器输出的是'logits'，这就是异常分数
-            anomaly_scores = detector_outputs['logits']  # 融合后的异常分数 (logits)
-            loss = loss_fn(anomaly_scores, is_legal_user=True)  # 训练集只有合法用户
+            # 为伪入侵者生成虚拟logits（全零，因为不属于任何已知类）
+            pseudo_logits = torch.zeros(pseudo_batch_size, logits.size(1), device=device)
+            # 为伪入侵者生成虚拟身份标签（-1表示未知）
+            pseudo_identity_labels = torch.full((pseudo_batch_size,), -1, dtype=torch.long, device=device)
+
+            # === 核心修改 2：分别处理合法用户和伪入侵者 ===
+            # 1. 处理合法用户
+            legal_outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
+            legal_anomaly_scores = legal_outputs['logits']  # 合法用户的异常分数
+            legal_min_distances = legal_outputs['min_distance']  # 到最近类中心的距离
+            
+            # 2. 处理伪入侵者
+            pseudo_outputs = comprehensive_detector(pseudo_features, pseudo_logits, pseudo_identity_labels, use_openmax=use_openmax)
+            pseudo_anomaly_scores = pseudo_outputs['logits']  # 伪入侵者的异常分数
+            
+            # === 核心修改 3：使用增强版损失函数 ===
+            # 计算损失：同时监督合法用户和伪入侵者
+            loss = loss_fn(
+                anomaly_scores=legal_anomaly_scores,  # 合法用户分数
+                min_distances=legal_min_distances,    # 合法用户距离
+                pseudo_scores=pseudo_anomaly_scores   # 伪入侵者分数
+            )
             
             # 反向传播和优化
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(comprehensive_detector.fusion_network.parameters(), max_norm=1.0)
+            # 修复Bug: 梯度裁剪需要包含所有训练的参数
+            torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
             optimizer.step()
             
             total_loss += loss.item()

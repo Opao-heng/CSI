@@ -134,14 +134,12 @@ class OneClassIntruderDetector(nn.Module):
         self.feature_dim = feature_dim
         self.num_known_users = num_known_users
         
-        # 简单的距离到异常分数映射
+        # 简化的距离到异常分数映射（单层非线性）
+        # 通过伪入侵者训练，学习"距离越大，分数越高"的单调映射
         self.distance_to_score = nn.Sequential(
-            nn.Linear(1, 16),  # 输入：最小距离
+            nn.Linear(1, 8),  # 输入：最小距离
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(16, 8),
-            nn.ReLU(inplace=True),
-            nn.Linear(8, 1)  # 输出异常分数 (logit)
+            nn.Linear(8, 1)  # 输出异常分数 (logit，会通过sigmoid转为概率)
         )
         
         # 可学习的类中心（从训练数据初始化）
