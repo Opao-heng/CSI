@@ -254,14 +254,11 @@ def train_intruder_detector(model_path, output_path, device):
     """
 
     # 初始化身份识别模型（必须与训练时的参数一致）
-    print("加载身份识别模型...")
+    print("加载身份识别-流形优化模型...")
     identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=512, projection_dim=32).to(device)
-    
-    # 加载模型权重
     checkpoint = torch.load(model_path, map_location=device)
     identity_model.load_state_dict(checkpoint['model_state_dict'])
     identity_model.eval()
-    print(f"身份识别模型加载完成")
     
     # 加载入侵者检测专用数据
     print("加载入侵者检测数据...")
@@ -293,8 +290,8 @@ def train_intruder_detector(model_path, output_path, device):
     loss_fn = IntruderDetectionLoss()
     print("损失函数: IntruderDetectionLoss (合法用户目标异常分数=0)")
     
-    # 设置优化器：只训练距离到分数的映射网络
-    optimizer = torch.optim.AdamW(comprehensive_detector.one_class_detector.distance_to_score.parameters(), 
+    # 设置优化器：训练融合网络（将OneClass和OpenMax的结果融合）
+    optimizer = torch.optim.AdamW(comprehensive_detector.fusion_network.parameters(), 
                                    lr=1e-4, weight_decay=1e-4)
     
     # 使用余弦退火学习率调度器
@@ -369,12 +366,13 @@ def train_intruder_detector(model_path, output_path, device):
             
             # ==== 简化损失：只训练距离到异常分数的映射 ====
             # 使用封装好的损失函数
-            anomaly_scores = detector_outputs['anomaly_scores']  # logits
+            # 注意：综合检测器输出的是'logits'，这就是异常分数
+            anomaly_scores = detector_outputs['logits']  # 融合后的异常分数 (logits)
             loss = loss_fn(anomaly_scores, is_legal_user=True)  # 训练集只有合法用户
             
             # 反向传播和优化
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(comprehensive_detector.one_class_detector.distance_to_score.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(comprehensive_detector.fusion_network.parameters(), max_norm=1.0)
             optimizer.step()
             
             total_loss += loss.item()
@@ -460,7 +458,6 @@ def main():
     
     # 设置设备
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
     
     # 如果使用CUDA，设置一些优化选项以减少警告
     if device.type == 'cuda':

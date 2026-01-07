@@ -54,20 +54,19 @@ def load_intruder_data():
 
     # 加载源域数据（env0 和 env1 中 10 名已知用户的 CSI 数据）
     print("\n=====================================================")
-    print("研究内容二 - 入侵检测 - 开放集学习")
+    print("研究内容二 - 入侵检测 - 开放集数据集加载")
     print("=====================================================")
     print("加载源域数据（合法用户）...")
+
     source_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\source_env0_env1_data.pt')
     source_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\/source_env0_env1_labels.pt')
+    print(f"源域合法用户数据形状: {source_data.shape}")
+    print(f"源域合法用户标签形状: {source_labels.shape}")
 
-    print(f"源域数据形状: {source_data.shape}")
-    print(f"源域标签形状: {source_labels.shape}")
-
-    # 加载目标域已知用户数据（env2 中 10 名已知用户）
-    print("加载目标域合法用户数据...")
+    # 加载目标域用户数据（env2 中 10 名已知用户包含研究内容一 TFGAN 生成的 CSI 数据）
+    print("加载目标域数据（合法用户）...")
     target_legal_data = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_data.pt')
     target_legal_labels = torch.load('C:\\Users\\USER\\Desktop\\liuheng\\Research2\\Data\\target_env2_gan_labels.pt')
-
     print(f"目标域合法用户数据形状: {target_legal_data.shape}")
     print(f"目标域合法用户标签形状: {target_legal_labels.shape}")
 
@@ -100,8 +99,7 @@ def load_intruder_data():
 
     # ======== 开放集学习数据划分策略 ========
     print("\n进行数据集划分（开放集学习）...")
-    print("策略：训练集和验证集只使用合法用户数据")
-    print("      测试集使用合法用户 + 真实入侵者\n")
+    print("策略：训练集和验证集只使用（源域和目标域）合法用户数据，测试集使用（目标域）合法用户 + 真实入侵者")
 
     # 1. 源域数据按比例划分：70%训练集，15%验证集，15%测试集
     src_indices = np.arange(len(source_data))
@@ -211,8 +209,6 @@ def load_intruder_data():
     intruder_test_dataset = IntruderDetectionDataset(intruder_test_data, intruder_test_labels, intruder_test_identity_labels)
 
     print(f"\n数据加载完成！")
-    print(f"训练策略：单类分类（One-Class Classification）")
-    print(f"目标：学习合法用户的紧凑流形表示\n")
 
     return {
         'intruder_train': intruder_train_dataset,      # 用于入侵者检测模型训练（只包含合法用户）
