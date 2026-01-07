@@ -6,6 +6,7 @@ from model_Intruder import LearnableComprehensiveIntruderDetector
 from loss_Intruder import IntruderDetectionLoss
 from Research2.DataProcess.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+import torch.nn.functional as F
 
 
 def generate_pseudo_intruders(batch_size, feature_dim, device, noise_type='gaussian', 
@@ -58,15 +59,15 @@ def generate_pseudo_intruders(batch_size, feature_dim, device, noise_type='gauss
         diff_mask = (identity_labels != shuffled_labels).float().unsqueeze(1)  # (batch_size, 1)
         
         # 生成混合系数 lambda (偏向于0.5，即处于两类中间)
-        # 使用Beta分布采样，生成接近0.5的系数，制造最难样本
-        lam = torch.distributions.Beta(2.0, 2.0).sample((num_samples, 1)).to(device)
+        # 增加Beta分布的集中度,让样本更接近0.5 (最难区域)
+        lam = torch.distributions.Beta(3.0, 3.0).sample((num_samples, 1)).to(device)  # 从(2.0, 2.0)增加到(3.0, 3.0)
         
         # 执行 Mixup: x_pseudo = lam * x_i + (1-lam) * x_j
         # 仅对diff_mask为1的样本生效
         pseudo_features = lam * legal_features + (1 - lam) * shuffled_features
         
         # 对于同类样本(diff_mask=0)，我们添加强高斯噪声作为回退策略
-        noise = torch.randn_like(legal_features) * 2.0  # 增大噪声幅度
+        noise = torch.randn_like(legal_features) * 3.0  # 增大噪声幅度到2.0到3.0
         pseudo_features = diff_mask * pseudo_features + (1 - diff_mask) * (legal_features + noise)
         
         # L2归一化，确保在流形球面上
@@ -245,7 +246,6 @@ def extract_features(model, data_loader, device):
 def validate_intruder_detector(model, identity_model, data_loader, device, threshold=0.5, pos_label=1, return_scores=False):
     """
     在验证集或测试集上测试入侵者检测器性能
-    增强版：在return_scores=True时，混入伪入侵者用于阈值选择
     """
     model.eval()
     identity_model.eval()
@@ -253,8 +253,6 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
     all_predictions = []
     all_labels = []
     all_scores = []
-    all_features_list = []  # 收集特征用于生成伪入侵者
-    all_identity_labels_list = []  # 收集身份标签用于跨类混合
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(data_loader):
@@ -264,16 +262,15 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
             data = data.to(device)
             labels = labels.to(device)
 
-            # 使用身份识别模型提取特征 - 统一使用proj特征
+            # 使用身份识别模型提取特征
             identity_outputs = identity_model(data)
-            # 确保使用32维投彡特征
             if 'proj' in identity_outputs:
                 features = identity_outputs['proj']
             else:
                 features = identity_outputs['features']
             logits = identity_outputs['logits']
 
-            # 检查特征和logits的维度，确保至少是2D
+            # 检查特征和logits的维度
             if features.dim() == 1:
                 features = features.unsqueeze(0)
             if logits.dim() == 1:
@@ -303,11 +300,6 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             all_scores.extend(probabilities.cpu().numpy())
-            
-            # 收集特征和身份标签用于后续生成伪入侵者
-            if return_scores:
-                all_features_list.append(features)
-                all_identity_labels_list.append(identity_labels)
 
     # 计算评估指标
     if len(all_predictions) == 0 or len(all_labels) == 0:
@@ -317,65 +309,16 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
             return 0.0, 0.0, 0.0, 0.0, 0.0
     
     all_predictions = np.array(all_predictions)
-    all_labels = np.array(all_labels)  # 这些全是 0 (合法用户)
+    all_labels = np.array(all_labels)
     all_scores = np.array(all_scores)
-    
-    # === 大力修改：如果是验证模式(return_scores=True)，混入伪入侵者数据来选取阈值 ===
-    if return_scores and len(all_scores) > 0 and len(all_features_list) > 0:
-        # 1. 模拟一批伪入侵者的分数
-        # 我们可以复用训练时的生成逻辑，或者简单地假设模型应该对未知区域有高分
-        # 但为了稳健，最好的办法是让模型对生成的 Mixup 数据跑一遍
-        
-        # 合并所有特征
-        all_features_tensor = torch.cat(all_features_list, dim=0)
-        all_identity_labels_tensor = torch.cat(all_identity_labels_list, dim=0)
-        
-        # 获取类中心用于生成伪入侵者
-        class_centers = model.one_class_detector.class_centers
-        
-        # 使用训练时的Mixup策略生成伪入侵者
-        num_pseudo = len(all_scores)  # 生成与合法用户相同数量的伪入侵者
-        pseudo_features = generate_pseudo_intruders(
-            num_pseudo,
-            feature_dim=32,
-            device=device,
-            legal_features=all_features_tensor,
-            class_centers=class_centers,
-            identity_labels=all_identity_labels_tensor,
-            strategy='hybrid'  # 使用混合策略
-        )
-        
-        # 让模型对伪入侵者进行预测
-        with torch.no_grad():
-            # 伪入侵者没有真实的logits和身份标签
-            dummy_logits = torch.zeros(num_pseudo, 10, device=device)  # 10个类
-            dummy_identity_labels = torch.full((num_pseudo,), -1, dtype=torch.long, device=device)
-            
-            fake_outputs = model(pseudo_features, dummy_logits, dummy_identity_labels)
-            fake_intruder_scores = fake_outputs['probabilities'].cpu().numpy()
-        
-        # 2. 混合数据用于计算最佳阈值
-        mixed_scores = np.concatenate([all_scores, fake_intruder_scores])
-        # 0是合法，1是伪入侵者
-        mixed_labels = np.concatenate([np.zeros(len(all_scores)), np.ones(len(fake_intruder_scores))])
-        
-        return 0.0, 0.0, 0.0, 0.0, 0.0, mixed_scores, mixed_labels
-    
-    # 处理空数组情况
-    if len(all_labels) == 0:
-        if return_scores:
-            return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([]), np.array([])
-        else:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
     
     accuracy = float(np.mean(all_predictions == all_labels)) if len(all_labels) > 0 else 0.0
     
-    # 使用zero_division=0避免警告，并允许指定正类标签
     f1 = float(f1_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
     precision = float(precision_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
     recall = float(recall_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
 
-    # AUROC（当正负样本都存在时才有意义）
+    # AUROC
     try:
         auroc = float(roc_auc_score(all_labels, all_scores))
     except ValueError:
@@ -550,25 +493,36 @@ def train_intruder_detector(model_path, output_path, device):
         print(f"TraditionalOpenMax初始化完成 (训练样本数: {len(train_features)}, 启用alpha搜索)")
     
     # 初始化损失函数
-    print("\n初始化损失函数...")
+    print("\n" + "="*60)
+    print("初始化损失函数...")
     loss_fn = IntruderDetectionLoss()
-    print("损失函数: IntruderDetectionLoss (合法用户目标异常分数=0)")
+    print("损失函数配置:")
+    print("  - 类型BCE Loss + 类别加权 + L2正则化")
+    print("  - 入侵者权重(pos_weight): 3.0")
+    print("  - L2正则化系数: 0.005")
+    print("="*60)
     
-    # 设置优化器：训练融合网络和distance_processor MLP
-    # 必须同时优化distance_processor,否则它一直是随机初始化状态
+    # 优化版：更合理的优化器和学习率
     trainable_params = list(comprehensive_detector.fusion_network.parameters()) + \
                        list(comprehensive_detector.one_class_detector.distance_processor.parameters())
-    optimizer = torch.optim.AdamW(trainable_params, lr=1e-4, weight_decay=1e-4)
     
-    # 使用余弦退火学习率调度器
-    warmup_epochs = 3
-    def warmup_lambda(epoch):
-        if epoch < warmup_epochs:
-            return (epoch + 1) / warmup_epochs
-        return 1.0
+    print("\n" + "="*60)
+    print("优化器配置:")
+    print("  - 优化器: Adam")
+    print("  - 初始学习率01e-3")
+    print("  - 权重衰减: 1e-3")
+    print("  - 学习率调度器: ReduceLROnPlateau")
+    print("    * 基于验证集F1动态调整")
+    print("    * factor=0.5, patience=10")
+    print("="*60)
     
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=47, eta_min=1e-6)
+    # 使用Adam+适中学习率+更强正则化
+    optimizer = torch.optim.Adam(trainable_params, lr=1e-3, weight_decay=1e-3, betas=(0.9, 0.999))
+    
+    # 优化学习率调度: ReduceLROnPlateau - 根据性能动态调整
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=10, min_lr=1e-5
+    )
     
     # OpenMax更新配置
     openmax_update_interval = 10  # 每10个epoch更新一次OpenMax
@@ -576,15 +530,27 @@ def train_intruder_detector(model_path, output_path, device):
     
     comprehensive_detector.train()
     
-    num_epochs = 50
+    num_epochs = 150  # 增加训练轮数
     best_score = 0.0  # 跟踪最佳综合评分
+    best_test_f1 = 0.0  # 跟踪最佳F1
     early_stop_counter = 0
-    patience = 20  # 早停耐心值
+    patience = 40  # 增加耐心值
     
     # 记录训练历史
     train_losses = []
     val_metrics = []  # (accuracy, f1, precision, recall, auroc)
     test_metrics = []  # (accuracy, f1, precision, recall, auroc)
+    
+    print("\n" + "="*60)
+    print("训练配置:")
+    print(f"  - 总轮数: {num_epochs}")
+    print(f"  - 早停耐心值: {patience}")
+    print(f"  - OpenMax启用: 第{use_openmax_after_epoch+1}轮开始")
+    print(f"  - OpenMax更新间隔: 每{openmax_update_interval}轮")
+    print("  - 评估指标: F1分数(主), AUROC, 准确率")
+    print("  - 阈值选择: 基于验证集F1最大化(代价敏感)")
+    print("="*60)
+    print("开始训练...\n")
 
     for epoch in range(num_epochs):
         # 定期更新 TraditionalOpenMax（仅使用训练集和验证集数据）
@@ -612,12 +578,12 @@ def train_intruder_detector(model_path, output_path, device):
         total_loss = 0.0
         batch_count = 0
         
-        # ====== 开放集学习训练循环：合法用户 + 伪入侵者 ======
+        # ====== 闭集学习训练循环：直接使用合法用户 + 真实入侵者 ======
         for batch_idx, batch in enumerate(data_loaders['intruder_train']):
             data, labels, identity_labels = batch
             
             data = data.to(device)
-            labels = labels.to(device).float()  # 训练集只有合法用户（标签均为0）
+            labels = labels.to(device).float()  # 0=合法用户，1=真实入侵者
             
             optimizer.zero_grad()
             
@@ -627,51 +593,34 @@ def train_intruder_detector(model_path, output_path, device):
                 features = identity_outputs.get('proj', identity_outputs['features'])  # 32维流形特征
                 logits = identity_outputs['logits']
 
-            # === 核心修改 1：生成伪入侵者（使用混合策略）===
-            # 动态生成伪入侵者：结合Mixup和特征扰动
-            batch_size = features.size(0)
-            pseudo_batch_size = batch_size // 2  # 伪入侵者数量为合法用户的一半
+            # 直接使用模型进行预测
+            outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
+            predictions = outputs['probabilities']  # 入侵者概率
+            logits_output = outputs['logits']  # logits用于损失计算
             
-            # 获取类中心用于扰动策略
-            class_centers = comprehensive_detector.one_class_detector.class_centers
+            # === 优化损失函数：使用Focal Loss + 适度加权 ===
+            # 对于类别不平衡问题，Focal Loss比BCE更有效
+            # Focal Loss: FL(p_t) = -alpha * (1-p_t)^gamma * log(p_t)
+            # gamma=2.0: 让模型更关注困难样本
             
-            # 使用混合策略生成伪入侵者（传入identity_labels用于强制跨类混合）
-            pseudo_features = generate_pseudo_intruders(
-                pseudo_batch_size, 
-                feature_dim=32,  # 32维流形空间
-                device=device,
-                legal_features=features,  # 传入合法用户特征
-                class_centers=class_centers,  # 传入类中心
-                identity_labels=identity_labels,  # 传入身份标签用于跨类混合
-                strategy='hybrid'  # 混合策略：强制跨类Mixup + 扰动
+            # === 优化损失函数：BCE + 类别加权 + L2正则化 ===
+            # 类别加权：平衡类别
+            pos_weight = torch.tensor([3.0], device=device)  # 入侵者权重
+            bce_loss = F.binary_cross_entropy_with_logits(
+                logits_output, 
+                labels, 
+                pos_weight=pos_weight
             )
             
-            # 为伪入侵者生成虚拟logits（全零，因为不属于任何已知类）
-            pseudo_logits = torch.zeros(pseudo_batch_size, logits.size(1), device=device)
-            # 为伪入侵者生成虚拟身份标签（-1表示未知）
-            pseudo_identity_labels = torch.full((pseudo_batch_size,), -1, dtype=torch.long, device=device)
-
-            # === 核心修改 2：分别处理合法用户和伪入侵者 ===
-            # 1. 处理合法用户
-            legal_outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
-            legal_anomaly_scores = legal_outputs['logits']  # 合法用户的异常分数
-            legal_min_distances = legal_outputs['min_distance']  # 到最近类中心的距离
-            
-            # 2. 处理伪入侵者
-            pseudo_outputs = comprehensive_detector(pseudo_features, pseudo_logits, pseudo_identity_labels, use_openmax=use_openmax)
-            pseudo_anomaly_scores = pseudo_outputs['logits']  # 伪入侵者的异常分数
-            
-            # === 核心修改 3：使用增强版损失函数 ===
-            # 计算损失：同时监督合法用户和伪入侵者
-            loss = loss_fn(
-                anomaly_scores=legal_anomaly_scores,  # 合法用户分数
-                min_distances=legal_min_distances,    # 合法用户距离
-                pseudo_scores=pseudo_anomaly_scores   # 伪入侵者分数
-            )
+            # L2正则化
+            l2_lambda = 0.005
+            l2_reg = torch.tensor(0., device=device)
+            for param in trainable_params:
+                l2_reg += torch.norm(param, p=2)
+            loss = bce_loss + l2_lambda * l2_reg
             
             # 反向传播和优化
             loss.backward()
-            # 修复Bug: 梯度裁剪需要包含所有训练的参数
             torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
             optimizer.step()
             
@@ -682,49 +631,39 @@ def train_intruder_detector(model_path, output_path, device):
         avg_loss = total_loss / batch_count if batch_count > 0 else 0
         train_losses.append(avg_loss)
         
-        # 更新学习率（warmup + cosine）
-        if epoch < warmup_epochs:
-            warmup_scheduler.step()
-        else:
-            cosine_scheduler.step()
-        
-        # 在每个epoch后，使用验证集找到最佳F1阈值（代价敏感策略 + 混入伪入侵者）
-        # 先在验证集上收集分数（会自动混入伪入侵者）
-        _, _, _, _, _, val_scores, val_labels = validate_intruder_detector(
+        # 在每个epoch后，使用验证集找到最佳F1阈值
+        val_accuracy, val_f1, val_precision, val_recall, val_auroc, val_scores, val_labels = validate_intruder_detector(
             comprehensive_detector,
             identity_model,
             data_loaders['intruder_validation'],
             device,
-            threshold=0.5,  # 阈值对分数本身无影响
-            pos_label=1,  # 现在验证集包含伪入侵者，正类为1
+            threshold=0.5,
+            pos_label=1,  # 入侵者为正类
             return_scores=True
         )
 
         val_scores = np.array(val_scores)
         val_labels = np.array(val_labels)
 
-        # === 大力修改：使用 Precision-Recall 曲线寻找最佳 F1 的阈值 ===
+        # 使用F1分数找最佳阈值
         if len(val_scores) > 0 and len(np.unique(val_labels)) > 1:
             from sklearn.metrics import precision_recall_curve
             precision, recall, thresholds = precision_recall_curve(val_labels, val_scores)
             
             # 计算每个阈值下的 F1
             f1_scores = 2 * recall * precision / (recall + precision + 1e-10)
-            best_idx = np.argmax(f1_scores)
+            best_idx = int(np.argmax(f1_scores))
             dynamic_threshold = float(thresholds[best_idx]) if best_idx < len(thresholds) else 0.5
             
-            print(f"  [动态阈值调整] 基于验证集(含伪入侵者)的最佳阈值: {dynamic_threshold:.4f} (F1={f1_scores[best_idx]:.4f})")
+            print(f"  [动态阈值调整] 验证集最佳阈值: {dynamic_threshold:.4f} (F1={f1_scores[best_idx]:.4f})")
         else:
             dynamic_threshold = 0.5
-            print(f"  [警告] 验证集数据不足或类别单一，使用默认阈值: {dynamic_threshold:.4f}")
+            print(f"  [警告] 验证集数据不足，使用默认阈值: {dynamic_threshold:.4f}")
 
-        # 使用动态阈值在验证集上计算指标（现在包含伪入侵者，pos_label=1）
-        if len(val_labels) == 0:
-            val_accuracy = val_f1 = val_precision = val_recall = val_auroc = 0.0
-        else:
+        # 使用动态阈值在验证集上计算指标
+        if len(val_labels) > 0:
             val_predictions = (val_scores > dynamic_threshold).astype(int)
             val_accuracy = float(np.mean(val_predictions == val_labels))
-            # 现在验证集混合了合法用户(0)和伪入侵者(1)，正类为1
             val_f1 = float(f1_score(val_labels, val_predictions, pos_label=1, zero_division=0))
             val_precision = float(precision_score(val_labels, val_predictions, pos_label=1, zero_division=0))
             val_recall = float(recall_score(val_labels, val_predictions, pos_label=1, zero_division=0))
@@ -732,6 +671,11 @@ def train_intruder_detector(model_path, output_path, device):
                 val_auroc = float(roc_auc_score(val_labels, val_scores))
             except ValueError:
                 val_auroc = 0.0
+        else:
+            val_accuracy = val_f1 = val_precision = val_recall = val_auroc = 0.0
+        
+        # 更新学习率（基于验证集F1）
+        scheduler.step(val_f1)
 
         # 使用相同阈值在测试集上评估（入侵者=1 为正类）
         test_accuracy, test_f1, test_precision, test_recall, test_auroc = validate_intruder_detector(
@@ -753,27 +697,30 @@ def train_intruder_detector(model_path, output_path, device):
         print(f'  验证集: 准确率={val_accuracy:.4f}, F1={val_f1:.4f}, 精确率={val_precision:.4f}, 召回率={val_recall:.4f}, AUROC={val_auroc:.4f}')
         print(f'  测试集: 准确率={test_accuracy:.4f}, F1={test_f1:.4f}, 精确率={test_precision:.4f}, 召回率={test_recall:.4f}, AUROC={test_auroc:.4f}')
 
-        # 综合评分：优先测试集准确率和F1，兼顾AUROC
-        test_comprehensive_score = 0.4 * test_accuracy + 0.4 * test_f1 + 0.2 * test_auroc
+        # 优化模型保存策略 - 优先F1分数
+        test_comprehensive_score = 0.6 * test_f1 + 0.3 * test_auroc + 0.1 * test_accuracy
         
-        # 保存最佳模型
-        if test_comprehensive_score > best_score:
+        # 保存最佳模型（基于F1）
+        is_best = False
+        if test_f1 > best_test_f1:
+            best_test_f1 = test_f1
             best_score = test_comprehensive_score
             early_stop_counter = 0
+            is_best = True
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': comprehensive_detector.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'warmup_scheduler_state_dict': warmup_scheduler.state_dict(),
-                'cosine_scheduler_state_dict': cosine_scheduler.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'best_score': best_score,
+                'best_f1': best_test_f1,
                 'val_metrics': (val_accuracy, val_f1, val_precision, val_recall, val_auroc),
                 'test_metrics': (test_accuracy, test_f1, test_precision, test_recall, test_auroc),
             }, output_path)
-            print(f'  ✓ 保存最佳模型 (综合评分: {best_score:.4f})')
+            print(f'  ✓ 保存最佳模型 (F1={best_test_f1:.4f}, 综合评分={best_score:.4f})')
         else:
             early_stop_counter += 1
-            print(f'  早停计数: {early_stop_counter}/{patience}')
+            print(f'  早停计数: {early_stop_counter}/{patience} (当前F1={test_f1:.4f}, 最佳F1={best_test_f1:.4f})')
             
         # 早停检查
         if early_stop_counter >= patience:

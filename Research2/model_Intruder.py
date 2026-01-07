@@ -255,18 +255,20 @@ class OneClassIntruderDetector(nn.Module):
         self.register_buffer('class_centers', torch.zeros(num_known_users, feature_dim))
         self.centers_initialized = False
         
-        # 大力修改：输入维度改为 num_known_users (即到所有中心的距离)
-        # 增加网络深度，学习复杂的边界决策
+        # 优化版：简化网络结构，防止过拟合
+        # 输入: [原始特征(32) + 到所有中心距离(10) + 距离统计(3)] = 45维
         self.distance_processor = nn.Sequential(
-            nn.Linear(num_known_users, 64),
-            nn.LayerNorm(64),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(feature_dim + num_known_users + 3, 128),
+            nn.LayerNorm(128),  # LayerNorm对小batch更稳定
+            nn.ReLU(),
             nn.Dropout(0.3),
             
-            nn.Linear(64, 32),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(128, 64),
+            nn.LayerNorm(64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
             
-            nn.Linear(32, 1)  # 输出异常 logits
+            nn.Linear(64, 1)  # 输出异常 logits
         )
         
     def initialize_centers(self, features, labels):
@@ -306,12 +308,24 @@ class OneClassIntruderDetector(nn.Module):
         # 使用余弦距离可能比欧氏距离在归一化空间更好，但这里先保持欧氏距离
         all_distances = torch.cdist(features, self.class_centers, p=2)  # (batch_size, num_known_users)
         
-        # 2. 找到最小距离 (保留用于后续逻辑)
-        min_distance, _ = torch.min(all_distances, dim=1)  # (batch_size,)
+        # 余弦相似度转距离
+        features_norm = torch.nn.functional.normalize(features, p=2, dim=1)
+        centers_norm = torch.nn.functional.normalize(self.class_centers, p=2, dim=1)
+        cosine_sim = torch.mm(features_norm, centers_norm.t())
+        cosine_distances = 1 - cosine_sim
         
-        # 3. 将所有距离输入网络，让网络自己判断是否在“真空区”
-        # 比如：如果离Class0和Class1的距离差不多，说明在边界，很可能是入侵者
-        anomaly_logits = self.distance_processor(all_distances).squeeze(-1)  # (batch_size,)
+        # 混合距离: 60%欧氏 + 40%余弦
+        all_distances = 0.6 * all_distances + 0.4 * cosine_distances
+        
+        # 2. 找到最小距离 (保留用于后续逻辑)
+        min_distance, _ = torch.min(all_distances, dim=1)
+        max_distance, _ = torch.max(all_distances, dim=1)
+        mean_distance = torch.mean(all_distances, dim=1)
+        std_distance = torch.std(all_distances, dim=1)
+        distance_stats = torch.stack([min_distance, std_distance, mean_distance], dim=1)
+        
+        combined_input = torch.cat([features, all_distances, distance_stats], dim=1)
+        anomaly_logits = self.distance_processor(combined_input).squeeze(-1)
         
         anomaly_probs = torch.sigmoid(anomaly_logits)  # (batch_size,)
         
@@ -343,14 +357,20 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化TraditionalOpenMax组件（使用混合距离度量）
         self.traditional_openmax = TraditionalOpenMax(num_known_users, alpha, distance_metric=distance_metric)
         
-        # 动态融合网络：自适应调整两个检测器的权重
+        # 优化版：简化融合网络，专注关键特征
+        # 输入: [oneclass_score, openmax_score, min_distance, distance_std, nearest_ratio, max_distance] = 6维
         self.fusion_network = nn.Sequential(
-            nn.Linear(3, 24),  # 3: oneclass_score, openmax_score, min_distance
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(24, 16),
-            nn.ReLU(inplace=True),
-            nn.Linear(16, 1)  # 最终异常分数
+            nn.Linear(6, 64),
+            nn.LayerNorm(64),
+            nn.ReLU(),
+            nn.Dropout(0.25),
+            
+            nn.Linear(64, 32),
+            nn.LayerNorm(32),
+            nn.ReLU(),
+            nn.Dropout(0.15),
+            
+            nn.Linear(32, 1)  # 最终异常分数
         )
         
     def fit_traditional_openmax(self, features, labels, identity_labels, search_alpha=False, val_features=None, val_labels=None, val_identity_labels=None):
@@ -395,6 +415,7 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         oneclass_outputs = self.one_class_detector(features)
         oneclass_probs = oneclass_outputs['probabilities']
         min_distance = oneclass_outputs['min_distance']
+        all_distances = oneclass_outputs['distances']  # (batch_size, num_known_users)
 
         # 2. 使用预先拟合好的 TraditionalOpenMax 进行打分（可选）
         if use_openmax:
@@ -421,12 +442,24 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         if oneclass_probs.size(0) != batch_size:
             oneclass_probs = oneclass_probs[:batch_size]
 
-        # 3. 动态融合：结合两个检测器的结果
+        # 3. 增强融合：加入距离分布的统计特征
+        # 计算距离的方差（高方差可能意味着在类间区域）
+        distance_std = torch.std(all_distances, dim=1)  # (batch_size,)
+        # 计算到最近和次近中心的距离比（比值接近1说明在边界）
+        sorted_distances, _ = torch.sort(all_distances, dim=1)
+        nearest_ratio = sorted_distances[:, 0] / (sorted_distances[:, 1] + 1e-8)  # (batch_size,)
+        # 新增: 最大距离（远离所有中心可能是入侵者）
+        max_distance, _ = torch.max(all_distances, dim=1)
+        
+        # 4. 动态融合：结合多个检测器的结果和距离统计特征
         fusion_input = torch.stack([
             oneclass_probs,
             openmax_probs,
-            min_distance
-        ], dim=1)  # (batch_size, 3)
+            min_distance,
+            distance_std,      # 距离方差
+            nearest_ratio,     # 最近/次近比值
+            max_distance       # 新增: 最大距离
+        ], dim=1)  # (batch_size, 6)
         
         final_logits = self.fusion_network(fusion_input).squeeze(-1)
         final_probabilities = torch.sigmoid(final_logits)

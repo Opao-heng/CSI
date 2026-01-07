@@ -17,18 +17,20 @@ class IntruderDetectionLoss:
     3. 对比约束：拉大合法用户和伪入侵者的分数差距
     """
     
-    def __init__(self, distance_weight=0.5, margin=1.0, pseudo_weight=1.0):
+    def __init__(self, distance_weight=1.0, margin=1.0, pseudo_weight=2.0, contrastive_weight=0.5):
         """
         初始化损失函数
         
         Args:
-            distance_weight: 距离对齐项的权重
+            distance_weight: 距离对齐项的权重 (增加到0.5到1.0)
             margin: 距离阈值，超过此值的样本应被判定为异常
-            pseudo_weight: 伪入侵者损失权重
+            pseudo_weight: 伪入侵者损失权重 (增加到1.0到2.0)
+            contrastive_weight: 对比损失权重 (增加到0.2到0.5)
         """
         self.distance_weight = distance_weight
         self.margin = margin
         self.pseudo_weight = pseudo_weight
+        self.contrastive_weight = contrastive_weight
     
     def __call__(self, anomaly_scores, min_distances=None, pseudo_scores=None):
         """
@@ -83,12 +85,25 @@ class IntruderDetectionLoss:
             legal_mean_score = torch.sigmoid(anomaly_scores).mean()
             pseudo_mean_score = torch.sigmoid(pseudo_scores).mean()
             
+            # 增加对比margin，并加入方差约束
             # Hinge loss：确保 pseudo_mean_score > legal_mean_score + margin
-            contrastive_margin = 0.3  # 期望伪入侵者比合法用户高0.3
-            contrastive_loss = F.relu(contrastive_margin - (pseudo_mean_score - legal_mean_score))
+            contrastive_margin = 0.5  # 增加到0.3到0.5，期望伪入侵者比合法用户高0.5
+            mean_contrastive_loss = F.relu(contrastive_margin - (pseudo_mean_score - legal_mean_score))
+            
+            # 新增: 也约束每个样本的最小分数差距
+            # 确保大部分伪入侵者样本都比大部分合法用户样本分数高
+            legal_probs = torch.sigmoid(anomaly_scores)
+            pseudo_probs = torch.sigmoid(pseudo_scores)
+            
+            # 计算每个伪入侵者和所有合法用户的分数差
+            # 期望: 每个伪入侵者至少比大部分合法用户分数高
+            pairwise_diff = pseudo_probs.unsqueeze(1) - legal_probs.unsqueeze(0)  # (pseudo_batch, legal_batch)
+            pairwise_contrastive = F.relu(0.3 - pairwise_diff).mean()  # 期望至少高0.3
+            
+            contrastive_loss = mean_contrastive_loss + 0.3 * pairwise_contrastive
             
             # 总损失
-            total_loss = legal_loss + self.pseudo_weight * pseudo_loss + 0.2 * contrastive_loss
+            total_loss = legal_loss + self.pseudo_weight * pseudo_loss + self.contrastive_weight * contrastive_loss
         else:
             total_loss = legal_loss
         
