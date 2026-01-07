@@ -6,32 +6,32 @@ from sklearn.model_selection import train_test_split
 
 class IntruderDetectionDataset(Dataset):
     """入侵者检测数据集"""
-    
+
     def __init__(self, data, labels, identity_labels=None):
         self.data = data
         self.labels = labels  # 二分类标签：0-合法用户，1-入侵者
         self.identity_labels = identity_labels  # 身份标签：0-9表示合法用户ID，-1表示入侵者
-        
+
     def __len__(self):
         return len(self.data)
-        
+
     def __getitem__(self, idx):
         # 确保返回的数据格式正确
         data = self.data[idx]
         label = self.labels[idx]
-        
+
         # 检查数据维度并确保是float32类型
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(data, dtype=torch.float32)
         elif data.dtype != torch.float32:
             data = data.float()
-            
+
         # 确保标签是long类型
         if not isinstance(label, torch.Tensor):
             label = torch.tensor(label, dtype=torch.long)
         elif label.dtype != torch.long:
             label = label.long()
-            
+
         # 处理身份标签
         if self.identity_labels is not None:
             identity_label = self.identity_labels[idx]
@@ -101,13 +101,13 @@ def load_intruder_data():
     print("\n进行数据集划分（开放集学习）...")
     print("策略：训练集和验证集只使用（源域和目标域）合法用户数据，测试集使用（目标域）合法用户 + 真实入侵者")
 
-    # 1. 源域数据按比例划分：70%训练集，15%验证集，15%测试集
+    # 1. 源域数据按比例划分：20%训练集，20%验证集，60%测试集
     src_indices = np.arange(len(source_data))
     src_train_indices, src_temp_indices = train_test_split(
-        src_indices, test_size=0.3, random_state=42, stratify=source_labels.numpy()
+        src_indices, test_size=0.8, random_state=42, stratify=source_labels.numpy()
     )
     src_val_indices, src_test_indices = train_test_split(
-        src_temp_indices, test_size=0.5, random_state=42, stratify=source_labels[src_temp_indices].numpy()
+        src_temp_indices, test_size=0.75, random_state=42, stratify=source_labels[src_temp_indices].numpy()
     )
 
     src_train_data = source_data[src_train_indices]
@@ -160,7 +160,8 @@ def load_intruder_data():
     # 目标域测试集身份标签保持原标签
     target_test_identity_labels = target_remaining_labels[target_test_indices]
 
-    print(f"[目标域] 训练集: {target_aux_data.shape}, 验证集: {target_val_data.shape}, 测试集: {target_test_data.shape}")
+    print(
+        f"[目标域] 训练集: {target_aux_data.shape}, 验证集: {target_val_data.shape}, 测试集: {target_test_data.shape}")
 
     # 3. 构建训练集和验证集（只使用合法用户数据）
     intruder_train_data = torch.cat([src_train_data, target_aux_data], dim=0)
@@ -199,21 +200,24 @@ def load_intruder_data():
     legal_test_count = len(target_test_data)
     intruder_test_count = len(real_intruder_data)
     print(f"[测试集] 数据: {intruder_test_data.shape}")
-    print(f"  - 合法用户: {legal_test_count} ({legal_test_count/len(intruder_test_data)*100:.1f}%)")
-    print(f"  - 真实入侵者: {intruder_test_count} ({intruder_test_count/len(intruder_test_data)*100:.1f}%)")
+    print(f"  - 合法用户: {legal_test_count} ({legal_test_count / len(intruder_test_data) * 100:.1f}%)")
+    print(f"  - 真实入侵者: {intruder_test_count} ({intruder_test_count / len(intruder_test_data) * 100:.1f}%)")
     print("=====================================================")
 
     # 5. 创建数据集对象
-    intruder_train_dataset = IntruderDetectionDataset(intruder_train_data, intruder_train_labels, intruder_train_identity_labels)
-    intruder_val_dataset = IntruderDetectionDataset(intruder_val_data, intruder_val_labels, intruder_val_identity_labels)
-    intruder_test_dataset = IntruderDetectionDataset(intruder_test_data, intruder_test_labels, intruder_test_identity_labels)
+    intruder_train_dataset = IntruderDetectionDataset(intruder_train_data, intruder_train_labels,
+                                                      intruder_train_identity_labels)
+    intruder_val_dataset = IntruderDetectionDataset(intruder_val_data, intruder_val_labels,
+                                                    intruder_val_identity_labels)
+    intruder_test_dataset = IntruderDetectionDataset(intruder_test_data, intruder_test_labels,
+                                                     intruder_test_identity_labels)
 
     print(f"\n数据加载完成！")
 
     return {
-        'intruder_train': intruder_train_dataset,      # 用于入侵者检测模型训练（只包含合法用户）
-        'intruder_validation': intruder_val_dataset,   # 用于入侵者检测模型验证（只包含合法用户）
-        'intruder_test': intruder_test_dataset,        # 用于入侵者检测模型测试（合法用户 + 真实入侵者）
+        'intruder_train': intruder_train_dataset,  # 用于入侵者检测模型训练（只包含合法用户）
+        'intruder_validation': intruder_val_dataset,  # 用于入侵者检测模型验证（只包含合法用户）
+        'intruder_test': intruder_test_dataset,  # 用于入侵者检测模型测试（合法用户 + 真实入侵者）
         'intruder_train_raw': (intruder_train_data, intruder_train_labels, intruder_train_identity_labels),
         'intruder_validation_raw': (intruder_val_data, intruder_val_labels, intruder_val_identity_labels),
         'intruder_test_raw': (intruder_test_data, intruder_test_labels, intruder_test_identity_labels)
@@ -225,20 +229,20 @@ def create_intruder_data_loaders(datasets, batch_size=32):
     创建入侵者检测专用数据加载器
     """
     data_loaders = {}
-    
+
     for key, dataset in datasets.items():
         if key.endswith('_raw'):
             continue  # 跳过原始数据
-            
+
         data_loaders[key] = DataLoader(
-            dataset, 
-            batch_size=batch_size, 
+            dataset,
+            batch_size=batch_size,
             shuffle=(key != 'test' and not key.endswith('_test')),  # 测试集不打乱
             num_workers=0,  # Windows兼容性
             drop_last=False,  # 不丢弃不完整的batch
             collate_fn=custom_collate_fn  # 使用自定义的collate函数处理不规则数据
         )
-        
+
     return data_loaders
 
 
@@ -252,14 +256,17 @@ def custom_collate_fn(batch):
     else:  # 不包含身份标签
         data_list, labels_list = zip(*batch)
         identity_labels_list = None
-    
+
     # 转换为张量
     try:
         # 尝试直接堆叠（如果所有数据形状一致）
         data = torch.stack(data_list, dim=0)
-        labels = torch.stack(labels_list, dim=0) if isinstance(labels_list[0], torch.Tensor) else torch.tensor(labels_list)
+        labels = torch.stack(labels_list, dim=0) if isinstance(labels_list[0], torch.Tensor) else torch.tensor(
+            labels_list)
         if identity_labels_list is not None:
-            identity_labels = torch.stack(identity_labels_list, dim=0) if isinstance(identity_labels_list[0], torch.Tensor) else torch.tensor(identity_labels_list)
+            identity_labels = torch.stack(identity_labels_list, dim=0) if isinstance(identity_labels_list[0],
+                                                                                     torch.Tensor) else torch.tensor(
+                identity_labels_list)
         else:
             identity_labels = None
     except RuntimeError:
@@ -267,7 +274,7 @@ def custom_collate_fn(batch):
         data = list(data_list)
         labels = list(labels_list)
         identity_labels = list(identity_labels_list) if identity_labels_list is not None else None
-    
+
     if identity_labels is not None:
         return data, labels, identity_labels
     else:

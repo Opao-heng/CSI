@@ -45,7 +45,7 @@ def extract_features(model, data_loader, device):
     return np.vstack(all_features), np.vstack(all_logits), np.hstack(all_labels), identity_labels_result
 
 
-def validate_intruder_detector(model, identity_model, data_loader, device, threshold=0.5):
+def validate_intruder_detector(model, identity_model, data_loader, device, threshold=0.5, pos_label=1, return_scores=False):
     """
     在验证集或测试集上测试入侵者检测器性能
     """
@@ -106,7 +106,10 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
 
     # 计算评估指标
     if len(all_predictions) == 0 or len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
+        if return_scores:
+            return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([]), np.array([])
+        else:
+            return 0.0, 0.0, 0.0, 0.0, 0.0
     
     all_predictions = np.array(all_predictions)
     all_labels = np.array(all_labels)
@@ -114,14 +117,17 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
     
     # 处理空数组情况
     if len(all_labels) == 0:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
+        if return_scores:
+            return 0.0, 0.0, 0.0, 0.0, 0.0, np.array([]), np.array([])
+        else:
+            return 0.0, 0.0, 0.0, 0.0, 0.0
     
     accuracy = float(np.mean(all_predictions == all_labels)) if len(all_labels) > 0 else 0.0
     
-    # 使用zero_division='warn'避免警告
-    f1 = float(f1_score(all_labels, all_predictions, zero_division='warn'))
-    precision = float(precision_score(all_labels, all_predictions, zero_division='warn'))
-    recall = float(recall_score(all_labels, all_predictions, zero_division='warn'))
+    # 使用zero_division=0避免警告，并允许指定正类标签
+    f1 = float(f1_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
+    precision = float(precision_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
+    recall = float(recall_score(all_labels, all_predictions, pos_label=pos_label, zero_division=0))
 
     # AUROC（当正负样本都存在时才有意义）
     try:
@@ -129,7 +135,10 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
     except ValueError:
         auroc = 0.0
     
-    return accuracy, f1, precision, recall, auroc
+    if return_scores:
+        return accuracy, f1, precision, recall, auroc, all_scores, all_labels
+    else:
+        return accuracy, f1, precision, recall, auroc
 
 
 def test_intruder_detector(model, identity_model, data_loader, device, threshold=0.5):
@@ -388,13 +397,50 @@ def train_intruder_detector(model_path, output_path, device):
         else:
             cosine_scheduler.step()
         
-        # 在每个epoch后测试入侵者检测器性能 - 使用平衡阈值
-        balanced_threshold = 0.5
-        val_accuracy, val_f1, val_precision, val_recall, val_auroc = validate_intruder_detector(
-            comprehensive_detector, identity_model, data_loaders['intruder_validation'], device, threshold=balanced_threshold)
+        # 在每个epoch后，根据验证集合法用户分数自适应选择阈值
+        # 先在验证集上收集分数（验证集只包含合法用户，标签为0）
+        _, _, _, _, _, val_scores, val_labels = validate_intruder_detector(
+            comprehensive_detector,
+            identity_model,
+            data_loaders['intruder_validation'],
+            device,
+            threshold=0.5,  # 阈值对分数本身无影响
+            pos_label=0,
+            return_scores=True
+        )
 
+        val_scores = np.array(val_scores)
+        val_labels = np.array(val_labels)
+
+        if len(val_scores) > 0:
+            # 选取合法用户分数的高分位数作为入侵者判定阈值（例如95%分位）
+            dynamic_threshold = float(np.quantile(val_scores, 0.95))
+        else:
+            dynamic_threshold = 0.5
+
+        # 使用动态阈值在验证集上计算针对合法用户(0类)的指标
+        if len(val_labels) == 0:
+            val_accuracy = val_f1 = val_precision = val_recall = val_auroc = 0.0
+        else:
+            val_predictions = (val_scores > dynamic_threshold).astype(int)
+            val_accuracy = float(np.mean(val_predictions == val_labels))
+            val_f1 = float(f1_score(val_labels, val_predictions, pos_label=0, zero_division=0))
+            val_precision = float(precision_score(val_labels, val_predictions, pos_label=0, zero_division=0))
+            val_recall = float(recall_score(val_labels, val_predictions, pos_label=0, zero_division=0))
+            try:
+                val_auroc = float(roc_auc_score(val_labels, val_scores))
+            except ValueError:
+                val_auroc = 0.0
+
+        # 使用相同阈值在测试集上评估（入侵者=1 为正类）
         test_accuracy, test_f1, test_precision, test_recall, test_auroc = validate_intruder_detector(
-            comprehensive_detector, identity_model, data_loaders['intruder_test'], device, threshold=balanced_threshold)
+            comprehensive_detector,
+            identity_model,
+            data_loaders['intruder_test'],
+            device,
+            threshold=dynamic_threshold,
+            pos_label=1
+        )
 
         val_metrics.append((val_accuracy, val_f1, val_precision, val_recall, val_auroc))
         test_metrics.append((test_accuracy, test_f1, test_precision, test_recall, test_auroc))
