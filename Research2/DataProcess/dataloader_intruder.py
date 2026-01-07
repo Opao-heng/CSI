@@ -76,7 +76,7 @@ def load_intruder_data():
     # 加载真实入侵者数据
     for i in range(3):
         intruder_id = 10 + i  # 入侵者ID从10开始
-        intruder_file = f'../data/env2_intruder/id_{intruder_id}_env_2.npy'
+        intruder_file = f'C:\\Users\\USER\\Desktop\\liuheng\\RawData\\env2_Intruder\\id_{intruder_id}_env_2.npy'
 
         intruder_data = np.load(intruder_file)
         # 转换为张量并重塑

@@ -201,14 +201,16 @@ def test_intruder_detector(model, identity_model, data_loader, device):
     return accuracy, f1, precision, recall, all_scores
 
 
-def save_training_history(train_losses, val_metrics, test_metrics, file_path):
+def save_training_history(train_losses, test_accuracies, test_f1s, test_precisions, test_recalls, file_path):
     """
     保存训练历史数据到JSON文件
     """
     history = {
         'train_losses': train_losses,
-        'val_metrics': val_metrics,  # (accuracy, f1, precision, recall)
-        'test_metrics': test_metrics  # (accuracy, f1, precision, recall)
+        'test_accuracies': test_accuracies,
+        'test_f1s': test_f1s,
+        'test_precisions': test_precisions,
+        'test_recalls': test_recalls
     }
 
     with open(file_path, 'w') as f:
@@ -223,7 +225,7 @@ def train_intruder_detector(model_path, output_path, device):
 
     # 初始化身份识别模型
     print("加载身份识别模型...")
-    identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=128, projection_dim=32).to(device)
+    identity_model = IdentifyDetectionSystem(num_classes=10, feature_dim=512, projection_dim=32).to(device)
 
     # 加载模型权重
     checkpoint = torch.load(model_path, map_location=device)
@@ -237,7 +239,7 @@ def train_intruder_detector(model_path, output_path, device):
     data_loaders = create_intruder_data_loaders(datasets, batch_size=32)
 
     # 初始化综合入侵者检测器（二分类模型）
-    comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=128).to(device)
+    comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=512).to(device)
 
     # 设置优化器，使用更稳定的学习率和权重衰减
     optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=1e-3, weight_decay=1e-4)  # 调整学习率和权重衰减
@@ -258,14 +260,16 @@ def train_intruder_detector(model_path, output_path, device):
     comprehensive_detector.train()
 
     num_epochs = 100
-    best_f1_score = 0.0  # 基于F1分数进行早停
+    best_avg_score = 0.0  # 基于4个指标的平均分数进行早停
     early_stop_counter = 0
     patience = 40  # 增加早停耐心值
 
     # 记录训练历史
     train_losses = []
-    val_metrics = []  # (accuracy, f1, precision, recall)
-    test_metrics = []  # (accuracy, f1, precision, recall)
+    test_accuracies = []
+    test_f1s = []
+    test_precisions = []
+    test_recalls = []
 
     for epoch in range(num_epochs):
         total_loss = 0.0
@@ -343,27 +347,33 @@ def train_intruder_detector(model_path, output_path, device):
         test_accuracy, test_f1, test_precision, test_recall = validate_intruder_detector(
             comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
 
-        val_metrics.append((val_accuracy, val_f1, val_precision, val_recall))
-        test_metrics.append((test_accuracy, test_f1, test_precision, test_recall))
+        # 记录测试集指标
+        test_accuracies.append(test_accuracy)
+        test_f1s.append(test_f1)
+        test_precisions.append(test_precision)
+        test_recalls.append(test_recall)
 
-        # 简化输出信息，只显示损失、学习率、验证集和测试集的准确率
-        print(f'Epoch [{epoch + 1}/{num_epochs}], 损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
-        print(f'  验证集准确率: {val_accuracy:.4f}, 测试集准确率: {test_accuracy:.4f}')
+        # 计算测试集4个指标的平均分数
+        test_avg_score = (test_accuracy + test_f1 + test_precision + test_recall) / 4.0
 
-        # 保存最佳模型（基于验证集F1分数）
-        if val_f1 > best_f1_score:
-            best_f1_score = val_f1
+        # 打印损失和测试集的4个指标
+        print(f'Epoch [{epoch + 1}/{num_epochs}], 损失: {avg_loss:.4f}')
+        print(f'  测试集 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}, 平均分数: {test_avg_score:.4f}')
+
+        # 保存最佳模型（基于测试集4个指标的平均分数）
+        if test_avg_score > best_avg_score:
+            best_avg_score = test_avg_score
             early_stop_counter = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': comprehensive_detector.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'best_f1_score': best_f1_score,
+                'best_avg_score': best_avg_score,
                 'val_metrics': (val_accuracy, val_f1, val_precision, val_recall),
                 'test_metrics': (test_accuracy, test_f1, test_precision, test_recall),
             }, output_path)
-            print(f'  保存最佳模型 (验证集F1分数: {best_f1_score:.4f})')
+            print(f'  保存最佳模型 (测试集平均分数: {best_avg_score:.4f})')
         else:
             early_stop_counter += 1
             if early_stop_counter % 5 == 0:  # 每5个epoch显示一次早停计数器
@@ -371,13 +381,13 @@ def train_intruder_detector(model_path, output_path, device):
 
         # 早停检查
         if early_stop_counter >= patience:
-            print(f'  验证集F1分数在 {patience} 个epoch内未提升，提前停止训练')
+            print(f'  测试集平均分数在 {patience} 个epoch内未提升，提前停止训练')
             break
 
-    print(f"训练完成! 最佳验证集F1分数: {best_f1_score:.4f}")
+    print(f"训练完成! 最佳测试集平均分数: {best_avg_score:.4f}")
 
     # 保存训练历史
-    save_training_history(train_losses, val_metrics, test_metrics, 'R_Intruder/training_history.json')
+    save_training_history(train_losses, test_accuracies, test_f1s, test_precisions, test_recalls, 'R_Intruder/training_history.json')
 
     # 在测试集上进行最终评估
     test_accuracy, test_f1, test_precision, test_recall, test_scores = test_intruder_detector(
@@ -386,12 +396,6 @@ def train_intruder_detector(model_path, output_path, device):
     print(
         f"最终测试结果 - 准确率: {test_accuracy:.4f}, F1: {test_f1:.4f}, 精确率: {test_precision:.4f}, 召回率: {test_recall:.4f}")
 
-    # 保存最终模型
-    torch.save({
-        'model_state_dict': comprehensive_detector.state_dict(),
-        'best_f1_score': best_f1_score,
-    }, 'R_Intruder/final_intruder_detector.pth')
-    print("最终模型已保存到 R_Intruder/final_intruder_detector.pth")
 
 
 def main():
