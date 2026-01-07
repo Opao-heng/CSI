@@ -102,7 +102,7 @@ def load_intruder_data():
     # 1. 源域数据按比例划分：70%训练集，15%验证集，15%测试集
     src_indices = np.arange(len(source_data))
     src_train_indices, src_temp_indices = train_test_split(
-        src_indices, test_size=0.3, random_state=42, stratify=source_labels.numpy()
+        src_indices, test_size=0.7, random_state=42, stratify=source_labels.numpy()
     )
     src_val_indices, src_test_indices = train_test_split(
         src_temp_indices, test_size=0.5, random_state=42, stratify=source_labels[src_temp_indices].numpy()

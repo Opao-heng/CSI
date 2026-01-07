@@ -261,7 +261,7 @@ def train_intruder_detector(model_path, output_path, device):
     num_epochs = 50
     best_avg_score = 0.0  # 基于4个指标的平均分数进行早停
     early_stop_counter = 0
-    patience = 10  # 增加早停耐心值
+    patience = 15  # 增加早停耐心值
 
     # 记录训练历史
     train_losses = []
