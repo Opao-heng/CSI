@@ -2,8 +2,8 @@ import torch
 import os
 import torch.optim as optim
 import json
-from model_identify import IdentifyDetectionSystem
-from loss_identify import ManifoldLoss
+from model_Identify import IdentifyDetectionSystem
+from loss_Identify import ManifoldLoss
 from DataProcess.dataloader_identify import load_identify_data, create_data_loaders
 
 

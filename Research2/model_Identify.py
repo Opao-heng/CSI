@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# model_identify.py - 基于Research1的CrossAttentionModel增强的身份识别模型
+# model_Identify.py - 基于Research1的CrossAttentionModel增强的身份识别模型
 # 设计逻辑：继承第三章的特征提取器和交叉注意力机制，增加流形投影头用于入侵检测
 
 

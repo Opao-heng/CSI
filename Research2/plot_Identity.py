@@ -8,7 +8,7 @@ from sklearn.manifold import TSNE
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 from matplotlib import font_manager
-from model_identify import IdentifyDetectionSystem
+from model_Identify import IdentifyDetectionSystem
 
 # 设置中文字体支持 - 中文宋体，英文数字Times New Roman
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示为方块的问题

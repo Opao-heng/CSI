@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 import json
-from model_identify import IdentifyDetectionSystem
-from model_intruder import LearnableComprehensiveIntruderDetector
+from model_Identify import IdentifyDetectionSystem
+from model_Intruder import LearnableComprehensiveIntruderDetector
 from loss_Intruder import IntruderDetectionLoss
 from Research2.DataProcess.dataloader_intruder import load_intruder_data, create_intruder_data_loaders
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
