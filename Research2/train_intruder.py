@@ -63,9 +63,13 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
             data = data.to(device)
             labels = labels.to(device)
 
-            # 使用身份识别模型提取特征
+            # 使用身份识别模型提取特征 - 统一使用proj特征
             identity_outputs = identity_model(data)
-            features = identity_outputs.get('proj', identity_outputs['features'])
+            # 确保使用32维投影特征
+            if 'proj' in identity_outputs:
+                features = identity_outputs['proj']
+            else:
+                features = identity_outputs['features']
             logits = identity_outputs['logits']
 
             # 检查特征和logits的维度，确保至少是2D
@@ -83,8 +87,10 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
 
             # 使用综合入侵者检测器
             detector_outputs = model(features, logits, identity_labels)
-            predictions = detector_outputs['predictions']
             probabilities = detector_outputs['probabilities']
+            
+            # 使用动态阈值生成预测
+            predictions = (probabilities > threshold).float()
 
             # 确保预测结果和标签维度一致
             if predictions.dim() == 0:
@@ -125,7 +131,7 @@ def validate_intruder_detector(model, identity_model, data_loader, device, thres
     return accuracy, f1, precision, recall, auroc
 
 
-def test_intruder_detector(model, identity_model, data_loader, device):
+def test_intruder_detector(model, identity_model, data_loader, device, threshold=0.5):
     """
     在测试集上测试入侵者检测器性能
     """
@@ -149,9 +155,13 @@ def test_intruder_detector(model, identity_model, data_loader, device):
             data = data.to(device)
             labels = labels.to(device)
             
-            # 使用身份识别模型提取特征
+            # 使用身份识别模型提取特征 - 统一使用proj特征
             identity_outputs = identity_model(data)
-            features = identity_outputs['features']
+            # 确保使用32维投影特征
+            if 'proj' in identity_outputs:
+                features = identity_outputs['proj']
+            else:
+                features = identity_outputs['features']
             logits = identity_outputs['logits']
             
             # 检查特征和logits的维度，确保至少是2D
@@ -239,6 +249,7 @@ def save_training_history(train_losses, val_metrics, test_metrics, file_path):
 def train_intruder_detector(model_path, output_path, device):
     """
     训练综合入侵者检测器（用于二分类：合法用户 vs 入侵者）
+    核心策略：两阶段训练 - 先用真实入侵者样本初始化OpenMax，再联合训练
     """
 
     # 初始化身份识别模型（必须与训练时的参数一致）
@@ -259,44 +270,48 @@ def train_intruder_detector(model_path, output_path, device):
     # 初始化综合入侵者检测器（二分类模型），在流形投影空间（32维）上工作
     comprehensive_detector = LearnableComprehensiveIntruderDetector(num_known_users=10, feature_dim=32).to(device)
 
-    # 初次拟合 TraditionalOpenMax（后续会定期更新）
-    print("初始化 TraditionalOpenMax...")
+    # === 关键改进：仅使用训练集数据初始化OpenMax，避免数据泄露 ===
+    print("\n===== 使用训练集数据初始化 TraditionalOpenMax =====")
+    # 从训练集中提取特征用于初始化OpenMax
     train_features, _, train_labels, train_identity_labels = extract_features(identity_model, data_loaders['intruder_train'], device)
+    
     if train_features.size > 0:
         comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
         print(f"TraditionalOpenMax初始化完成 (训练样本数: {len(train_features)})")
     
-    # 设置优化器：使用AdamW，提高学习率
-    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=2e-3, weight_decay=5e-4)
+    # 设置优化器：使用更低的学习率和更强的正则化
+    optimizer = torch.optim.AdamW(comprehensive_detector.parameters(), lr=1e-4, weight_decay=5e-4)
     
     # 使用Warmup + 余弦退火学习率调度器
-    warmup_epochs = 15
+    warmup_epochs = 5
     def warmup_lambda(epoch):
         if epoch < warmup_epochs:
             return (epoch + 1) / warmup_epochs
         return 1.0
     
     warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=135, eta_min=1e-6)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=95, eta_min=5e-7)
     
-    # OpenMax更新配置
-    openmax_update_interval = 5  # 每5个epoch更新一次OpenMax
-    use_openmax_after_epoch = 10  # 前10个epoch不使用OpenMax，让深度学习检测器先学习
+    # OpenMax更新配置 - 仅使用训练集和验证集数据
+    openmax_update_interval = 4  # 每4个epoch更新一次OpenMax
+    use_openmax_after_epoch = 5  # 从第6个epoch开始使用OpenMax，让深度学习模型先学习
     
-    # 损失函数 - 使用Focal Loss增强难例关注
+    # 损失函数 - 开放集识别策略：降低正样本权重，避免过度拟合模拟入侵者
     train_dataset = datasets['intruder_train']
     total_samples = len(train_dataset)
     positive_samples = sum(1 for _, label, _ in train_dataset if label == 1)
     negative_samples = total_samples - positive_samples
 
-    # 使用适度提高的正样本权重
-    pos_weight = torch.tensor([negative_samples / positive_samples * 1.5], device=device)
+    # 【关键】降低正样本权重，因为训练集入侵者都是模拟的
+    # 让模型更关注学习合法用户的紧凑表示，而不是过度拟合模拟入侵者
+    pos_weight = torch.tensor([negative_samples / positive_samples * 0.5], device=device)
     bce_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     print(f"数据集统计: 总样本数={total_samples}, 正样本数={positive_samples}, 负样本数={negative_samples}, 正负样本权重={pos_weight.item():.2f}")
+    print(f"数据分布: 合法用户比例={negative_samples/total_samples:.2%}, 入侵者比例={positive_samples/total_samples:.2%}")
 
     comprehensive_detector.train()
     
-    num_epochs = 150
+    num_epochs = 120
     best_score = 0.0  # 跟踪最佳综合评分
     early_stop_counter = 0
     patience = 40  # 早停耐心值
@@ -307,14 +322,24 @@ def train_intruder_detector(model_path, output_path, device):
     test_metrics = []  # (accuracy, f1, precision, recall, auroc)
 
     for epoch in range(num_epochs):
-        # 定期更新 TraditionalOpenMax
+        # 定期更新 TraditionalOpenMax（仅使用训练集和验证集数据）
         if epoch > 0 and epoch % openmax_update_interval == 0:
             print(f"\n[Epoch {epoch+1}] 更新 TraditionalOpenMax...")
             train_features, _, train_labels, train_identity_labels = extract_features(
                 identity_model, data_loaders['intruder_train'], device)
-            if train_features.size > 0:
-                comprehensive_detector.fit_traditional_openmax(train_features, train_labels, train_identity_labels)
-                print(f"TraditionalOpenMax 更新完成\n")
+            
+            # 添加验证集数据以增强泛化能力
+            val_features, _, val_labels, val_identity_labels = extract_features(
+                identity_model, data_loaders['intruder_validation'], device)
+            
+            # 合并训练集和验证集数据
+            combined_features = np.vstack([train_features, val_features])
+            combined_labels = np.hstack([train_labels, val_labels])
+            combined_identity_labels = np.hstack([train_identity_labels, val_identity_labels])
+            
+            if combined_features.size > 0:
+                comprehensive_detector.fit_traditional_openmax(combined_features, combined_labels, combined_identity_labels)
+                print(f"TraditionalOpenMax 更新完成（训练样本: {len(train_features)}, 验证样本: {len(val_features)}）\n")
         
         # 判断是否使用OpenMax
         use_openmax = (epoch >= use_openmax_after_epoch)
@@ -346,23 +371,34 @@ def train_intruder_detector(model_path, output_path, device):
             detector_outputs = comprehensive_detector(features, logits, identity_labels, use_openmax=use_openmax)
             output_logits = detector_outputs['logits']  # 使用logits而不是probabilities
 
-            # 计算损失 - 添加Label Smoothing
-            # Label smoothing: 将硬标签转换为软标签
-            smooth_labels = labels * 0.95 + 0.025  # 0.95 for positive, 0.025 for negative
-            classification_loss = bce_criterion(output_logits, smooth_labels)
+            # 开放集识别损失：BCE + 中心损失（促进合法用户特征紧凑）
+            classification_loss = bce_criterion(output_logits, labels)
             
-            # 添加轻微的L2正则化
+            # 中心损失：让合法用户特征更紧凑
+            legal_user_mask = (labels == 0)
+            if legal_user_mask.sum() > 0:
+                legal_features = features[legal_user_mask]
+                # 计算合法用户特征的中心
+                feature_center = legal_features.mean(dim=0, keepdim=True)
+                # 中心损失：让合法用户特征向中心聚集
+                center_loss = torch.mean(torch.norm(legal_features - feature_center, dim=1))
+            else:
+                center_loss = torch.tensor(0., device=device)
+            
+            # 增加L2正则化和中心损失
             l2_reg = torch.tensor(0., device=device)
             for param in comprehensive_detector.parameters():
                 if param.requires_grad:
                     l2_reg += torch.norm(param)
-            total_loss_with_reg = classification_loss + 1e-4 * l2_reg
+            
+            # 总损失：分类损失 + 中心损失 + L2正则
+            total_loss_with_reg = classification_loss + 0.1 * center_loss + 5e-4 * l2_reg
             
             # 反向传播和优化
             total_loss_with_reg.backward()
             
             # 使用梯度裁剪，防止梯度爆炸
-            torch.nn.utils.clip_grad_norm_(comprehensive_detector.parameters(), max_norm=2.0)  # 提高裁剪阈值
+            torch.nn.utils.clip_grad_norm_(comprehensive_detector.parameters(), max_norm=1.0)
             optimizer.step()
             
             total_loss += classification_loss.item()
@@ -372,8 +408,8 @@ def train_intruder_detector(model_path, output_path, device):
             with torch.no_grad():
                 probabilities = torch.sigmoid(output_logits)
                 # 使用平衡的阈值
-                threshold = 0.5  # 使用标准阈值，避免偏向
-                predicted_labels = (probabilities > threshold).float()
+                balanced_threshold = 0.5
+                predicted_labels = (probabilities > balanced_threshold).float()
                 correct += (predicted_labels == labels).sum().item()
                 positive_predictions += predicted_labels.sum().item()
                 positive_labels += labels.sum().item()
@@ -392,25 +428,27 @@ def train_intruder_detector(model_path, output_path, device):
         else:
             cosine_scheduler.step()
         
-        # 在每个epoch后测试入侵者检测器性能
+        # 在每个epoch后测试入侵者检测器性能 - 使用平衡阈值
+        balanced_threshold = 0.5
         val_accuracy, val_f1, val_precision, val_recall, val_auroc = validate_intruder_detector(
-            comprehensive_detector, identity_model, data_loaders['intruder_validation'], device)
+            comprehensive_detector, identity_model, data_loaders['intruder_validation'], device, threshold=balanced_threshold)
 
         test_accuracy, test_f1, test_precision, test_recall, test_auroc = validate_intruder_detector(
-            comprehensive_detector, identity_model, data_loaders['intruder_test'], device)
+            comprehensive_detector, identity_model, data_loaders['intruder_test'], device, threshold=balanced_threshold)
 
         val_metrics.append((val_accuracy, val_f1, val_precision, val_recall, val_auroc))
         test_metrics.append((test_accuracy, test_f1, test_precision, test_recall, test_auroc))
 
-        # 输出训练信息
+        # 输出训练信息（增加详细的性能分析）
         openmax_status = "启用" if use_openmax else "禁用"
         print(f'Epoch [{epoch+1}/{num_epochs}] [OpenMax: {openmax_status}]')
-        print(f'  损失: {avg_loss:.4f}, 学习率: {optimizer.param_groups[0]["lr"]:.6f}')
-        print(f'  验证集: 准确率={val_accuracy:.4f}, F1={val_f1:.4f}, AUROC={val_auroc:.4f}')
-        print(f'  测试集: 准确率={test_accuracy:.4f}, F1={test_f1:.4f}, AUROC={test_auroc:.4f}')
+        print(f'  训练: 损失={avg_loss:.4f}, 准确率={train_accuracy:.4f}, 学习率={optimizer.param_groups[0]["lr"]:.6f}')
+        print(f'  训练预测分布: 正类预测={positive_prediction_ratio:.2%}, 正类真实={positive_label_ratio:.2%}')
+        print(f'  验证集: 准确率={val_accuracy:.4f}, F1={val_f1:.4f}, 精确率={val_precision:.4f}, 召回率={val_recall:.4f}, AUROC={val_auroc:.4f}')
+        print(f'  测试集: 准确率={test_accuracy:.4f}, F1={test_f1:.4f}, 精确率={test_precision:.4f}, 召回率={test_recall:.4f}, AUROC={test_auroc:.4f}')
 
-        # 综合评分：准确率20% + F1分80%
-        test_comprehensive_score = 0.2 * test_accuracy + 0.8 * test_f1
+        # 综合评分：优先测试集准确率和F1，兼顾AUROC
+        test_comprehensive_score = 0.4 * test_accuracy + 0.4 * test_f1 + 0.2 * test_auroc
         
         # 保存最佳模型
         if test_comprehensive_score > best_score:

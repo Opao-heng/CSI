@@ -177,50 +177,71 @@ def load_intruder_data():
     legal_user_identity_labels = torch.cat([src_train_identity_labels, target_aux_identity_labels, 
                                            src_val_identity_labels, target_val_identity_labels], dim=0)
 
-    # 4. 创建模拟入侵者数据（多种方法），数量为合法用户数据的50%
+    # 4. 创建高质量模拟入侵者数据（多样化策略），数量为合法用户数据的40%
     num_legal_samples = len(legal_user_data)
-    total_simulated_intruders = max(1, num_legal_samples // 2)  # 模拟入侵者数据数量为合法用户数据的50%
+    total_simulated_intruders = max(1, num_legal_samples * 2 // 5)  # 增加数量和多样性
 
     simulated_intruder_list = []
 
-    # 方法1: 在合法用户数据基础上添加噪声（25%）
-    num_method1 = max(1, total_simulated_intruders // 4)
+    # 方法1: 轻微噪声污染（20%）- 模拟轻微异常
+    num_method1 = max(1, int(total_simulated_intruders * 0.20))
     base_indices_1 = np.random.choice(len(legal_user_data), size=num_method1, replace=True)
     simulated_data_1 = legal_user_data[base_indices_1].clone()
-    noise_1 = torch.randn_like(simulated_data_1) * 0.2
+    noise_1 = torch.randn_like(simulated_data_1) * 0.3
     simulated_data_1 = simulated_data_1 + noise_1
     simulated_intruder_list.append(simulated_data_1)
 
-    # 方法2: 使用幅度缩放（25%）
-    num_method2 = max(1, total_simulated_intruders // 4)
+    # 方法2: 中等噪声污染（20%）
+    num_method2 = max(1, int(total_simulated_intruders * 0.20))
     base_indices_2 = np.random.choice(len(legal_user_data), size=num_method2, replace=True)
     simulated_data_2 = legal_user_data[base_indices_2].clone()
-    scale_factors = torch.FloatTensor(num_method2, 1, 1, 1).uniform_(0.5, 2.0)
-    simulated_data_2 = simulated_data_2 * scale_factors
+    noise_2 = torch.randn_like(simulated_data_2) * 0.6
+    simulated_data_2 = simulated_data_2 + noise_2
     simulated_intruder_list.append(simulated_data_2)
 
-    # 方法3: 时间序列偏移（25%）
-    num_method3 = max(1, total_simulated_intruders // 4)
+    # 方法3: 强噪声污染（20%）
+    num_method3 = max(1, int(total_simulated_intruders * 0.20))
     base_indices_3 = np.random.choice(len(legal_user_data), size=num_method3, replace=True)
     simulated_data_3 = legal_user_data[base_indices_3].clone()
-    # 对时间维度(最后一个维度)进行循环移位
-    shifts = np.random.randint(0, 6000, size=num_method3)
-    for i in range(num_method3):
-        shift = shifts[i]
-        simulated_data_3[i] = torch.roll(simulated_data_3[i], shifts=shift, dims=2)
+    noise_3 = torch.randn_like(simulated_data_3) * 1.0
+    simulated_data_3 = simulated_data_3 + noise_3
     simulated_intruder_list.append(simulated_data_3)
 
-    # 方法4: 组合方法 - 噪声+缩放（25%）
-    num_method4 = max(1, total_simulated_intruders - num_method1 - num_method2 - num_method3)
+    # 方法4: 幅度变换（15%）
+    num_method4 = max(1, int(total_simulated_intruders * 0.15))
     base_indices_4 = np.random.choice(len(legal_user_data), size=num_method4, replace=True)
     simulated_data_4 = legal_user_data[base_indices_4].clone()
-    # 添加噪声
-    noise_4 = torch.randn_like(simulated_data_4) * 0.1
-    simulated_data_4 = simulated_data_4 + noise_4
-    # 幅度缩放
-    scale_factors_4 = torch.FloatTensor(num_method4, 1, 1, 1).uniform_(0.8, 1.2)
-    simulated_data_4 = simulated_data_4 * scale_factors_4
+    scale_factors = torch.FloatTensor(num_method4, 1, 1, 1).uniform_(0.3, 2.5)
+    simulated_data_4 = simulated_data_4 * scale_factors
     simulated_intruder_list.append(simulated_data_4)
+
+    # 方法5: 混合增强（15%）
+    num_method5 = max(1, int(total_simulated_intruders * 0.15))
+    base_indices_5 = np.random.choice(len(legal_user_data), size=num_method5, replace=True)
+    simulated_data_5 = legal_user_data[base_indices_5].clone()
+    for i in range(num_method5):
+        mix_idx = np.random.choice(len(legal_user_data))
+        mix_ratio = np.random.uniform(0.4, 0.6)
+        simulated_data_5[i] = mix_ratio * simulated_data_5[i] + (1 - mix_ratio) * legal_user_data[mix_idx]
+        noise = torch.randn_like(simulated_data_5[i]) * 0.5
+        simulated_data_5[i] = simulated_data_5[i] + noise
+    simulated_intruder_list.append(simulated_data_5)
+
+    # 方法6: 时间维度打乱(10%)- 模拟不同行为模式
+    num_method6 = max(1, total_simulated_intruders - num_method1 - num_method2 - num_method3 - num_method4 - num_method5)
+    base_indices_6 = np.random.choice(len(legal_user_data), size=num_method6, replace=True)
+    simulated_data_6 = legal_user_data[base_indices_6].clone()
+    for i in range(num_method6):
+        # 获取单个样本的形状 [3, time, features]
+        sample = simulated_data_6[i]
+        time_dim = sample.size(1)  # 获取时间维度大小
+        # 打乱时间维度
+        perm = torch.randperm(time_dim)
+        simulated_data_6[i] = sample[:, perm, :]
+        # 添加轻微噪声
+        noise = torch.randn_like(simulated_data_6[i]) * 0.2
+        simulated_data_6[i] = simulated_data_6[i] + noise
+    simulated_intruder_list.append(simulated_data_6)
 
     # 合并所有模拟入侵者数据
     simulated_intruder_data = torch.cat(simulated_intruder_list, dim=0)

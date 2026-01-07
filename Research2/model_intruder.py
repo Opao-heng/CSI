@@ -115,58 +115,46 @@ class TraditionalOpenMax:
             # 转换为入侵者检测的分数
             scores[i] = max_tail_prob
             
-            # 阈值判断：如果尾部概率低于某个阈值，则认为是入侵者
-            predictions[i] = 0 if max_tail_prob > 0.3 else 1  # 0:合法用户, 1:入侵者，降低阈值
+            # 【开放集识别】动态阈值调整：降低阈值，更敏感地检测异常
+            # 如果尾部概率低于某个阈值，则认为是入侵者
+            predictions[i] = 0 if max_tail_prob > 0.05 else 1  # 0:合法用户, 1:入侵者，降低阈值
             
         return predictions, scores
 
 class LearnableThresholdDetector(nn.Module):
     """
-    入侵者检测器 - 基于32维流形空间的深度异常检测模型（增强版）
+    入侵者检测器 - 基于32维流形空间的深度异常检测模型（简化版）
     
-    优化策略（面向90%准确率）：
-    1. 增加网络深度和宽度，提升表达能力
-    2. 使用残差连接，缓解梯度消失
-    3. 多尺度特征融合，捕获不同层次的异常模式
+    优化策略：
+    1. 简化网络结构，减少过拟合
+    2. 增强BatchNorm和Dropout，提高泛化
+    3. 加强特征表达能力
     """
     
     def __init__(self, feature_dim=32):
         super(LearnableThresholdDetector, self).__init__()
         self.feature_dim = feature_dim
         
-        # 增强的异常度估计器 - 多层深度网络
-        # 32 -> 64 -> 48 -> 32 -> 16 -> 1
-        self.layer1 = nn.Sequential(
-            nn.Linear(feature_dim, 64),
+        # 简化的异常度估计器 - 增强正则化和深度
+        # 32 -> 96 -> 64 -> 32 -> 1
+        self.network = nn.Sequential(
+            nn.Linear(feature_dim, 96),
+            nn.BatchNorm1d(96),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.4),  # 增强Dropout
+            
+            nn.Linear(96, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.1)
-        )
-        
-        self.layer2 = nn.Sequential(
-            nn.Linear(64, 48),
-            nn.BatchNorm1d(48),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.1)
-        )
-        
-        self.layer3 = nn.Sequential(
-            nn.Linear(48, 32),
+            nn.Dropout(0.35),
+            
+            nn.Linear(64, 32),
             nn.BatchNorm1d(32),
-            nn.ReLU(inplace=True)
-        )
-        
-        # 残差投影
-        self.residual_proj = nn.Linear(feature_dim, 32)
-        
-        self.layer4 = nn.Sequential(
-            nn.Linear(32, 16),
-            nn.BatchNorm1d(16),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.05)
+            nn.Dropout(0.3),
+            
+            nn.Linear(32, 1)
         )
-        
-        self.output_layer = nn.Linear(16, 1)
         
     def forward(self, features):
         """
@@ -185,16 +173,7 @@ class LearnableThresholdDetector(nn.Module):
             features = features.unsqueeze(0)
         
         # 深度特征提取
-        x = self.layer1(features)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        
-        # 残差连接
-        residual = self.residual_proj(features)
-        x = x + residual
-        
-        x = self.layer4(x)
-        logits = self.output_layer(x).squeeze(-1)
+        logits = self.network(features).squeeze(-1)
         
         # 转换为概率
         probabilities = torch.sigmoid(logits)
@@ -233,29 +212,31 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 初始化可学习阈值检测器（32维流形空间）
         self.learnable_threshold_detector = LearnableThresholdDetector(feature_dim)
         
-        # 注意力机制：动态调整两个检测器的权重
+        # 注意力机制：动态调整两个检测器的权重（平衡策略）
         self.attention_layer = nn.Sequential(
-            nn.Linear(4, 16),
+            nn.Linear(4, 24),
             nn.ReLU(inplace=True),
-            nn.Linear(16, 2),
+            nn.Dropout(0.2),
+            nn.Linear(24, 2),
             nn.Softmax(dim=-1)  # 输出两个权重，和为1
         )
         
         # 增强的融合层 - 更深的网络，更强的表达能力
         self.fusion_layer = nn.Sequential(
-            nn.Linear(4, 32),
+            nn.Linear(4, 48),
+            nn.BatchNorm1d(48),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.35),
+            
+            nn.Linear(48, 32),
             nn.BatchNorm1d(32),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             
-            nn.Linear(32, 24),
-            nn.BatchNorm1d(24),
+            nn.Linear(32, 16),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.15),
-            
-            nn.Linear(24, 12),
-            nn.ReLU(inplace=True),
-            nn.Linear(12, 1)
+            nn.Dropout(0.25),
+            nn.Linear(16, 1)
         )
         
         # 移除openmax_fitted标志位，每次都会更新模型
@@ -324,7 +305,10 @@ class LearnableComprehensiveIntruderDetector(nn.Module):
         # 计算注意力权重
         attention_weights = self.attention_layer(combined_input)  # [batch, 2]
         
-        # 加权融合两个概率
+        # 使用动态注意力权重（不再强制调整）
+        # 让模型自己学习最优权重分配
+        
+        # 加权融合两个概率（使用动态注意力权重）
         weighted_prob = (attention_weights[:, 0:1] * learnable_probs.unsqueeze(1) + 
                         attention_weights[:, 1:2] * openmax_probs.unsqueeze(1)).squeeze(1)
         
