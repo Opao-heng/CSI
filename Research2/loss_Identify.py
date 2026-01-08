@@ -79,9 +79,7 @@ class ManifoldLoss:
         inter_loss = -inter_distances.mean()
         
         return inter_loss
-    
 
-    
     def __call__(self, proj_source, labels_source, proj_target, labels_target):
         """
         计算总损失: 类内紧凑 + 类间分离
