@@ -20,21 +20,21 @@ plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
 print("已设置字体: 中文-宋体(SimSun), 英文/数字-Times New Roman")
 
 
-def get_chinese_font_properties(size=20):
+def get_chinese_font_properties(size=21):
     """获取中文字体属性（宋体）"""
     try:
         return font_manager.FontProperties(family='SimSun', size=size)
     except:
         return font_manager.FontProperties(family='sans-serif', size=size)
 
-def get_english_font_properties(size=20):
+def get_english_font_properties(size=21):
     """获取英文/数字字体属性（Times New Roman）"""
     try:
         return font_manager.FontProperties(family='Times New Roman', size=size)
     except:
         return font_manager.FontProperties(family='serif', size=size)
 
-def get_mixed_font_properties(size=20):
+def get_mixed_font_properties(size=21):
     """获取混合字体属性（中文宋体+英文Times New Roman）"""
     try:
         prop = font_manager.FontProperties(size=size)
@@ -43,7 +43,7 @@ def get_mixed_font_properties(size=20):
     except:
         return font_manager.FontProperties(family='sans-serif', size=size)
 
-def create_mixed_text_with_fonts(text, fontsize=20):
+def create_mixed_text_with_fonts(text, fontsize=21):
     """创建支持中英文分离字体的文本对象"""
     import re
     has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
@@ -59,9 +59,9 @@ def create_mixed_text_with_fonts(text, fontsize=20):
         return text, get_english_font_properties(fontsize)
 
 # 创建默认字体属性
-zh_font = get_chinese_font_properties(20)
-en_font = get_english_font_properties(20)
-mixed_font = get_mixed_font_properties(20)
+zh_font = get_chinese_font_properties(21)
+en_font = get_english_font_properties(21)
+mixed_font = get_mixed_font_properties(21)
 
 
 def extract_features(model, data_loader, device, max_samples=1000):
@@ -242,6 +242,7 @@ def simulate_improved_features(features_2d, labels, target_intra=1.045, target_i
 def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
     """
     使用t-SNE对比可视化512维特征和模拟的改进特征分布
+    分别生成两个独立的图片文件
     
     Args:
         features_512: 交叉注意力后的512维特征
@@ -297,20 +298,19 @@ def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
     print(f"  类间距离增大: {inter_improvement:+.2f}%  {'✓ 更分离' if inter_improvement > 0 else '✗ 变靠近'}")
     print(f"  分离比率提升: {ratio_improvement:+.2f}%  {'✓ 更优' if ratio_improvement > 0 else '✗ 变差'}")
     
-    # 可视化
-    print("\n" + "="*70)
-    print("生成t-SNE可视化图...")
-    
-    # 创建子图 - 改为上下结构
-    fig, axes = plt.subplots(2, 1, figsize=(12, 16), facecolor='white')
-    fig.patch.set_facecolor('white')
+    # 创建保存目录
+    os.makedirs(save_dir, exist_ok=True)
     
     # 定义颜色映射（10个类别）
     num_classes = len(np.unique(labels))
     colors = plt.cm.tab10(np.linspace(0, 1, num_classes))
     
-    # 绘制512维特征的t-SNE图（上图）
-    ax1 = axes[0]
+    # ========== 绘制第一个图：512维特征 ==========
+    print("\n" + "="*70)
+    print("生成第一个图：512维交叉注意力特征...")
+    
+    fig1, ax1 = plt.subplots(1, 1, figsize=(10, 10), facecolor='white')
+    fig1.patch.set_facecolor('white')
     ax1.set_facecolor('white')
     
     for c in range(num_classes):
@@ -318,16 +318,13 @@ def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
         ax1.scatter(features_512_2d[mask, 0], features_512_2d[mask, 1], 
                    c=[colors[c]], label=f'用户 {c}', alpha=0.7, s=50, edgecolors='black', linewidths=0.5)
     
-    # 坐标轴标签
-    ax1.set_xlabel('t-SNE 维度 1', fontproperties=mixed_font, fontsize=20, labelpad=10)
-    ax1.set_ylabel('t-SNE 维度 2', fontproperties=mixed_font, fontsize=20, labelpad=10)
-    
-    # 图例
-    legend = ax1.legend(loc='best', fontsize=20, ncol=2, frameon=True, fancybox=False, shadow=False)
+    # 图例 - 缩小图例占用空间
+    legend = ax1.legend(loc='upper right', fontsize=21, ncol=2, frameon=True, fancybox=False, shadow=False,
+                       columnspacing=1.0, handletextpad=0.5, borderpad=0.4, labelspacing=0.3)
     for text in legend.get_texts():
         text.set_fontproperties(mixed_font)
     
-    ax1.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    ax1.grid(True, alpha=0.5, linestyle='--', linewidth=0.6, color='gray')
     
     # 设置边框
     for spine in ax1.spines.values():
@@ -335,12 +332,23 @@ def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
         spine.set_color('black')
     
     # 刻度设置
-    ax1.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax1.tick_params(axis='both', which='major', labelsize=21, direction='in', length=4)
     for label in ax1.get_xticklabels() + ax1.get_yticklabels():
         label.set_fontproperties(en_font)
     
-    # 绘制改进后的特征分布图（下图）
-    ax2 = axes[1]
+    plt.tight_layout()
+    
+    # 保存第一个图
+    save_path_1 = os.path.join(save_dir, 'tsne_512d_features.png')
+    plt.savefig(save_path_1, dpi=600, bbox_inches='tight', facecolor='white', edgecolor='none', format='png')
+    print(f"  ✅ 512维特征图已保存: {save_path_1}")
+    plt.close(fig1)
+    
+    # ========== 绘制第二个图：32维改进特征 ==========
+    print("\n生成第二个图：32维流形投影特征...")
+    
+    fig2, ax2 = plt.subplots(1, 1, figsize=(10, 10), facecolor='white')
+    fig2.patch.set_facecolor('white')
     ax2.set_facecolor('white')
     
     for c in range(num_classes):
@@ -348,16 +356,13 @@ def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
         ax2.scatter(features_improved_2d[mask, 0], features_improved_2d[mask, 1], 
                    c=[colors[c]], label=f'用户 {c}', alpha=0.7, s=50, edgecolors='black', linewidths=0.5)
     
-    # 坐标轴标签
-    ax2.set_xlabel('t-SNE 维度 1', fontproperties=mixed_font, fontsize=20, labelpad=10)
-    ax2.set_ylabel('t-SNE 维度 2', fontproperties=mixed_font, fontsize=20, labelpad=10)
-    
-    # 图例
-    legend = ax2.legend(loc='best', fontsize=20, ncol=2, frameon=True, fancybox=False, shadow=False)
+    # 图例 - 缩小图例占用空间
+    legend = ax2.legend(loc='upper right', fontsize=21, ncol=2, frameon=True, fancybox=False, shadow=False,
+                       columnspacing=1.0, handletextpad=0.5, borderpad=0.4, labelspacing=0.3)
     for text in legend.get_texts():
         text.set_fontproperties(mixed_font)
     
-    ax2.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    ax2.grid(True, alpha=0.5, linestyle='--', linewidth=0.6, color='gray')
     
     # 设置边框
     for spine in ax2.spines.values():
@@ -365,20 +370,17 @@ def visualize_tsne_comparison(features_512, labels, save_dir='Feature'):
         spine.set_color('black')
     
     # 刻度设置
-    ax2.tick_params(axis='both', which='major', labelsize=20, direction='in', length=4)
+    ax2.tick_params(axis='both', which='major', labelsize=21, direction='in', length=4)
     for label in ax2.get_xticklabels() + ax2.get_yticklabels():
         label.set_fontproperties(en_font)
     
-    # 调整子图间距
-    plt.tight_layout(pad=2.0, h_pad=3.0)
+    plt.tight_layout()
     
-    # 保存图片
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, 'tsne_feature_comparison.png')
-    plt.savefig(save_path, dpi=600, bbox_inches='tight', facecolor='white', edgecolor='none', format='png')
-    print(f"  ✅ t-SNE对比图已保存: {save_path}")
-    
-    plt.close()
+    # 保存第二个图
+    save_path_2 = os.path.join(save_dir, 'tsne_32d_improved_features.png')
+    plt.savefig(save_path_2, dpi=600, bbox_inches='tight', facecolor='white', edgecolor='none', format='png')
+    print(f"  ✅ 32维改进特征图已保存: {save_path_2}")
+    plt.close(fig2)
     
     # 保存数值指标到文本文件
     metrics_path = os.path.join(save_dir, 'feature_metrics.txt')
