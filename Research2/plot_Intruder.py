@@ -94,10 +94,10 @@ def create_mixed_text_with_fonts(ax, text, fontsize=20, **kwargs):
         return text, get_english_font_properties(fontsize)
 
 
-# 创建默认字体属性
-zh_font = get_chinese_font_properties(20)
-en_font = get_english_font_properties(20)
-mixed_font = get_mixed_font_properties(20)
+# 创建默认字体属性 - 统一字体大小为24
+zh_font = get_chinese_font_properties(24)
+en_font = get_english_font_properties(24)
+mixed_font = get_mixed_font_properties(24)
 
 
 def load_training_history(history_path):
@@ -130,17 +130,13 @@ def plot_training_loss(train_losses, save_path):
             marker='o', markersize=5, markerfacecolor='white', markeredgewidth=2,
             markeredgecolor='#2E86AB', label='训练损失', alpha=0.9)
     
-    title_text, title_font = create_mixed_text_with_fonts(None, '训练损失变化曲线', 22)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
-    
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数 (Epoch)', 18)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-    
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '损失值 (Loss)', 18)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
+    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('')
     
     # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=16, loc='upper right', 
+    legend = ax.legend(prop=zh_font, fontsize=24, loc='upper right', 
                       frameon=True, shadow=True, fancybox=True, 
                       framealpha=0.95, edgecolor='#CCCCCC')
     legend.get_frame().set_linewidth(1.2)
@@ -157,7 +153,7 @@ def plot_training_loss(train_losses, save_path):
     ax.spines['bottom'].set_color('#333333')
     
     # 设置刻度标签字体
-    ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
+    ax.tick_params(axis='both', which='major', labelsize=24, width=1.5, length=6, colors='#333333')
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
     
@@ -184,24 +180,20 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
             marker='^', markersize=5, markerfacecolor='white', markeredgewidth=2,
             markeredgecolor='#F18F01', label='测试集', alpha=0.9)
 
-    title_text, title_font = create_mixed_text_with_fonts(None, '验证集与测试集AUROC变化曲线', 22)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
-
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数 (Epoch)', 18)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, 'AUROC', 18)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
+    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('')
 
     # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=16, loc='lower right',
+    legend = ax.legend(prop=zh_font, fontsize=24, loc='lower right',
                       frameon=True, shadow=True, fancybox=True,
                       framealpha=0.95, edgecolor='#CCCCCC')
     legend.get_frame().set_linewidth(1.2)
-
+        
     # 添加网格
     ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
-
+        
     # 美化坐标轴
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -209,9 +201,9 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
     ax.spines['bottom'].set_linewidth(1.5)
     ax.spines['left'].set_color('#333333')
     ax.spines['bottom'].set_color('#333333')
-
+        
     # 设置刻度标签字体
-    ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
+    ax.tick_params(axis='both', which='major', labelsize=24, width=1.5, length=6, colors='#333333')
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
 
@@ -246,25 +238,19 @@ def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None)
     # 使用更专业的配色方案
     im = ax.imshow(cm, interpolation='nearest', cmap='YlOrRd', alpha=0.85)
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.ax.tick_params(labelsize=13)
-    cbar.set_label('样本数量', fontproperties=zh_font, fontsize=14, rotation=270, labelpad=20)
+    cbar.ax.tick_params(labelsize=24)
+    cbar.set_label('样本数量', fontproperties=zh_font, fontsize=24, rotation=270, labelpad=20)
 
     classes = ['合法用户', '入侵者']
     ax.set_xticks(np.arange(len(classes)))
     ax.set_yticks(np.arange(len(classes)))
-    ax.set_xticklabels(classes, fontproperties=zh_font, fontsize=16)
-    ax.set_yticklabels(classes, fontproperties=zh_font, fontsize=16)
+    ax.set_xticklabels(classes, fontproperties=zh_font, fontsize=24)
+    ax.set_yticklabels(classes, fontproperties=zh_font, fontsize=24)
 
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '真实标签 (True Label)', 16)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
-    
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '预测标签 (Predicted Label)', 16)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-    
-    # 标题
-    title_text = f'入侵者检测混淆矩阵'
-    title_text_full, title_font = create_mixed_text_with_fonts(None, title_text, 20)
-    ax.set_title(title_text_full, fontproperties=title_font, fontweight='bold', pad=15)
+    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
+    ax.set_ylabel('')
+    ax.set_xlabel('')
+    ax.set_title('')
 
     # 在每个格子中写上数字和百分比
     thresh = cm.max() / 2.
@@ -276,7 +262,7 @@ def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None)
             ax.text(j, i, text_content,
                     ha="center", va="center",
                     color="white" if cm[i, j] > thresh else "#333333",
-                    fontproperties=en_font, fontsize=15, fontweight='bold')
+                    fontproperties=en_font, fontsize=24, fontweight='bold')
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -405,18 +391,13 @@ def plot_roc_curve(scores, labels, save_path):
     ax.set_xlim([-0.02, 1.02])
     ax.set_ylim([-0.02, 1.02])
     
-    # 设置坐标轴标签
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '假正率 (False Positive Rate)', 16)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-    
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '真正率 (True Positive Rate)', 16)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
-    
-    title_text, title_font = create_mixed_text_with_fonts(None, '入侵者检测ROC曲线', 20)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
+    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.set_title('')
     
     # 优化图例样式
-    legend = ax.legend(prop=zh_font, loc="lower right", fontsize=14, 
+    legend = ax.legend(prop=zh_font, loc="lower right", fontsize=24, 
                       frameon=True, shadow=True, fancybox=True,
                       framealpha=0.95, edgecolor='#CCCCCC')
     legend.get_frame().set_linewidth(1.2)
@@ -428,7 +409,7 @@ def plot_roc_curve(scores, labels, save_path):
     ax.spines['bottom'].set_linewidth(1.5)
     ax.spines['left'].set_color('#333333')
     ax.spines['bottom'].set_color('#333333')
-    ax.tick_params(labelsize=14, width=1.5, length=6, colors='#333333')
+    ax.tick_params(labelsize=24, width=1.5, length=6, colors='#333333')
     
     # 设置刻度标签字体
     for label in ax.get_xticklabels() + ax.get_yticklabels():
@@ -449,6 +430,7 @@ def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test
     """
     epochs = range(1, len(test_accuracies) + 1)
     
+    # 增大图片尺寸，采用合理比例
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     
     # 专业配色方案
@@ -484,12 +466,11 @@ def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test
                 marker='so^d'[idx], markersize=5, markerfacecolor='white', 
                 markeredgewidth=2, markeredgecolor=color, alpha=0.9)
         
-        # 设置坐标轴标签
-        xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, 'Epoch', 18)
-        ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-        
-        ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, ylabel_texts[idx], 18)
-        ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
+        # 根据规范，不显示横纵坐标及标题，统一字体大小为24
+        # 子图标识符采用混合字体(英文Times New Roman, 中文宋体)
+        ax.set_ylabel('')
+        ax.set_xlabel(subplot_labels[idx] + ' ' + subplot_titles[idx], 
+                     fontproperties=mixed_font, fontsize=24, labelpad=15)
         
         # 添加网格
         ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
@@ -502,19 +483,13 @@ def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test
         ax.spines['left'].set_color('#333333')
         ax.spines['bottom'].set_color('#333333')
         
-        # 设置刻度
-        ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
+        # 设置刻度 - 统一字体大小为24
+        ax.tick_params(axis='both', which='major', labelsize=24, width=1.5, length=6, colors='#333333')
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontproperties(en_font)
-        
-        # 在子图下方添加标识符 (a), (b), (c), (d)
-        ax.text(0.5, -0.15, subplot_labels[idx] + ' ' + subplot_titles[idx], 
-                ha='center', va='top', 
-                fontproperties=zh_font, fontsize=24, 
-                transform=ax.transAxes)
     
     plt.tight_layout()
-    plt.subplots_adjust(bottom=0.08)  # 为下方标签留出空间
+    plt.subplots_adjust(bottom=0.1, hspace=0.5, wspace=0.3)  # 进一步调整子图间距和底部空间
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"四合一综合指标图已保存到 {save_path}")
