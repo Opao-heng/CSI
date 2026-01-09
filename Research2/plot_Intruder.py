@@ -168,57 +168,6 @@ def plot_training_loss(train_losses, save_path):
     print(f"训练损失曲线已保存到 {save_path}")
 
 
-def plot_test_accuracy(test_accuracies, save_path):
-    """
-    绘制准确率曲线（仅测试集）
-    """
-    epochs = range(1, len(test_accuracies) + 1)
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # 使用更专业的配色
-    ax.plot(epochs, test_accuracies, color='#A23B72', linestyle='-', linewidth=2.5,
-            marker='s', markersize=5, markerfacecolor='white', markeredgewidth=2,
-            markeredgecolor='#A23B72', label='测试集准确率', alpha=0.9)
-    
-    title_text, title_font = create_mixed_text_with_fonts(None, '测试集准确率变化曲线', 22)
-    ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
-    
-    xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数 (Epoch)', 18)
-    ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-    
-    ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, '准确率 (Accuracy)', 18)
-    ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
-    
-    # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=16, loc='lower right',
-                      frameon=True, shadow=True, fancybox=True,
-                      framealpha=0.95, edgecolor='#CCCCCC')
-    legend.get_frame().set_linewidth(1.2)
-    
-    # 添加网格
-    ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
-    
-    # 美化坐标轴
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.5)
-    ax.spines['bottom'].set_linewidth(1.5)
-    ax.spines['left'].set_color('#333333')
-    ax.spines['bottom'].set_color('#333333')
-    
-    # 设置刻度标签字体和样式
-    ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
-        label.set_fontproperties(en_font)
-    
-    plt.tight_layout()
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"准确率曲线已保存到 {save_path}")
-
-
 def plot_auroc(val_aurocs, test_aurocs, save_path):
     """
     绘制 AUROC 曲线（验证集、测试集）
@@ -226,7 +175,7 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
     epochs = range(1, len(val_aurocs) + 1)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     # 使用更专业的配色方案
     ax.plot(epochs, val_aurocs, color='#18A558', linestyle='-', linewidth=2.5,
             marker='s', markersize=5, markerfacecolor='white', markeredgewidth=2,
@@ -234,22 +183,22 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
     ax.plot(epochs, test_aurocs, color='#F18F01', linestyle='-', linewidth=2.5,
             marker='^', markersize=5, markerfacecolor='white', markeredgewidth=2,
             markeredgecolor='#F18F01', label='测试集', alpha=0.9)
-    
+
     title_text, title_font = create_mixed_text_with_fonts(None, '验证集与测试集AUROC变化曲线', 22)
     ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=15)
-    
+
     xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数 (Epoch)', 18)
     ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
-    
+
     ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, 'AUROC', 18)
     ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
-    
+
     # 优化图例样式
     legend = ax.legend(prop=zh_font, fontsize=16, loc='lower right',
                       frameon=True, shadow=True, fancybox=True,
                       framealpha=0.95, edgecolor='#CCCCCC')
     legend.get_frame().set_linewidth(1.2)
-    
+
     # 添加网格
     ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
 
@@ -260,81 +209,17 @@ def plot_auroc(val_aurocs, test_aurocs, save_path):
     ax.spines['bottom'].set_linewidth(1.5)
     ax.spines['left'].set_color('#333333')
     ax.spines['bottom'].set_color('#333333')
-    
+
     # 设置刻度标签字体
     ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(en_font)
-    
+
     plt.tight_layout()
 
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"AUROC 曲线已保存到 {save_path}")
-
-
-def plot_test_metrics_panel(test_f1_scores, test_precisions, test_recalls, save_path):
-    """
-    将 F1、Precision、Recall 三条曲线合并到一个 1x3 子图中绘制（仅测试集）
-    """
-    epochs = range(1, len(test_f1_scores) + 1)
-
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-    
-    # 专业配色方案
-    colors = ['#C73E1D', '#2E86AB', '#18A558']
-    metrics = [
-        (test_f1_scores, 'F1分数', 'F1 Score'),
-        (test_precisions, '精确率', 'Precision'),
-        (test_recalls, '召回率', 'Recall')
-    ]
-
-    for idx, (ax, (data, title_cn, ylabel_en)) in enumerate(zip(axes, metrics)):
-        color = colors[idx]
-        
-        # 绘制曲线
-        ax.plot(epochs, data, color=color, linestyle='-', linewidth=2.5,
-                marker='o', markersize=5, markerfacecolor='white', 
-                markeredgewidth=2, markeredgecolor=color, 
-                label='测试集', alpha=0.9)
-        
-        # 设置标题
-        title_text, title_font = create_mixed_text_with_fonts(None, title_cn, 18)
-        ax.set_title(title_text, fontproperties=title_font, fontweight='bold', pad=12)
-        
-        # 设置坐标轴标签
-        xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, '训练轮数 (Epoch)', 14)
-        ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=8)
-        
-        ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, f'{ylabel_en}', 14)
-        ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=8)
-        
-        # 优化图例
-        legend = ax.legend(prop=zh_font, fontsize=12, loc='lower right',
-                          frameon=True, shadow=True, fancybox=True,
-                          framealpha=0.95, edgecolor='#CCCCCC')
-        legend.get_frame().set_linewidth(1.0)
-        
-        # 添加网格
-        ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
-        
-        # 美化坐标轴
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_linewidth(1.5)
-        ax.spines['bottom'].set_linewidth(1.5)
-        ax.spines['left'].set_color('#333333')
-        ax.spines['bottom'].set_color('#333333')
-        
-        # 设置刻度
-        ax.tick_params(axis='both', which='major', labelsize=13, width=1.5, length=6, colors='#333333')
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontproperties(en_font)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"F1 / Precision / Recall 综合曲线图已保存到 {save_path}")
 
 
 def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None):
@@ -558,6 +443,83 @@ def plot_roc_curve(scores, labels, save_path):
     print(f"ROC 曲线已保存到 {save_path}")
 
 
+def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test_recalls, save_path):
+    """
+    将准确率、F1、Precision、Recall 四条曲线合并到一个2x2子图中绘制（仅测试集）
+    """
+    epochs = range(1, len(test_accuracies) + 1)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    
+    # 专业配色方案
+    colors = ['#A23B72', '#C73E1D', '#2E86AB', '#18A558']
+    # 子图标识符
+    subplot_labels = ['(a)', '(b)', '(c)', '(d)']
+    subplot_titles = [
+        '准确率',
+        'F1分数',
+        '精确率',
+        '召回率'
+    ]
+    ylabel_texts = ['Accuracy', 'F1 Score', 'Precision', 'Recall']
+    
+    for idx in range(4):
+        row = idx // 2
+        col = idx % 2
+        ax = axes[row, col]
+        color = colors[idx]
+        
+        # 选择对应的数据
+        if idx == 0:
+            data = test_accuracies
+        elif idx == 1:
+            data = test_f1_scores
+        elif idx == 2:
+            data = test_precisions
+        else:
+            data = test_recalls
+        
+        # 绘制曲线
+        ax.plot(epochs, data, color=color, linestyle='-', linewidth=2.5,
+                marker='so^d'[idx], markersize=5, markerfacecolor='white', 
+                markeredgewidth=2, markeredgecolor=color, alpha=0.9)
+        
+        # 设置坐标轴标签
+        xlabel_text, xlabel_font = create_mixed_text_with_fonts(None, 'Epoch', 18)
+        ax.set_xlabel(xlabel_text, fontproperties=xlabel_font, fontweight='bold', labelpad=10)
+        
+        ylabel_text, ylabel_font = create_mixed_text_with_fonts(None, ylabel_texts[idx], 18)
+        ax.set_ylabel(ylabel_text, fontproperties=ylabel_font, fontweight='bold', labelpad=10)
+        
+        # 添加网格
+        ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
+        
+        # 美化坐标轴
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_linewidth(1.5)
+        ax.spines['bottom'].set_linewidth(1.5)
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+        
+        # 设置刻度
+        ax.tick_params(axis='both', which='major', labelsize=16, width=1.5, length=6, colors='#333333')
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(en_font)
+        
+        # 在子图下方添加标识符 (a), (b), (c), (d)
+        ax.text(0.5, -0.15, subplot_labels[idx] + ' ' + subplot_titles[idx], 
+                ha='center', va='top', 
+                fontproperties=zh_font, fontsize=24, 
+                transform=ax.transAxes)
+    
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.08)  # 为下方标签留出空间
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"四合一综合指标图已保存到 {save_path}")
+
+
 def plot_all_training_curves(history_path, picture_dir):
     """
     根据训练历史绘制所有训练曲线
@@ -583,18 +545,14 @@ def plot_all_training_curves(history_path, picture_dir):
     # 绘制训练损失曲线
     plot_training_loss(train_losses, os.path.join(picture_dir, 'training_loss.png'))
     
-    # 如果存在测试集指标，绘制相关曲线
-    if test_accuracies:
-        # 由于新格式没有验证集数据，只绘制测试集的单条曲线
-        plot_test_accuracy(test_accuracies, os.path.join(picture_dir, 'accuracy.png'))
-    
-    # 如果有完整的测试集指标数据，绘制指标面板
-    if test_f1_scores and test_precisions and test_recalls:
-        plot_test_metrics_panel(
+    # 绘制四合一综合指标图（准确率 + F1 + 精确率 + 召回率）
+    if test_accuracies and test_f1_scores and test_precisions and test_recalls:
+        plot_combined_metrics(
+            test_accuracies,
             test_f1_scores,
             test_precisions,
             test_recalls,
-            os.path.join(picture_dir, 'metrics_panel.png')
+            os.path.join(picture_dir, 'combined_metrics.png')
         )
 
 
