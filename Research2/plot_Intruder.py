@@ -128,18 +128,12 @@ def plot_training_loss(train_losses, save_path):
     # 使用更专业的配色和样式
     ax.plot(epochs, train_losses, color='#2E86AB', linestyle='-', linewidth=2.5,
             marker='o', markersize=5, markerfacecolor='white', markeredgewidth=2,
-            markeredgecolor='#2E86AB', label='训练损失', alpha=0.9)
+            markeredgecolor='#2E86AB', label='加权BCE损失 + L2正则化训练损失', alpha=0.9)
     
-    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
+    # 根据规范，不显示标题及横纵坐标，不显示图例，统一字体大小为24
     ax.set_title('')
     ax.set_xlabel('')
     ax.set_ylabel('')
-    
-    # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=24, loc='upper right', 
-                      frameon=True, shadow=True, fancybox=True, 
-                      framealpha=0.95, edgecolor='#CCCCCC')
-    legend.get_frame().set_linewidth(1.2)
     
     # 添加网格
     ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
@@ -162,56 +156,6 @@ def plot_training_loss(train_losses, save_path):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"训练损失曲线已保存到 {save_path}")
-
-
-def plot_auroc(val_aurocs, test_aurocs, save_path):
-    """
-    绘制 AUROC 曲线（验证集、测试集）
-    """
-    epochs = range(1, len(val_aurocs) + 1)
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # 使用更专业的配色方案
-    ax.plot(epochs, val_aurocs, color='#18A558', linestyle='-', linewidth=2.5,
-            marker='s', markersize=5, markerfacecolor='white', markeredgewidth=2,
-            markeredgecolor='#18A558', label='验证集', alpha=0.9)
-    ax.plot(epochs, test_aurocs, color='#F18F01', linestyle='-', linewidth=2.5,
-            marker='^', markersize=5, markerfacecolor='white', markeredgewidth=2,
-            markeredgecolor='#F18F01', label='测试集', alpha=0.9)
-
-    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
-    ax.set_title('')
-    ax.set_xlabel('')
-    ax.set_ylabel('')
-
-    # 优化图例样式
-    legend = ax.legend(prop=zh_font, fontsize=24, loc='lower right',
-                      frameon=True, shadow=True, fancybox=True,
-                      framealpha=0.95, edgecolor='#CCCCCC')
-    legend.get_frame().set_linewidth(1.2)
-        
-    # 添加网格
-    ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
-        
-    # 美化坐标轴
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.5)
-    ax.spines['bottom'].set_linewidth(1.5)
-    ax.spines['left'].set_color('#333333')
-    ax.spines['bottom'].set_color('#333333')
-        
-    # 设置刻度标签字体
-    ax.tick_params(axis='both', which='major', labelsize=24, width=1.5, length=6, colors='#333333')
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
-        label.set_fontproperties(en_font)
-
-    plt.tight_layout()
-
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"AUROC 曲线已保存到 {save_path}")
 
 
 def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None):
@@ -239,26 +183,24 @@ def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None)
     im = ax.imshow(cm, interpolation='nearest', cmap='YlOrRd', alpha=0.85)
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.ax.tick_params(labelsize=24)
-    cbar.set_label('样本数量', fontproperties=zh_font, fontsize=24, rotation=270, labelpad=20)
+    cbar.set_label('样本数量', fontproperties=mixed_font, fontsize=24, rotation=270, labelpad=35)
 
-    classes = ['合法用户', '入侵者']
+    classes = ['0', '1']
     ax.set_xticks(np.arange(len(classes)))
     ax.set_yticks(np.arange(len(classes)))
-    ax.set_xticklabels(classes, fontproperties=zh_font, fontsize=24)
-    ax.set_yticklabels(classes, fontproperties=zh_font, fontsize=24)
+    ax.set_xticklabels(classes, fontproperties=en_font, fontsize=24)
+    ax.set_yticklabels(classes, fontproperties=en_font, fontsize=24)
 
     # 根据规范，不显示标题及横纵坐标，统一字体大小为24
     ax.set_ylabel('')
     ax.set_xlabel('')
     ax.set_title('')
 
-    # 在每个格子中写上数字和百分比
+    # 在每个格子中写上数字（不显示百分比）
     thresh = cm.max() / 2.
-    total = cm.sum()
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            percentage = cm[i, j] / total * 100
-            text_content = f'{cm[i, j]}\n({percentage:.1f}%)'
+            text_content = f'{cm[i, j]}'
             ax.text(j, i, text_content,
                     ha="center", va="center",
                     color="white" if cm[i, j] > thresh else "#333333",
@@ -396,8 +338,8 @@ def plot_roc_curve(scores, labels, save_path):
     ax.set_ylabel('')
     ax.set_title('')
     
-    # 优化图例样式
-    legend = ax.legend(prop=zh_font, loc="lower right", fontsize=24, 
+    # 优化图例样式 - 使用混合字体实现中西文分离
+    legend = ax.legend(prop=mixed_font, loc="lower right", fontsize=24, 
                       frameon=True, shadow=True, fancybox=True,
                       framealpha=0.95, edgecolor='#CCCCCC')
     legend.get_frame().set_linewidth(1.2)
