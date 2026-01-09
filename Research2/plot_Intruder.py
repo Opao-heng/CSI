@@ -130,10 +130,10 @@ def plot_training_loss(train_losses, save_path):
             marker='o', markersize=5, markerfacecolor='white', markeredgewidth=2,
             markeredgecolor='#2E86AB', label='加权BCE损失 + L2正则化训练损失', alpha=0.9)
     
-    # 根据规范，不显示标题及横纵坐标，不显示图例，统一字体大小为24
+    # 根据规范，显示横纵坐标标题（中文），统一字体大小为24
     ax.set_title('')
-    ax.set_xlabel('')
-    ax.set_ylabel('')
+    ax.set_xlabel('训练轮次', fontproperties=zh_font)
+    ax.set_ylabel('损失', fontproperties=zh_font)
     
     # 添加网格
     ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
@@ -191,9 +191,9 @@ def plot_confusion_matrix_from_scores(scores, labels, save_path, threshold=None)
     ax.set_xticklabels(classes, fontproperties=en_font, fontsize=24)
     ax.set_yticklabels(classes, fontproperties=en_font, fontsize=24)
 
-    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
-    ax.set_ylabel('')
-    ax.set_xlabel('')
+    # 根据规范，显示横纵坐标标题（中文），统一字体大小为24
+    ax.set_ylabel('真实类别', fontproperties=zh_font)
+    ax.set_xlabel('预测类别', fontproperties=zh_font)
     ax.set_title('')
 
     # 在每个格子中写上数字（不显示百分比）
@@ -333,9 +333,9 @@ def plot_roc_curve(scores, labels, save_path):
     ax.set_xlim([-0.02, 1.02])
     ax.set_ylim([-0.02, 1.02])
     
-    # 根据规范，不显示标题及横纵坐标，统一字体大小为24
-    ax.set_xlabel('')
-    ax.set_ylabel('')
+    # 根据规范，显示横纵坐标标题（中文），统一字体大小为24
+    ax.set_xlabel('假正率', fontproperties=zh_font)
+    ax.set_ylabel('真正率', fontproperties=zh_font)
     ax.set_title('')
     
     # 优化图例样式 - 使用混合字体实现中西文分离
@@ -377,8 +377,6 @@ def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test
     
     # 专业配色方案
     colors = ['#A23B72', '#C73E1D', '#2E86AB', '#18A558']
-    # 子图标识符
-    subplot_labels = ['(a)', '(b)', '(c)', '(d)']
     subplot_titles = [
         '准确率',
         'F1分数',
@@ -408,11 +406,9 @@ def plot_combined_metrics(test_accuracies, test_f1_scores, test_precisions, test
                 marker='so^d'[idx], markersize=5, markerfacecolor='white', 
                 markeredgewidth=2, markeredgecolor=color, alpha=0.9)
         
-        # 根据规范，不显示横纵坐标及标题，统一字体大小为24
-        # 子图标识符采用混合字体(英文Times New Roman, 中文宋体)
-        ax.set_ylabel('')
-        ax.set_xlabel(subplot_labels[idx] + ' ' + subplot_titles[idx], 
-                     fontproperties=mixed_font, fontsize=24, labelpad=15)
+        # 根据规范，显示横纵坐标标题（中文），统一字体大小为24
+        ax.set_ylabel(subplot_titles[idx], fontproperties=zh_font)
+        ax.set_xlabel('训练轮次', fontproperties=zh_font, labelpad=15)
         
         # 添加网格
         ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.8, color='gray')
