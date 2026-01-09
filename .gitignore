@@ -12,8 +12,8 @@ Research1/Data/
 
 Research1/R_CAL
 Research1/R_TFGAN
-Research1/R_Feature
-Research1/R_Parameter
+Research1/Feature
+Research1/Parameter
 Research1/Baseline1
 Research1/Baseline2
 Research1/Ablation Study
@@ -23,5 +23,7 @@ Research2/Data/
 
 Research2/R_Identify
 Research2/R_Intruder
+Research2/Feature
+Research2/Parameter
 Research2/Baseline
 Research2/Ablation Study
